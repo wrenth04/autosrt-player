@@ -7,6 +7,7 @@ import android.view.WindowManager
 import androidx.activity.compose.BackHandler
 import androidx.compose.foundation.background
 import androidx.compose.foundation.gestures.detectDragGestures
+import androidx.compose.foundation.gestures.detectTapGestures
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.BoxWithConstraints
@@ -78,9 +79,13 @@ import kotlin.math.abs
 import kotlin.math.roundToInt
 
 private const val GestureHudTimeoutMs = 900L
+private const val FullscreenControlsAutoHideMs = 2500L
 private const val MinBrightness = 0.05f
 private const val SeekMaxOffsetMs = 180_000L
 private const val CenterButtonSize = 72
+private const val ControlOverlayAlpha = 0.28f
+private const val ScrubberOverlayAlpha = 0.20f
+private const val GestureHudAlpha = 0.16f
 
 private enum class OverlayGestureMode {
     Seek,
@@ -290,11 +295,17 @@ private fun FullscreenPlayer(
         mutableFloatStateOf(resolveInitialBrightness(activity))
     }
     val progressState = rememberPlaybackProgressState(player)
+    var controlsVisible by remember(player) { mutableStateOf(true) }
+    var controlsInteractionTick by remember(player) { mutableLongStateOf(0L) }
     var isScrubbing by remember(player) { mutableStateOf(false) }
     var scrubPositionMs by remember(player) { mutableLongStateOf(0L) }
     val displayedPositionMs = if (isScrubbing) scrubPositionMs else progressState.currentPositionMs
     val latestPlayer by rememberUpdatedState(player)
     val density = LocalDensity.current
+
+    fun pingControls() {
+        controlsInteractionTick += 1
+    }
 
     LaunchedEffect(hudState) {
         if (hudState != null) {
@@ -303,10 +314,25 @@ private fun FullscreenPlayer(
         }
     }
 
+    LaunchedEffect(controlsVisible, isScrubbing, controlsInteractionTick) {
+        if (controlsVisible && !isScrubbing) {
+            delay(FullscreenControlsAutoHideMs)
+            controlsVisible = false
+        }
+    }
+
     BoxWithConstraints(
         modifier = Modifier
             .fillMaxSize()
             .background(Color.Black)
+            .pointerInput(controlsVisible) {
+                detectTapGestures {
+                    controlsVisible = !controlsVisible
+                    if (controlsVisible) {
+                        pingControls()
+                    }
+                }
+            }
     ) {
         val widthPx = with(density) { maxWidth.toPx() }.takeIf { it > 0f } ?: 1f
         val heightPx = with(density) { maxHeight.toPx() }.takeIf { it > 0f } ?: 1f
@@ -324,107 +350,107 @@ private fun FullscreenPlayer(
             )
         }
 
-        Row(
-            modifier = Modifier
-                .align(Alignment.Center)
-                .fillMaxWidth()
-                .fillMaxHeight(0.62f)
-        ) {
-            GestureZone(
+        if (!controlsVisible) {
+            Row(
                 modifier = Modifier
-                    .weight(0.24f)
-                    .fillMaxHeight(),
-                mode = OverlayGestureMode.Brightness,
-                widthPx = widthPx,
-                heightPx = heightPx,
-                player = latestPlayer,
-                onBrightnessChange = { value ->
-                    appBrightness = value
-                    activity?.window?.let { window ->
-                        val attributes = window.attributes
-                        attributes.screenBrightness = value
-                        window.attributes = attributes
-                    }
-                    hudState = GestureHudState(
-                        icon = Icons.Filled.Brightness6,
-                        label = "亮度",
-                        valueText = "${(value * 100).roundToInt()}%",
-                        progress = value
-                    )
-                },
-                onVolumeChange = { _, _ -> },
-                onSeekChange = { _, _ -> }
-            )
-
-            GestureZone(
-                modifier = Modifier
-                    .weight(0.52f)
-                    .fillMaxHeight(),
-                mode = OverlayGestureMode.Seek,
-                widthPx = widthPx,
-                heightPx = heightPx,
-                player = latestPlayer,
-                onBrightnessChange = { },
-                onVolumeChange = { _, _ -> },
-                onSeekChange = { deltaMs, targetMs ->
-                    hudState = GestureHudState(
-                        icon = Icons.Filled.FastForward,
-                        label = if (deltaMs >= 0) "快轉" else "倒退",
-                        valueText = buildString {
-                            append(if (deltaMs >= 0) "+" else "-")
-                            append(formatDuration(abs(deltaMs)))
-                            append(" · ")
-                            append(formatDuration(targetMs))
+                    .align(Alignment.Center)
+                    .fillMaxWidth()
+                    .fillMaxHeight(0.62f)
+            ) {
+                GestureZone(
+                    modifier = Modifier
+                        .weight(0.24f)
+                        .fillMaxHeight(),
+                    mode = OverlayGestureMode.Brightness,
+                    widthPx = widthPx,
+                    heightPx = heightPx,
+                    player = latestPlayer,
+                    onBrightnessChange = { value ->
+                        appBrightness = value
+                        activity?.window?.let { window ->
+                            val attributes = window.attributes
+                            attributes.screenBrightness = value
+                            window.attributes = attributes
                         }
-                    )
-                }
-            )
+                        hudState = GestureHudState(
+                            icon = Icons.Filled.Brightness6,
+                            label = "亮度",
+                            valueText = "${(value * 100).roundToInt()}%",
+                            progress = value
+                        )
+                    },
+                    onVolumeChange = { _, _ -> },
+                    onSeekChange = { _, _ -> }
+                )
 
-            GestureZone(
-                modifier = Modifier
-                    .weight(0.24f)
-                    .fillMaxHeight(),
-                mode = OverlayGestureMode.Volume,
-                widthPx = widthPx,
-                heightPx = heightPx,
-                player = latestPlayer,
-                onBrightnessChange = { },
-                onVolumeChange = { current, max ->
-                    val progress = if (max > 0) current / max.toFloat() else 0f
-                    hudState = GestureHudState(
-                        icon = if (current == 0) Icons.AutoMirrored.Filled.VolumeOff else Icons.AutoMirrored.Filled.VolumeUp,
-                        label = "音量",
-                        valueText = "${(progress * 100).roundToInt()}%",
-                        progress = progress
-                    )
-                },
-                onSeekChange = { _, _ -> }
-            )
+                GestureZone(
+                    modifier = Modifier
+                        .weight(0.52f)
+                        .fillMaxHeight(),
+                    mode = OverlayGestureMode.Seek,
+                    widthPx = widthPx,
+                    heightPx = heightPx,
+                    player = latestPlayer,
+                    onBrightnessChange = { },
+                    onVolumeChange = { _, _ -> },
+                    onSeekChange = { deltaMs, targetMs ->
+                        hudState = GestureHudState(
+                            icon = Icons.Filled.FastForward,
+                            label = if (deltaMs >= 0) "快轉" else "倒退",
+                            valueText = buildString {
+                                append(if (deltaMs >= 0) "+" else "-")
+                                append(formatDuration(abs(deltaMs)))
+                                append(" · ")
+                                append(formatDuration(targetMs))
+                            }
+                        )
+                    }
+                )
+
+                GestureZone(
+                    modifier = Modifier
+                        .weight(0.24f)
+                        .fillMaxHeight(),
+                    mode = OverlayGestureMode.Volume,
+                    widthPx = widthPx,
+                    heightPx = heightPx,
+                    player = latestPlayer,
+                    onBrightnessChange = { },
+                    onVolumeChange = { current, max ->
+                        val progress = if (max > 0) current / max.toFloat() else 0f
+                        hudState = GestureHudState(
+                            icon = if (current == 0) Icons.AutoMirrored.Filled.VolumeOff else Icons.AutoMirrored.Filled.VolumeUp,
+                            label = "音量",
+                            valueText = "${(progress * 100).roundToInt()}%",
+                            progress = progress
+                        )
+                    },
+                    onSeekChange = { _, _ -> }
+                )
+            }
         }
 
-        IconButton(
-            onClick = {
-                player?.let {
-                    val wasPlaying = it.isPlaying
-                    if (wasPlaying) it.pause() else it.play()
-                    hudState = GestureHudState(
-                        icon = if (wasPlaying) Icons.Filled.Pause else Icons.Filled.PlayArrow,
-                        label = if (wasPlaying) "暫停" else "播放"
-                    )
-                }
-            },
-            modifier = Modifier
-                .align(Alignment.Center)
-                .background(Color.Black.copy(alpha = 0.45f), shape = CircleShape)
-                .size(CenterButtonSize.dp)
-        ) {
-            val isPlaying = player?.isPlaying == true
-            Icon(
-                imageVector = if (isPlaying) Icons.Filled.Pause else Icons.Filled.PlayArrow,
-                contentDescription = if (isPlaying) "Pause" else "Play",
-                tint = Color.White,
-                modifier = Modifier.size(40.dp)
-            )
+        if (controlsVisible) {
+            IconButton(
+                onClick = {
+                    player?.let {
+                        if (it.isPlaying) it.pause() else it.play()
+                        pingControls()
+                    }
+                },
+                modifier = Modifier
+                    .align(Alignment.Center)
+                    .background(Color.Black.copy(alpha = ControlOverlayAlpha), shape = CircleShape)
+                    .size(CenterButtonSize.dp)
+            ) {
+                val isPlaying = player?.isPlaying == true
+                Icon(
+                    imageVector = if (isPlaying) Icons.Filled.Pause else Icons.Filled.PlayArrow,
+                    contentDescription = if (isPlaying) "Pause" else "Play",
+                    tint = Color.White,
+                    modifier = Modifier.size(40.dp)
+                )
+            }
         }
 
         hudState?.let {
@@ -434,44 +460,51 @@ private fun FullscreenPlayer(
             )
         }
 
-        FullscreenScrubber(
-            currentPositionMs = displayedPositionMs,
-            durationMs = progressState.durationMs,
-            onValueChange = { value ->
-                if (!isScrubbing) {
-                    scrubPositionMs = progressState.currentPositionMs
-                }
-                isScrubbing = true
-                scrubPositionMs = value
-            },
-            onValueChangeFinished = {
-                val duration = progressState.durationMs
-                if (duration > 0L) {
-                    val target = scrubPositionMs.coerceIn(0L, duration)
-                    player?.seekTo(target)
-                    scrubPositionMs = target
-                }
-                isScrubbing = false
-            },
-            modifier = Modifier
-                .align(Alignment.BottomCenter)
-                .fillMaxWidth()
-                .padding(horizontal = 20.dp, vertical = 20.dp)
-        )
-
-        IconButton(
-            onClick = onToggleFullscreen,
-            modifier = Modifier
-                .align(Alignment.TopEnd)
-                .padding(16.dp)
-                .background(Color.Black.copy(alpha = 0.45f), shape = MaterialTheme.shapes.small)
-                .size(48.dp)
-        ) {
-            Icon(
-                imageVector = Icons.Filled.FullscreenExit,
-                contentDescription = "Exit fullscreen",
-                tint = Color.White
+        if (controlsVisible) {
+            FullscreenScrubber(
+                currentPositionMs = displayedPositionMs,
+                durationMs = progressState.durationMs,
+                onValueChange = { value ->
+                    if (!isScrubbing) {
+                        scrubPositionMs = progressState.currentPositionMs
+                    }
+                    isScrubbing = true
+                    scrubPositionMs = value
+                    pingControls()
+                },
+                onValueChangeFinished = {
+                    val duration = progressState.durationMs
+                    if (duration > 0L) {
+                        val target = scrubPositionMs.coerceIn(0L, duration)
+                        player?.seekTo(target)
+                        scrubPositionMs = target
+                    }
+                    isScrubbing = false
+                    pingControls()
+                },
+                modifier = Modifier
+                    .align(Alignment.BottomCenter)
+                    .fillMaxWidth()
+                    .padding(horizontal = 20.dp, vertical = 20.dp)
             )
+
+            IconButton(
+                onClick = {
+                    pingControls()
+                    onToggleFullscreen()
+                },
+                modifier = Modifier
+                    .align(Alignment.TopEnd)
+                    .padding(16.dp)
+                    .background(Color.Black.copy(alpha = ControlOverlayAlpha), shape = MaterialTheme.shapes.small)
+                    .size(48.dp)
+            ) {
+                Icon(
+                    imageVector = Icons.Filled.FullscreenExit,
+                    contentDescription = "Exit fullscreen",
+                    tint = Color.White
+                )
+            }
         }
     }
 }
@@ -578,7 +611,7 @@ private fun FullscreenScrubber(
     ) {
         Column(
             modifier = Modifier
-                .background(Color.Black.copy(alpha = 0.78f))
+                .background(Color.Black.copy(alpha = ScrubberOverlayAlpha))
                 .padding(horizontal = 16.dp, vertical = 12.dp),
             verticalArrangement = Arrangement.spacedBy(6.dp)
         ) {
@@ -615,33 +648,33 @@ private fun GestureHud(
     modifier: Modifier = Modifier
 ) {
     Card(
-        modifier = modifier.width(220.dp),
-        shape = RoundedCornerShape(18.dp)
+        modifier = modifier.width(176.dp),
+        shape = RoundedCornerShape(16.dp)
     ) {
         Column(
             modifier = Modifier
-                .background(Color.Black.copy(alpha = 0.8f))
-                .padding(horizontal = 20.dp, vertical = 16.dp),
+                .background(Color.Black.copy(alpha = GestureHudAlpha))
+                .padding(horizontal = 14.dp, vertical = 10.dp),
             horizontalAlignment = Alignment.CenterHorizontally,
-            verticalArrangement = Arrangement.spacedBy(10.dp)
+            verticalArrangement = Arrangement.spacedBy(6.dp)
         ) {
             Icon(
                 imageVector = state.icon,
                 contentDescription = state.label,
                 tint = Color.White,
-                modifier = Modifier.size(32.dp)
+                modifier = Modifier.size(24.dp)
             )
             Text(
                 text = state.label,
                 color = Color.White,
-                style = MaterialTheme.typography.titleMedium,
+                style = MaterialTheme.typography.bodyMedium,
                 fontWeight = FontWeight.SemiBold
             )
             state.valueText?.let {
                 Text(
                     text = it,
                     color = Color.White,
-                    style = MaterialTheme.typography.bodyMedium
+                    style = MaterialTheme.typography.bodySmall
                 )
             }
             state.progress?.let {
