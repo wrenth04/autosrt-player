@@ -10,6 +10,11 @@ jobs:
     runs-on: ubuntu-latest
     permissions:
       contents: write
+    env:
+      DEBUG_KEYSTORE_PATH: ${{ github.workspace }}/debug.keystore
+      DEBUG_KEYSTORE_PASSWORD: ${{ secrets.DEBUG_KEYSTORE_PASSWORD }}
+      DEBUG_KEY_ALIAS: ${{ secrets.DEBUG_KEY_ALIAS }}
+      DEBUG_KEY_PASSWORD: ${{ secrets.DEBUG_KEY_PASSWORD }}
 
     steps:
       - name: Checkout repository
@@ -24,6 +29,9 @@ jobs:
 
       - name: Make Gradle wrapper executable
         run: chmod +x ./gradlew
+
+      - name: Restore debug keystore
+        run: echo "${{ secrets.DEBUG_KEYSTORE_BASE64 }}" | base64 -d > "$DEBUG_KEYSTORE_PATH"
 
       - name: Build Debug APK
         run: ./gradlew assembleDebug

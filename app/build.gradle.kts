@@ -3,21 +3,55 @@ plugins {
     id("org.jetbrains.kotlin.android")
 }
 
+val debugKeystorePath = providers.gradleProperty("DEBUG_KEYSTORE_PATH")
+    .orElse(providers.environmentVariable("DEBUG_KEYSTORE_PATH"))
+    .orElse(layout.projectDirectory.file("../debug.keystore").asFile.absolutePath)
+    .get()
+val debugKeystoreFile = file(debugKeystorePath)
+val debugStorePassword = providers.gradleProperty("DEBUG_KEYSTORE_PASSWORD")
+    .orElse(providers.environmentVariable("DEBUG_KEYSTORE_PASSWORD"))
+    .orElse("android")
+    .get()
+val debugKeyAlias = providers.gradleProperty("DEBUG_KEY_ALIAS")
+    .orElse(providers.environmentVariable("DEBUG_KEY_ALIAS"))
+    .orElse("androiddebugkey")
+    .get()
+val debugKeyPassword = providers.gradleProperty("DEBUG_KEY_PASSWORD")
+    .orElse(providers.environmentVariable("DEBUG_KEY_PASSWORD"))
+    .orElse("android")
+    .get()
+
 android {
     namespace = "com.example.autosrtplayer"
     compileSdk = 34
+
+    signingConfigs {
+        getByName("debug") {
+            if (!debugKeystoreFile.exists()) {
+                throw GradleException("Debug keystore not found at ${debugKeystoreFile.absolutePath}. Set DEBUG_KEYSTORE_PATH or restore debug.keystore before building.")
+            }
+            storeFile = debugKeystoreFile
+            storePassword = debugStorePassword
+            keyAlias = debugKeyAlias
+            keyPassword = debugKeyPassword
+        }
+    }
 
     defaultConfig {
         applicationId = "com.example.autosrtplayer"
         minSdk = 24
         targetSdk = 34
-        versionCode = 4
-        versionName = "0.1.3"
+        versionCode = 5
+        versionName = "0.2.0"
 
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
     }
 
     buildTypes {
+        debug {
+            signingConfig = signingConfigs.getByName("debug")
+        }
+
         release {
             isMinifyEnabled = false
             proguardFiles(

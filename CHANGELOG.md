@@ -23,5 +23,5 @@
 - 建置完成後上傳 debug APK artifact 供下載。
 
 ### Notes
-- 目前 app 版本資訊為 `versionName 1.0`、`versionCode 1`。
+- 目前 app 版本資訊為 `versionName 0.2.0`、`versionCode 5`。
 - 後續版本請依時間倒序新增於此檔案上方。
