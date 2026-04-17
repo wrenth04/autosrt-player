@@ -11,6 +11,7 @@ data class PlayerUiState(
     val lastPlayedMediaUrl: String? = null,
     val playbackPositionMs: Long = 0L,
     val playWhenReady: Boolean = true,
+    val playbackSpeed: Float = 1f,
     val isLoading: Boolean = false,
     val isFullscreen: Boolean = false,
     val errorMessage: String? = null

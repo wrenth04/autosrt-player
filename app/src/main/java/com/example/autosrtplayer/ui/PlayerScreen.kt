@@ -40,6 +40,9 @@ import androidx.compose.material3.Button
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.CircularProgressIndicator
+import androidx.compose.material3.ButtonDefaults
+import androidx.compose.material3.DropdownMenu
+import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.LinearProgressIndicator
@@ -91,6 +94,7 @@ private const val CenterButtonSize = 72
 private const val ControlOverlayAlpha = 0.14f
 private const val ScrubberOverlayAlpha = 0.10f
 private const val GestureHudAlpha = 0.08f
+private val PlaybackSpeedOptions = listOf(0.5f, 1f, 2f, 4f, 8f)
 
 private enum class OverlayGestureMode {
     Seek,
@@ -168,6 +172,8 @@ fun PlayerScreen(
         FullscreenPlayer(
             activity = activity,
             player = player,
+            playbackSpeed = uiState.playbackSpeed,
+            onPlaybackSpeedChange = viewModel::setPlaybackSpeed,
             onToggleFullscreen = viewModel::toggleFullscreen
         )
         return
@@ -241,6 +247,8 @@ fun PlayerScreen(
 
         InlinePlayer(
             player = player,
+            playbackSpeed = uiState.playbackSpeed,
+            onPlaybackSpeedChange = viewModel::setPlaybackSpeed,
             onToggleFullscreen = viewModel::toggleFullscreen
         )
 
@@ -251,6 +259,8 @@ fun PlayerScreen(
 @Composable
 private fun InlinePlayer(
     player: androidx.media3.exoplayer.ExoPlayer?,
+    playbackSpeed: Float,
+    onPlaybackSpeedChange: (Float) -> Unit,
     onToggleFullscreen: () -> Unit
 ) {
     if (player == null) return
@@ -276,6 +286,14 @@ private fun InlinePlayer(
             }
         )
 
+        PlaybackSpeedButton(
+            playbackSpeed = playbackSpeed,
+            onPlaybackSpeedChange = onPlaybackSpeedChange,
+            modifier = Modifier
+                .align(Alignment.TopStart)
+                .padding(8.dp)
+        )
+
         IconButton(
             onClick = onToggleFullscreen,
             modifier = Modifier
@@ -297,6 +315,8 @@ private fun InlinePlayer(
 private fun FullscreenPlayer(
     activity: Activity?,
     player: androidx.media3.exoplayer.ExoPlayer?,
+    playbackSpeed: Float,
+    onPlaybackSpeedChange: (Float) -> Unit,
     onToggleFullscreen: () -> Unit
 ) {
     var hudState by remember { mutableStateOf<GestureHudState?>(null) }
@@ -475,6 +495,19 @@ private fun FullscreenPlayer(
         }
 
         if (controlsVisible) {
+            PlaybackSpeedButton(
+                playbackSpeed = playbackSpeed,
+                onPlaybackSpeedChange = {
+                    onPlaybackSpeedChange(it)
+                    pingControls()
+                },
+                modifier = Modifier
+                    .align(Alignment.TopStart)
+                    .padding(16.dp),
+                overlayAlpha = ControlOverlayAlpha,
+                onExpandedChange = { pingControls() }
+            )
+
             FullscreenScrubber(
                 currentPositionMs = displayedPositionMs,
                 durationMs = progressState.durationMs,
@@ -679,6 +712,49 @@ private fun FullscreenScrubber(
 }
 
 @Composable
+private fun PlaybackSpeedButton(
+    playbackSpeed: Float,
+    onPlaybackSpeedChange: (Float) -> Unit,
+    modifier: Modifier = Modifier,
+    overlayAlpha: Float = 0.45f,
+    onExpandedChange: (() -> Unit)? = null
+) {
+    var expanded by remember { mutableStateOf(false) }
+
+    Box(modifier = modifier) {
+        Button(
+            onClick = {
+                expanded = !expanded
+                onExpandedChange?.invoke()
+            },
+            modifier = Modifier.height(40.dp),
+            shape = MaterialTheme.shapes.small,
+            colors = ButtonDefaults.buttonColors(
+                containerColor = Color.Black.copy(alpha = overlayAlpha),
+                contentColor = Color.White
+            )
+        ) {
+            Text(formatPlaybackSpeed(playbackSpeed))
+        }
+
+        DropdownMenu(
+            expanded = expanded,
+            onDismissRequest = { expanded = false }
+        ) {
+            PlaybackSpeedOptions.forEach { speed ->
+                DropdownMenuItem(
+                    text = { Text(formatPlaybackSpeed(speed)) },
+                    onClick = {
+                        expanded = false
+                        onPlaybackSpeedChange(speed)
+                    }
+                )
+            }
+        }
+    }
+}
+
+@Composable
 private fun GestureHud(
     state: GestureHudState,
     modifier: Modifier = Modifier
@@ -825,4 +901,9 @@ private fun formatDuration(durationMs: Long): String {
     } else {
         "%02d:%02d".format(minutes, seconds)
     }
+}
+
+private fun formatPlaybackSpeed(speed: Float): String {
+    val normalized = if (speed % 1f == 0f) speed.toInt().toString() else speed.toString()
+    return "${normalized}x"
 }

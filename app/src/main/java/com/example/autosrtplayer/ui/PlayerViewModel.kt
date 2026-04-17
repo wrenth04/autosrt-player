@@ -100,6 +100,11 @@ class PlayerViewModel(
         _uiState.update { it.copy(isFullscreen = !it.isFullscreen) }
     }
 
+    fun setPlaybackSpeed(speed: Float) {
+        _uiState.update { it.copy(playbackSpeed = speed) }
+        player?.setPlaybackSpeed(speed)
+    }
+
     override fun onCleared() {
         persistPlaybackState()
         playerListener?.let { listener -> player?.removeListener(listener) }
@@ -207,6 +212,7 @@ class PlayerViewModel(
         activePlaybackConfig = desiredConfig
         targetPlayer.setMediaItem(mediaItem, startPositionMs)
         targetPlayer.prepare()
+        targetPlayer.setPlaybackSpeed(state.playbackSpeed)
         targetPlayer.playWhenReady = playWhenReady
         _uiState.update {
             it.copy(
