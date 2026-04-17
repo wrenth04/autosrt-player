@@ -30,6 +30,7 @@ import androidx.compose.material.icons.automirrored.filled.VolumeOff
 import androidx.compose.material.icons.automirrored.filled.VolumeUp
 import androidx.compose.material.icons.filled.Brightness6
 import androidx.compose.material.icons.filled.FastForward
+import androidx.compose.material.icons.filled.FastRewind
 import androidx.compose.material.icons.filled.Fullscreen
 import androidx.compose.material.icons.filled.FullscreenExit
 import androidx.compose.material.icons.filled.Pause
@@ -396,7 +397,7 @@ private fun FullscreenPlayer(
                     onVolumeChange = { _, _ -> },
                     onSeekChange = { deltaMs, targetMs ->
                         hudState = GestureHudState(
-                            icon = Icons.Filled.FastForward,
+                            icon = if (deltaMs >= 0) Icons.Filled.FastForward else Icons.Filled.FastRewind,
                             label = if (deltaMs >= 0) "快轉" else "倒退",
                             valueText = buildString {
                                 append(if (deltaMs >= 0) "+" else "-")
