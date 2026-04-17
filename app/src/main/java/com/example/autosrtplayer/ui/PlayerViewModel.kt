@@ -185,10 +185,14 @@ class PlayerViewModel(
             persistPlaybackState()
         }
 
-        val needsRecreate = currentConfig != null && currentConfig != desiredConfig && (
-            currentConfig.userAgent != desiredConfig.userAgent ||
-                currentConfig.referrer != desiredConfig.referrer
-            )
+        val desiredHasHeaders = !desiredConfig.userAgent.isNullOrBlank() || !desiredConfig.referrer.isNullOrBlank()
+        val headersChanged = currentConfig?.userAgent != desiredConfig.userAgent ||
+            currentConfig?.referrer != desiredConfig.referrer
+        val needsRecreate = if (currentConfig == null) {
+            desiredHasHeaders
+        } else {
+            currentConfig != desiredConfig && headersChanged
+        }
 
         val targetPlayer = if (needsRecreate) {
             recreatePlayer(desiredConfig)
