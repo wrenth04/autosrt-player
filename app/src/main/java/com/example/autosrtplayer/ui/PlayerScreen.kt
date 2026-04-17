@@ -84,7 +84,7 @@ private const val GestureHudTimeoutMs = 900L
 private const val FullscreenControlsAutoHideMs = 2500L
 private const val MinBrightness = 0.05f
 private const val SeekMaxOffsetMs = 180_000L
-private const val SeekStepMs = 10_000L
+private const val SeekStepMs = 60_000L
 private const val CenterButtonSize = 72
 private const val ControlOverlayAlpha = 0.14f
 private const val ScrubberOverlayAlpha = 0.10f
@@ -360,6 +360,14 @@ private fun FullscreenPlayer(
                     .fillMaxWidth()
                     .fillMaxHeight(0.62f)
             ) {
+                val handleSeekChange: (Long, Long) -> Unit = { deltaMs, targetMs ->
+                    hudState = GestureHudState(
+                        icon = if (deltaMs >= 0) Icons.Filled.FastForward else Icons.Filled.FastRewind,
+                        label = if (deltaMs >= 0) "快轉" else "倒退",
+                        valueText = "${abs(deltaMs) / 1000}秒 · ${formatDuration(targetMs)}"
+                    )
+                }
+
                 GestureZone(
                     modifier = Modifier
                         .weight(0.24f)
@@ -383,7 +391,7 @@ private fun FullscreenPlayer(
                         )
                     },
                     onVolumeChange = { _, _ -> },
-                    onSeekChange = { _, _ -> }
+                    onSeekChange = handleSeekChange
                 )
 
                 GestureZone(
@@ -396,18 +404,7 @@ private fun FullscreenPlayer(
                     player = latestPlayer,
                     onBrightnessChange = { },
                     onVolumeChange = { _, _ -> },
-                    onSeekChange = { deltaMs, targetMs ->
-                        hudState = GestureHudState(
-                            icon = if (deltaMs >= 0) Icons.Filled.FastForward else Icons.Filled.FastRewind,
-                            label = if (deltaMs >= 0) "快轉" else "倒退",
-                            valueText = buildString {
-                                append(if (deltaMs >= 0) "+" else "-")
-                                append(formatDuration(abs(deltaMs)))
-                                append(" · ")
-                                append(formatDuration(targetMs))
-                            }
-                        )
-                    }
+                    onSeekChange = handleSeekChange
                 )
 
                 GestureZone(
@@ -428,7 +425,7 @@ private fun FullscreenPlayer(
                             progress = progress
                         )
                     },
-                    onSeekChange = { _, _ -> }
+                    onSeekChange = handleSeekChange
                 )
             }
         }
