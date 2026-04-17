@@ -84,6 +84,7 @@ private const val GestureHudTimeoutMs = 900L
 private const val FullscreenControlsAutoHideMs = 2500L
 private const val MinBrightness = 0.05f
 private const val SeekMaxOffsetMs = 180_000L
+private const val SeekStepMs = 10_000L
 private const val CenterButtonSize = 72
 private const val ControlOverlayAlpha = 0.14f
 private const val ScrubberOverlayAlpha = 0.10f
@@ -533,8 +534,27 @@ private fun GestureZone(
     var totalDragY by remember { mutableFloatStateOf(0f) }
 
     Box(
-        modifier = modifier.pointerInput(mode, player, widthPx, heightPx) {
-            detectDragGestures(
+        modifier = modifier
+            .pointerInput(mode, player) {
+                detectTapGestures(
+                    onDoubleTap = {
+                        if (player == null) return@detectTapGestures
+                        val currentPos = player.currentPosition
+                        val duration = player.duration
+                        if (mode == OverlayGestureMode.Brightness) {
+                            val target = (currentPos - SeekStepMs).coerceAtLeast(0L)
+                            player.seekTo(target)
+                            onSeekChange(-SeekStepMs, target)
+                        } else if (mode == OverlayGestureMode.Volume) {
+                            val target = if (duration > 0) (currentPos + SeekStepMs).coerceAtMost(duration) else currentPos + SeekStepMs
+                            player.seekTo(target)
+                            onSeekChange(SeekStepMs, target)
+                        }
+                    }
+                )
+            }
+            .pointerInput(mode, player, widthPx, heightPx) {
+                detectDragGestures(
                 onDragStart = {
                     totalDragX = 0f
                     totalDragY = 0f
