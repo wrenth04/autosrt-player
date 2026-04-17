@@ -2,6 +2,7 @@ package com.example.autosrtplayer.ui
 
 import android.app.Activity
 import android.content.Context
+import android.graphics.Color as AndroidColor
 import android.media.AudioManager
 import android.view.WindowManager
 import androidx.activity.compose.BackHandler
@@ -74,6 +75,7 @@ import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.lifecycle.viewmodel.compose.viewModel
 import androidx.media3.common.C
 import androidx.media3.common.Player
+import androidx.media3.ui.CaptionStyleCompat
 import androidx.media3.ui.PlayerView
 import kotlinx.coroutines.delay
 import kotlin.math.abs
@@ -81,6 +83,7 @@ import kotlin.math.roundToInt
 
 private const val GestureHudTimeoutMs = 900L
 private const val FullscreenControlsAutoHideMs = 2500L
+private const val SubtitleBackgroundAlpha = 0x66
 private const val MinBrightness = 0.05f
 private const val SeekMaxOffsetMs = 180_000L
 private const val SeekStepMs = 60_000L
@@ -118,6 +121,7 @@ fun PlayerScreen(
     val player = remember(context, entry?.mediaUrl, entry?.userAgent, entry?.referrer) {
         viewModel.getOrCreatePlayer(context)
     }
+    val isPlaying = rememberIsPlayingState(player)
 
     DisposableEffect(activity, uiState.isFullscreen) {
         val window = activity?.window
@@ -138,6 +142,21 @@ fun PlayerScreen(
                 WindowInsetsControllerCompat(window, window.decorView)
                     .show(WindowInsetsCompat.Type.systemBars())
             }
+        }
+    }
+
+    DisposableEffect(activity, isPlaying) {
+        val window = activity?.window
+        if (window != null) {
+            if (isPlaying) {
+                window.addFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
+            } else {
+                window.clearFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
+            }
+        }
+
+        onDispose {
+            window?.clearFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
         }
     }
 
@@ -247,10 +266,14 @@ private fun InlinePlayer(
                 PlayerView(viewContext).apply {
                     this.player = player
                     useController = true
+                    applySubtitleStyle()
                 }
             },
             modifier = Modifier.fillMaxSize(),
-            update = { it.player = player }
+            update = {
+                it.player = player
+                it.applySubtitleStyle()
+            }
         )
 
         IconButton(
@@ -321,10 +344,14 @@ private fun FullscreenPlayer(
                     PlayerView(viewContext).apply {
                         this.player = player
                         useController = false
+                        applySubtitleStyle()
                     }
                 },
                 modifier = Modifier.fillMaxSize(),
-                update = { it.player = player }
+                update = {
+                    it.player = player
+                    it.applySubtitleStyle()
+                }
             )
         }
 
@@ -700,6 +727,33 @@ private fun GestureHud(
 }
 
 @Composable
+private fun rememberIsPlayingState(
+    player: androidx.media3.exoplayer.ExoPlayer?
+): Boolean {
+    var isPlaying by remember(player) { mutableStateOf(player?.isPlaying == true) }
+
+    DisposableEffect(player) {
+        if (player == null) {
+            isPlaying = false
+            onDispose { }
+        } else {
+            val listener = object : Player.Listener {
+                override fun onEvents(player: Player, events: Player.Events) {
+                    isPlaying = player.isPlaying
+                }
+            }
+            player.addListener(listener)
+            isPlaying = player.isPlaying
+            onDispose {
+                player.removeListener(listener)
+            }
+        }
+    }
+
+    return isPlaying
+}
+
+@Composable
 private fun rememberPlaybackProgressState(
     player: androidx.media3.exoplayer.ExoPlayer?
 ): PlaybackProgressState {
@@ -740,6 +794,19 @@ private fun rememberPlaybackProgressState(
     return PlaybackProgressState(
         currentPositionMs = currentPositionMs,
         durationMs = durationMs
+    )
+}
+
+private fun PlayerView.applySubtitleStyle() {
+    subtitleView?.setStyle(
+        CaptionStyleCompat(
+            AndroidColor.WHITE,
+            AndroidColor.argb(SubtitleBackgroundAlpha, 0, 0, 0),
+            AndroidColor.TRANSPARENT,
+            CaptionStyleCompat.EDGE_TYPE_NONE,
+            AndroidColor.TRANSPARENT,
+            null
+        )
     )
 }
 
