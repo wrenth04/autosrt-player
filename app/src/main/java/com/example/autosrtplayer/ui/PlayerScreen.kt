@@ -328,14 +328,6 @@ private fun FullscreenPlayer(
         modifier = Modifier
             .fillMaxSize()
             .background(Color.Black)
-            .pointerInput(controlsVisible) {
-                detectTapGestures {
-                    controlsVisible = !controlsVisible
-                    if (controlsVisible) {
-                        pingControls()
-                    }
-                }
-            }
     ) {
         val widthPx = with(density) { maxWidth.toPx() }.takeIf { it > 0f } ?: 1f
         val heightPx = with(density) { maxHeight.toPx() }.takeIf { it > 0f } ?: 1f
@@ -376,6 +368,10 @@ private fun FullscreenPlayer(
                     widthPx = widthPx,
                     heightPx = heightPx,
                     player = latestPlayer,
+                    onTap = {
+                        controlsVisible = !controlsVisible
+                        if (controlsVisible) pingControls()
+                    },
                     onBrightnessChange = { value ->
                         appBrightness = value
                         activity?.window?.let { window ->
@@ -402,6 +398,10 @@ private fun FullscreenPlayer(
                     widthPx = widthPx,
                     heightPx = heightPx,
                     player = latestPlayer,
+                    onTap = {
+                        controlsVisible = !controlsVisible
+                        if (controlsVisible) pingControls()
+                    },
                     onBrightnessChange = { },
                     onVolumeChange = { _, _ -> },
                     onSeekChange = handleSeekChange
@@ -415,6 +415,10 @@ private fun FullscreenPlayer(
                     widthPx = widthPx,
                     heightPx = heightPx,
                     player = latestPlayer,
+                    onTap = {
+                        controlsVisible = !controlsVisible
+                        if (controlsVisible) pingControls()
+                    },
                     onBrightnessChange = { },
                     onVolumeChange = { current, max ->
                         val progress = if (max > 0) current / max.toFloat() else 0f
@@ -516,6 +520,7 @@ private fun GestureZone(
     widthPx: Float,
     heightPx: Float,
     player: androidx.media3.exoplayer.ExoPlayer?,
+    onTap: () -> Unit,
     onBrightnessChange: (Float) -> Unit,
     onVolumeChange: (Int, Int) -> Unit,
     onSeekChange: (Long, Long) -> Unit
@@ -534,6 +539,7 @@ private fun GestureZone(
         modifier = modifier
             .pointerInput(mode, player) {
                 detectTapGestures(
+                    onTap = { onTap() },
                     onDoubleTap = {
                         if (player == null) return@detectTapGestures
                         val currentPos = player.currentPosition
