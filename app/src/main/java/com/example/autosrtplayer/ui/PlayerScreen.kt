@@ -88,6 +88,8 @@ private const val GestureHudTimeoutMs = 900L
 private const val FullscreenControlsAutoHideMs = 2500L
 private const val SubtitleBackgroundAlpha = 0x66
 private const val MinBrightness = 0.05f
+private const val ExtraDimThreshold = 0.2f
+private const val MaxExtraDimAlpha = 0.85f
 private const val SeekMaxOffsetMs = 180_000L
 private const val SeekStepMs = 60_000L
 private const val CenterButtonSize = 72
@@ -112,6 +114,12 @@ private data class GestureHudState(
 private data class PlaybackProgressState(
     val currentPositionMs: Long,
     val durationMs: Long
+)
+
+private data class BrightnessState(
+    val gestureValue: Float,
+    val screenBrightness: Float,
+    val overlayAlpha: Float
 )
 
 @Composable
@@ -323,6 +331,9 @@ private fun FullscreenPlayer(
     var appBrightness by remember(activity) {
         mutableFloatStateOf(resolveInitialBrightness(activity))
     }
+    var dimOverlayAlpha by remember(activity) {
+        mutableFloatStateOf(mapBrightnessState(appBrightness).overlayAlpha)
+    }
     val progressState = rememberPlaybackProgressState(player)
     var controlsVisible by remember(player) { mutableStateOf(true) }
     var controlsInteractionTick by remember(player) { mutableLongStateOf(0L) }
@@ -334,6 +345,25 @@ private fun FullscreenPlayer(
 
     fun pingControls() {
         controlsInteractionTick += 1
+    }
+
+    DisposableEffect(activity) {
+        val window = activity?.window
+        val originalBrightness = window?.attributes?.screenBrightness ?: WindowManager.LayoutParams.BRIGHTNESS_OVERRIDE_NONE
+        val initialBrightnessState = mapBrightnessState(appBrightness)
+        dimOverlayAlpha = initialBrightnessState.overlayAlpha
+        window?.let {
+            val attributes = it.attributes
+            attributes.screenBrightness = initialBrightnessState.screenBrightness
+            it.attributes = attributes
+        }
+        onDispose {
+            window?.let {
+                val attributes = it.attributes
+                attributes.screenBrightness = originalBrightness
+                it.attributes = attributes
+            }
+        }
     }
 
     LaunchedEffect(hudState) {
@@ -375,6 +405,14 @@ private fun FullscreenPlayer(
             )
         }
 
+        if (dimOverlayAlpha > 0f) {
+            Box(
+                modifier = Modifier
+                    .fillMaxSize()
+                    .background(Color.Black.copy(alpha = dimOverlayAlpha))
+            )
+        }
+
         if (!controlsVisible) {
             Row(
                 modifier = Modifier
@@ -404,16 +442,18 @@ private fun FullscreenPlayer(
                     },
                     onBrightnessChange = { value ->
                         appBrightness = value
+                        val brightnessState = mapBrightnessState(value)
+                        dimOverlayAlpha = brightnessState.overlayAlpha
                         activity?.window?.let { window ->
                             val attributes = window.attributes
-                            attributes.screenBrightness = value
+                            attributes.screenBrightness = brightnessState.screenBrightness
                             window.attributes = attributes
                         }
                         hudState = GestureHudState(
                             icon = Icons.Filled.Brightness6,
                             label = "亮度",
-                            valueText = "${(value * 100).roundToInt()}%",
-                            progress = value
+                            valueText = "${(brightnessState.gestureValue * 100).roundToInt()}%",
+                            progress = brightnessState.gestureValue
                         )
                     },
                     onVolumeChange = { _, _ -> },
@@ -572,7 +612,7 @@ private fun GestureZone(
     val audioManager = remember(context) {
         context.getSystemService(Context.AUDIO_SERVICE) as? AudioManager
     }
-    var startBrightness by remember { mutableFloatStateOf(MinBrightness) }
+    var startBrightness by remember { mutableFloatStateOf(resolveInitialBrightness(context as? Activity)) }
     var startVolume by remember { mutableStateOf(0 to 0) }
     var startPositionMs by remember { mutableStateOf(0L) }
     var totalDragX by remember { mutableFloatStateOf(0f) }
@@ -632,7 +672,7 @@ private fun GestureZone(
                     when (mode) {
                         OverlayGestureMode.Brightness -> {
                             val delta = -(totalDragY / heightPx)
-                            onBrightnessChange((startBrightness + delta).coerceIn(MinBrightness, 1f))
+                            onBrightnessChange((startBrightness + delta).coerceIn(0f, 1f))
                         }
 
                         OverlayGestureMode.Volume -> {
@@ -886,9 +926,30 @@ private fun PlayerView.applySubtitleStyle() {
     )
 }
 
+private fun mapBrightnessState(gestureValue: Float): BrightnessState {
+    val clampedGestureValue = gestureValue.coerceIn(0f, 1f)
+    return if (clampedGestureValue >= ExtraDimThreshold) {
+        val normalizedBrightness = (clampedGestureValue - ExtraDimThreshold) / (1f - ExtraDimThreshold)
+        BrightnessState(
+            gestureValue = clampedGestureValue,
+            screenBrightness = (MinBrightness + normalizedBrightness * (1f - MinBrightness)).coerceIn(MinBrightness, 1f),
+            overlayAlpha = 0f
+        )
+    } else {
+        val overlayProgress = 1f - (clampedGestureValue / ExtraDimThreshold)
+        BrightnessState(
+            gestureValue = clampedGestureValue,
+            screenBrightness = MinBrightness,
+            overlayAlpha = (overlayProgress * MaxExtraDimAlpha).coerceIn(0f, MaxExtraDimAlpha)
+        )
+    }
+}
+
 private fun resolveInitialBrightness(activity: Activity?): Float {
     val value = activity?.window?.attributes?.screenBrightness ?: WindowManager.LayoutParams.BRIGHTNESS_OVERRIDE_NONE
-    return if (value in MinBrightness..1f) value else 0.5f
+    if (value !in MinBrightness..1f) return 0.5f
+    val normalizedBrightness = (value - MinBrightness) / (1f - MinBrightness)
+    return (ExtraDimThreshold + normalizedBrightness * (1f - ExtraDimThreshold)).coerceIn(ExtraDimThreshold, 1f)
 }
 
 private fun formatDuration(durationMs: Long): String {
