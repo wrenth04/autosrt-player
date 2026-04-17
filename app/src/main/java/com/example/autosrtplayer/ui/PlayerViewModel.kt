@@ -1,8 +1,13 @@
 package com.example.autosrtplayer.ui
 
+import android.content.Context
+import androidx.lifecycle.SavedStateHandle
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
+import androidx.media3.common.Player
+import androidx.media3.exoplayer.ExoPlayer
 import com.example.autosrtplayer.data.playback.MediaItemBuilder
+import com.example.autosrtplayer.data.playback.PlayerFactory
 import com.example.autosrtplayer.data.playlist.PlaylistParser
 import com.example.autosrtplayer.data.playlist.PlaylistRepository
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -11,13 +16,50 @@ import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
 
+private const val PlaybackPositionKey = "playback_position_ms"
+private const val PlaybackWhenReadyKey = "playback_when_ready"
+private const val PlaybackMediaUrlKey = "playback_media_url"
+
+private data class PlaybackConfig(
+    val mediaUrl: String,
+    val userAgent: String?,
+    val referrer: String?
+)
+
 class PlayerViewModel(
+    private val savedStateHandle: SavedStateHandle,
     private val parser: PlaylistParser = PlaylistParser(),
     private val repository: PlaylistRepository = PlaylistRepository(),
-    private val mediaItemBuilder: MediaItemBuilder = MediaItemBuilder()
+    private val mediaItemBuilder: MediaItemBuilder = MediaItemBuilder(),
+    private val playerFactory: PlayerFactory = PlayerFactory()
 ) : ViewModel() {
-    private val _uiState = MutableStateFlow(PlayerUiState())
+    private val _uiState = MutableStateFlow(
+        PlayerUiState(
+            playbackPositionMs = savedStateHandle[PlaybackPositionKey] ?: 0L,
+            playWhenReady = savedStateHandle[PlaybackWhenReadyKey] ?: true
+        )
+    )
     val uiState: StateFlow<PlayerUiState> = _uiState.asStateFlow()
+
+    private var appContext: Context? = null
+    private var player: ExoPlayer? = null
+    private var playerListener: Player.Listener? = null
+    private var activePlaybackConfig: PlaybackConfig? = null
+
+    fun getOrCreatePlayer(context: Context): ExoPlayer {
+        appContext = context.applicationContext
+        val existingPlayer = player
+        if (existingPlayer != null) {
+            syncPlayerWithState(existingPlayer)
+            return existingPlayer
+        }
+
+        val newPlayer = buildPlayer(requireNotNull(appContext))
+        player = newPlayer
+        attachPlayerListener(newPlayer)
+        syncPlayerWithState(newPlayer)
+        return newPlayer
+    }
 
     fun onPlaylistTextChange(value: String) {
         _uiState.update { it.copy(playlistText = value) }
@@ -69,6 +111,15 @@ class PlayerViewModel(
         _uiState.update { it.copy(isFullscreen = !it.isFullscreen) }
     }
 
+    override fun onCleared() {
+        persistPlaybackState()
+        playerListener?.let { listener -> player?.removeListener(listener) }
+        playerListener = null
+        player?.release()
+        player = null
+        super.onCleared()
+    }
+
     private fun parseAndBuild(content: String, playlistUrl: String? = null) {
         runCatching {
             val entry = parser.parse(content, playlistUrl)
@@ -82,15 +133,128 @@ class PlayerViewModel(
                     errorMessage = null
                 )
             }
+            player?.let(::syncPlayerWithState)
         }.onFailure { error ->
+            activePlaybackConfig = null
+            savedStateHandle[PlaybackMediaUrlKey] = null
+            savedStateHandle[PlaybackPositionKey] = 0L
+            savedStateHandle[PlaybackWhenReadyKey] = true
+            player?.stop()
             _uiState.update {
                 it.copy(
                     parsedEntry = null,
                     mediaItem = null,
+                    playbackPositionMs = 0L,
+                    playWhenReady = true,
                     isLoading = false,
                     errorMessage = error.message ?: "解析 playlist 失敗"
                 )
             }
         }
+    }
+
+    private fun buildPlayer(context: Context): ExoPlayer {
+        val state = uiState.value
+        return playerFactory.create(
+            context = context,
+            userAgent = state.parsedEntry?.userAgent,
+            referrer = state.parsedEntry?.referrer
+        )
+    }
+
+    private fun attachPlayerListener(player: ExoPlayer) {
+        val listener = object : Player.Listener {
+            override fun onEvents(player: Player, events: Player.Events) {
+                persistPlaybackState()
+                _uiState.update {
+                    it.copy(
+                        playbackPositionMs = player.currentPosition,
+                        playWhenReady = player.playWhenReady
+                    )
+                }
+            }
+        }
+        player.addListener(listener)
+        playerListener = listener
+    }
+
+    private fun syncPlayerWithState(player: ExoPlayer) {
+        val state = uiState.value
+        val entry = state.parsedEntry ?: return
+        val mediaItem = state.mediaItem ?: return
+        val desiredConfig = PlaybackConfig(
+            mediaUrl = entry.mediaUrl,
+            userAgent = entry.userAgent,
+            referrer = entry.referrer
+        )
+        val currentConfig = activePlaybackConfig
+
+        if (currentConfig == desiredConfig && player.currentMediaItem != null) {
+            return
+        }
+
+        if (currentConfig != null && currentConfig != desiredConfig) {
+            persistPlaybackState()
+        }
+
+        val needsRecreate = currentConfig != null && currentConfig != desiredConfig && (
+            currentConfig.userAgent != desiredConfig.userAgent ||
+                currentConfig.referrer != desiredConfig.referrer
+            )
+
+        val targetPlayer = if (needsRecreate) {
+            recreatePlayer(desiredConfig)
+        } else {
+            player
+        }
+
+        val resumeSameMedia = savedStateHandle.get<String>(PlaybackMediaUrlKey) == desiredConfig.mediaUrl
+        val startPositionMs = if (resumeSameMedia) {
+            savedStateHandle.get<Long>(PlaybackPositionKey) ?: state.playbackPositionMs
+        } else {
+            0L
+        }
+        val playWhenReady = if (resumeSameMedia) {
+            savedStateHandle.get<Boolean>(PlaybackWhenReadyKey) ?: state.playWhenReady
+        } else {
+            true
+        }
+
+        activePlaybackConfig = desiredConfig
+        targetPlayer.setMediaItem(mediaItem, startPositionMs)
+        targetPlayer.prepare()
+        targetPlayer.playWhenReady = playWhenReady
+        savedStateHandle[PlaybackMediaUrlKey] = desiredConfig.mediaUrl
+        savedStateHandle[PlaybackPositionKey] = startPositionMs
+        savedStateHandle[PlaybackWhenReadyKey] = playWhenReady
+        _uiState.update {
+            it.copy(
+                playbackPositionMs = startPositionMs,
+                playWhenReady = playWhenReady
+            )
+        }
+    }
+
+    private fun recreatePlayer(config: PlaybackConfig): ExoPlayer {
+        val context = requireNotNull(appContext)
+        playerListener?.let { listener -> player?.removeListener(listener) }
+        playerListener = null
+        player?.release()
+        val newPlayer = playerFactory.create(
+            context = context,
+            userAgent = config.userAgent,
+            referrer = config.referrer
+        )
+        player = newPlayer
+        attachPlayerListener(newPlayer)
+        return newPlayer
+    }
+
+    private fun persistPlaybackState() {
+        val currentPlayer = player ?: return
+        val mediaUrl = activePlaybackConfig?.mediaUrl ?: return
+        savedStateHandle[PlaybackMediaUrlKey] = mediaUrl
+        savedStateHandle[PlaybackPositionKey] = currentPlayer.currentPosition
+        savedStateHandle[PlaybackWhenReadyKey] = currentPlayer.playWhenReady
     }
 }

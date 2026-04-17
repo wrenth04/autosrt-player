@@ -75,7 +75,6 @@ import androidx.lifecycle.viewmodel.compose.viewModel
 import androidx.media3.common.C
 import androidx.media3.common.Player
 import androidx.media3.ui.PlayerView
-import com.example.autosrtplayer.data.playback.PlayerFactory
 import kotlinx.coroutines.delay
 import kotlin.math.abs
 import kotlin.math.roundToInt
@@ -115,25 +114,9 @@ fun PlayerScreen(
     val uiState by viewModel.uiState.collectAsStateWithLifecycle()
     val context = LocalContext.current
     val activity = context as? Activity
-    val playerFactory = remember { PlayerFactory() }
     val entry = uiState.parsedEntry
-
-    val player = remember(entry?.mediaUrl, entry?.userAgent, entry?.referrer) {
-        entry?.let {
-            playerFactory.create(
-                context = context,
-                userAgent = it.userAgent,
-                referrer = it.referrer
-            ).apply {
-                uiState.mediaItem?.let(::setMediaItem)
-                prepare()
-                playWhenReady = true
-            }
-        }
-    }
-
-    DisposableEffect(player) {
-        onDispose { player?.release() }
+    val player = remember(context, entry?.mediaUrl, entry?.userAgent, entry?.referrer) {
+        viewModel.getOrCreatePlayer(context)
     }
 
     DisposableEffect(activity, uiState.isFullscreen) {
