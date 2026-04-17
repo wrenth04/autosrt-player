@@ -330,10 +330,10 @@ private fun FullscreenPlayer(
 ) {
     var hudState by remember { mutableStateOf<GestureHudState?>(null) }
     var appBrightness by rememberSaveable {
-        mutableStateOf(resolveInitialBrightness(activity))
+        mutableStateOf<Float?>(null)
     }
     var dimOverlayAlpha by rememberSaveable {
-        mutableStateOf(mapBrightnessState(appBrightness).overlayAlpha)
+        mutableStateOf(0f)
     }
     val progressState = rememberPlaybackProgressState(player)
     var controlsVisible by remember(player) { mutableStateOf(true) }
@@ -348,15 +348,25 @@ private fun FullscreenPlayer(
         controlsInteractionTick += 1
     }
 
-    DisposableEffect(activity) {
+    DisposableEffect(activity, appBrightness) {
         val window = activity?.window
         val originalBrightness = window?.attributes?.screenBrightness ?: WindowManager.LayoutParams.BRIGHTNESS_OVERRIDE_NONE
-        val initialBrightnessState = mapBrightnessState(appBrightness)
-        dimOverlayAlpha = initialBrightnessState.overlayAlpha
-        window?.let {
-            val attributes = it.attributes
-            attributes.screenBrightness = initialBrightnessState.screenBrightness
-            it.attributes = attributes
+        val brightnessValue = appBrightness
+        if (brightnessValue != null) {
+            val brightnessState = mapBrightnessState(brightnessValue)
+            dimOverlayAlpha = brightnessState.overlayAlpha
+            window?.let {
+                val attributes = it.attributes
+                attributes.screenBrightness = brightnessState.screenBrightness
+                it.attributes = attributes
+            }
+        } else {
+            dimOverlayAlpha = 0f
+            window?.let {
+                val attributes = it.attributes
+                attributes.screenBrightness = WindowManager.LayoutParams.BRIGHTNESS_OVERRIDE_NONE
+                it.attributes = attributes
+            }
         }
         onDispose {
             window?.let {
@@ -437,6 +447,7 @@ private fun FullscreenPlayer(
                     widthPx = widthPx,
                     heightPx = heightPx,
                     player = latestPlayer,
+                    currentBrightness = appBrightness,
                     onTap = {
                         controlsVisible = !controlsVisible
                         if (controlsVisible) pingControls()
@@ -469,6 +480,7 @@ private fun FullscreenPlayer(
                     widthPx = widthPx,
                     heightPx = heightPx,
                     player = latestPlayer,
+                    currentBrightness = appBrightness,
                     onTap = {
                         controlsVisible = !controlsVisible
                         if (controlsVisible) pingControls()
@@ -486,6 +498,7 @@ private fun FullscreenPlayer(
                     widthPx = widthPx,
                     heightPx = heightPx,
                     player = latestPlayer,
+                    currentBrightness = appBrightness,
                     onTap = {
                         controlsVisible = !controlsVisible
                         if (controlsVisible) pingControls()
@@ -604,6 +617,7 @@ private fun GestureZone(
     widthPx: Float,
     heightPx: Float,
     player: androidx.media3.exoplayer.ExoPlayer?,
+    currentBrightness: Float?,
     onTap: () -> Unit,
     onBrightnessChange: (Float) -> Unit,
     onVolumeChange: (Int, Int) -> Unit,
@@ -647,7 +661,7 @@ private fun GestureZone(
                     totalDragY = 0f
                     if (mode == OverlayGestureMode.Brightness) {
                         val activity = context as? Activity
-                        startBrightness = resolveInitialBrightness(activity)
+                        startBrightness = currentBrightness ?: resolveInitialBrightness(activity)
                     }
                     if (mode == OverlayGestureMode.Volume) {
                         val maxVolume = audioManager?.getStreamMaxVolume(AudioManager.STREAM_MUSIC) ?: 0
