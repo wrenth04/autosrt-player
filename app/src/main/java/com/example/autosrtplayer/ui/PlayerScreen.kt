@@ -58,6 +58,7 @@ import androidx.compose.runtime.mutableFloatStateOf
 import androidx.compose.runtime.mutableLongStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
@@ -328,11 +329,11 @@ private fun FullscreenPlayer(
     onToggleFullscreen: () -> Unit
 ) {
     var hudState by remember { mutableStateOf<GestureHudState?>(null) }
-    var appBrightness by remember(activity) {
-        mutableFloatStateOf(resolveInitialBrightness(activity))
+    var appBrightness by rememberSaveable {
+        mutableStateOf(resolveInitialBrightness(activity))
     }
-    var dimOverlayAlpha by remember(activity) {
-        mutableFloatStateOf(mapBrightnessState(appBrightness).overlayAlpha)
+    var dimOverlayAlpha by rememberSaveable {
+        mutableStateOf(mapBrightnessState(appBrightness).overlayAlpha)
     }
     val progressState = rememberPlaybackProgressState(player)
     var controlsVisible by remember(player) { mutableStateOf(true) }
