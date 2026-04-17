@@ -8,6 +8,7 @@ data class PlayerUiState(
     val playlistUrl: String = "",
     val parsedEntry: PlaylistEntry? = null,
     val mediaItem: MediaItem? = null,
+    val lastPlayedMediaUrl: String? = null,
     val playbackPositionMs: Long = 0L,
     val playWhenReady: Boolean = true,
     val isLoading: Boolean = false,

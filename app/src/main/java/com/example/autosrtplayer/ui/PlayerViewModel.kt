@@ -1,7 +1,6 @@
 package com.example.autosrtplayer.ui
 
 import android.content.Context
-import androidx.lifecycle.SavedStateHandle
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import androidx.media3.common.Player
@@ -16,10 +15,6 @@ import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
 
-private const val PlaybackPositionKey = "playback_position_ms"
-private const val PlaybackWhenReadyKey = "playback_when_ready"
-private const val PlaybackMediaUrlKey = "playback_media_url"
-
 private data class PlaybackConfig(
     val mediaUrl: String,
     val userAgent: String?,
@@ -27,18 +22,12 @@ private data class PlaybackConfig(
 )
 
 class PlayerViewModel(
-    private val savedStateHandle: SavedStateHandle,
     private val parser: PlaylistParser = PlaylistParser(),
     private val repository: PlaylistRepository = PlaylistRepository(),
     private val mediaItemBuilder: MediaItemBuilder = MediaItemBuilder(),
     private val playerFactory: PlayerFactory = PlayerFactory()
 ) : ViewModel() {
-    private val _uiState = MutableStateFlow(
-        PlayerUiState(
-            playbackPositionMs = savedStateHandle[PlaybackPositionKey] ?: 0L,
-            playWhenReady = savedStateHandle[PlaybackWhenReadyKey] ?: true
-        )
-    )
+    private val _uiState = MutableStateFlow(PlayerUiState())
     val uiState: StateFlow<PlayerUiState> = _uiState.asStateFlow()
 
     private var appContext: Context? = null
@@ -136,14 +125,12 @@ class PlayerViewModel(
             player?.let(::syncPlayerWithState)
         }.onFailure { error ->
             activePlaybackConfig = null
-            savedStateHandle[PlaybackMediaUrlKey] = null
-            savedStateHandle[PlaybackPositionKey] = 0L
-            savedStateHandle[PlaybackWhenReadyKey] = true
             player?.stop()
             _uiState.update {
                 it.copy(
                     parsedEntry = null,
                     mediaItem = null,
+                    lastPlayedMediaUrl = null,
                     playbackPositionMs = 0L,
                     playWhenReady = true,
                     isLoading = false,
@@ -168,6 +155,7 @@ class PlayerViewModel(
                 persistPlaybackState()
                 _uiState.update {
                     it.copy(
+                        lastPlayedMediaUrl = activePlaybackConfig?.mediaUrl,
                         playbackPositionMs = player.currentPosition,
                         playWhenReady = player.playWhenReady
                     )
@@ -208,27 +196,17 @@ class PlayerViewModel(
             player
         }
 
-        val resumeSameMedia = savedStateHandle.get<String>(PlaybackMediaUrlKey) == desiredConfig.mediaUrl
-        val startPositionMs = if (resumeSameMedia) {
-            savedStateHandle.get<Long>(PlaybackPositionKey) ?: state.playbackPositionMs
-        } else {
-            0L
-        }
-        val playWhenReady = if (resumeSameMedia) {
-            savedStateHandle.get<Boolean>(PlaybackWhenReadyKey) ?: state.playWhenReady
-        } else {
-            true
-        }
+        val resumeSameMedia = state.lastPlayedMediaUrl == desiredConfig.mediaUrl
+        val startPositionMs = if (resumeSameMedia) state.playbackPositionMs else 0L
+        val playWhenReady = if (resumeSameMedia) state.playWhenReady else true
 
         activePlaybackConfig = desiredConfig
         targetPlayer.setMediaItem(mediaItem, startPositionMs)
         targetPlayer.prepare()
         targetPlayer.playWhenReady = playWhenReady
-        savedStateHandle[PlaybackMediaUrlKey] = desiredConfig.mediaUrl
-        savedStateHandle[PlaybackPositionKey] = startPositionMs
-        savedStateHandle[PlaybackWhenReadyKey] = playWhenReady
         _uiState.update {
             it.copy(
+                lastPlayedMediaUrl = desiredConfig.mediaUrl,
                 playbackPositionMs = startPositionMs,
                 playWhenReady = playWhenReady
             )
@@ -253,8 +231,12 @@ class PlayerViewModel(
     private fun persistPlaybackState() {
         val currentPlayer = player ?: return
         val mediaUrl = activePlaybackConfig?.mediaUrl ?: return
-        savedStateHandle[PlaybackMediaUrlKey] = mediaUrl
-        savedStateHandle[PlaybackPositionKey] = currentPlayer.currentPosition
-        savedStateHandle[PlaybackWhenReadyKey] = currentPlayer.playWhenReady
+        _uiState.update {
+            it.copy(
+                lastPlayedMediaUrl = mediaUrl,
+                playbackPositionMs = currentPlayer.currentPosition,
+                playWhenReady = currentPlayer.playWhenReady
+            )
+        }
     }
 }
