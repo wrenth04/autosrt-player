@@ -41,12 +41,14 @@ import androidx.compose.material3.IconButton
 import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedTextField
+import androidx.compose.material3.Slider
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableFloatStateOf
+import androidx.compose.runtime.mutableLongStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberUpdatedState
@@ -68,6 +70,7 @@ import androidx.core.view.WindowInsetsControllerCompat
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.lifecycle.viewmodel.compose.viewModel
 import androidx.media3.common.C
+import androidx.media3.common.Player
 import androidx.media3.ui.PlayerView
 import com.example.autosrtplayer.data.playback.PlayerFactory
 import kotlinx.coroutines.delay
@@ -90,6 +93,11 @@ private data class GestureHudState(
     val label: String,
     val valueText: String? = null,
     val progress: Float? = null
+)
+
+private data class PlaybackProgressState(
+    val currentPositionMs: Long,
+    val durationMs: Long
 )
 
 @Composable
@@ -281,6 +289,10 @@ private fun FullscreenPlayer(
     var appBrightness by remember(activity) {
         mutableFloatStateOf(resolveInitialBrightness(activity))
     }
+    val progressState = rememberPlaybackProgressState(player)
+    var isScrubbing by remember(player) { mutableStateOf(false) }
+    var scrubPositionMs by remember(player) { mutableLongStateOf(0L) }
+    val displayedPositionMs = if (isScrubbing) scrubPositionMs else progressState.currentPositionMs
     val latestPlayer by rememberUpdatedState(player)
     val density = LocalDensity.current
 
@@ -304,7 +316,7 @@ private fun FullscreenPlayer(
                 factory = { viewContext ->
                     PlayerView(viewContext).apply {
                         this.player = player
-                        useController = true
+                        useController = false
                     }
                 },
                 modifier = Modifier.fillMaxSize(),
@@ -316,7 +328,7 @@ private fun FullscreenPlayer(
             modifier = Modifier
                 .align(Alignment.Center)
                 .fillMaxWidth()
-                .fillMaxHeight(0.72f)
+                .fillMaxHeight(0.62f)
         ) {
             GestureZone(
                 modifier = Modifier
@@ -421,6 +433,31 @@ private fun FullscreenPlayer(
                 modifier = Modifier.align(Alignment.Center)
             )
         }
+
+        FullscreenScrubber(
+            currentPositionMs = displayedPositionMs,
+            durationMs = progressState.durationMs,
+            onValueChange = { value ->
+                if (!isScrubbing) {
+                    scrubPositionMs = progressState.currentPositionMs
+                }
+                isScrubbing = true
+                scrubPositionMs = value
+            },
+            onValueChangeFinished = {
+                val duration = progressState.durationMs
+                if (duration > 0L) {
+                    val target = scrubPositionMs.coerceIn(0L, duration)
+                    player?.seekTo(target)
+                    scrubPositionMs = target
+                }
+                isScrubbing = false
+            },
+            modifier = Modifier
+                .align(Alignment.BottomCenter)
+                .fillMaxWidth()
+                .padding(horizontal = 20.dp, vertical = 20.dp)
+        )
 
         IconButton(
             onClick = onToggleFullscreen,
@@ -527,6 +564,52 @@ private fun GestureZone(
 }
 
 @Composable
+private fun FullscreenScrubber(
+    currentPositionMs: Long,
+    durationMs: Long,
+    onValueChange: (Long) -> Unit,
+    onValueChangeFinished: () -> Unit,
+    modifier: Modifier = Modifier
+) {
+    val isSeekable = durationMs > 0L
+    Card(
+        modifier = modifier,
+        shape = RoundedCornerShape(18.dp)
+    ) {
+        Column(
+            modifier = Modifier
+                .background(Color.Black.copy(alpha = 0.78f))
+                .padding(horizontal = 16.dp, vertical = 12.dp),
+            verticalArrangement = Arrangement.spacedBy(6.dp)
+        ) {
+            Slider(
+                value = if (isSeekable) currentPositionMs.toFloat().coerceIn(0f, durationMs.toFloat()) else 0f,
+                onValueChange = { onValueChange(it.roundToInt().toLong()) },
+                valueRange = 0f..maxOf(durationMs.toFloat(), 1f),
+                onValueChangeFinished = onValueChangeFinished,
+                enabled = isSeekable,
+                modifier = Modifier.fillMaxWidth()
+            )
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.SpaceBetween
+            ) {
+                Text(
+                    text = formatDuration(currentPositionMs),
+                    color = Color.White,
+                    style = MaterialTheme.typography.bodySmall
+                )
+                Text(
+                    text = if (isSeekable) formatDuration(durationMs) else "--:--",
+                    color = Color.White,
+                    style = MaterialTheme.typography.bodySmall
+                )
+            }
+        }
+    }
+}
+
+@Composable
 private fun GestureHud(
     state: GestureHudState,
     modifier: Modifier = Modifier
@@ -573,14 +656,63 @@ private fun GestureHud(
     }
 }
 
+@Composable
+private fun rememberPlaybackProgressState(
+    player: androidx.media3.exoplayer.ExoPlayer?
+): PlaybackProgressState {
+    var currentPositionMs by remember(player) { mutableLongStateOf(player?.currentPosition ?: 0L) }
+    var durationMs by remember(player) {
+        mutableLongStateOf(player?.duration?.takeIf { it != C.TIME_UNSET && it > 0L } ?: 0L)
+    }
+
+    DisposableEffect(player) {
+        if (player == null) {
+            currentPositionMs = 0L
+            durationMs = 0L
+            onDispose { }
+        } else {
+            val listener = object : Player.Listener {
+                override fun onEvents(player: Player, events: Player.Events) {
+                    currentPositionMs = player.currentPosition
+                    durationMs = player.duration.takeIf { it != C.TIME_UNSET && it > 0L } ?: 0L
+                }
+            }
+            player.addListener(listener)
+            currentPositionMs = player.currentPosition
+            durationMs = player.duration.takeIf { it != C.TIME_UNSET && it > 0L } ?: 0L
+            onDispose {
+                player.removeListener(listener)
+            }
+        }
+    }
+
+    LaunchedEffect(player) {
+        while (player != null) {
+            currentPositionMs = player.currentPosition
+            durationMs = player.duration.takeIf { it != C.TIME_UNSET && it > 0L } ?: 0L
+            delay(250)
+        }
+    }
+
+    return PlaybackProgressState(
+        currentPositionMs = currentPositionMs,
+        durationMs = durationMs
+    )
+}
+
 private fun resolveInitialBrightness(activity: Activity?): Float {
     val value = activity?.window?.attributes?.screenBrightness ?: WindowManager.LayoutParams.BRIGHTNESS_OVERRIDE_NONE
     return if (value in MinBrightness..1f) value else 0.5f
 }
 
 private fun formatDuration(durationMs: Long): String {
-    val totalSeconds = durationMs / 1000
-    val minutes = totalSeconds / 60
+    val totalSeconds = (durationMs / 1000).coerceAtLeast(0L)
+    val hours = totalSeconds / 3600
+    val minutes = (totalSeconds % 3600) / 60
     val seconds = totalSeconds % 60
-    return "%02d:%02d".format(minutes, seconds)
+    return if (hours > 0) {
+        "%d:%02d:%02d".format(hours, minutes, seconds)
+    } else {
+        "%02d:%02d".format(minutes, seconds)
+    }
 }
