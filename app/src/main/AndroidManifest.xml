@@ -23,8 +23,10 @@
                 <category android:name="android.intent.category.DEFAULT" />
                 <category android:name="android.intent.category.BROWSABLE" />
 
-                <data android:scheme="http" android:pathPattern=".*\\.m3u8" />
-                <data android:scheme="https" android:pathPattern=".*\\.m3u8" />
+                <data android:scheme="http" android:pathPattern=".*.m3u8" />
+                <data android:scheme="https" android:pathPattern=".*.m3u8" />
+                <data android:scheme="http" android:pathPattern=".*.m3u" />
+                <data android:scheme="https" android:pathPattern=".*.m3u" />
             </intent-filter>
             <intent-filter>
                 <action android:name="android.intent.action.VIEW" />

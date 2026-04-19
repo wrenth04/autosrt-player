@@ -38,6 +38,14 @@ class MainActivity : ComponentActivity() {
         if (data.isBlank()) return null
         val uri = Uri.parse(data)
         val scheme = uri.scheme?.lowercase()
-        return if (scheme == "http" || scheme == "https") data else null
+        if (scheme != "http" && scheme != "https") return null
+
+        val path = uri.path.orEmpty().lowercase()
+        if (path.endsWith(".m3u8") || path.endsWith(".m3u")) return data
+
+        val host = uri.host?.lowercase().orEmpty()
+        if (host == "github.com" && path.startsWith("/wrenth04/autosrt/releases")) return data
+
+        return null
     }
 }
