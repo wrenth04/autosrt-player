@@ -13,6 +13,10 @@ import com.example.autosrtplayer.ui.PlayerScreen
 import com.example.autosrtplayer.ui.theme.AutoSrtPlayerTheme
 
 class MainActivity : ComponentActivity() {
+    companion object {
+        private val UrlRegex = Regex("""https?://\S+""", RegexOption.IGNORE_CASE)
+    }
+
     private var incomingPlaylistUrl by mutableStateOf<String?>(null)
 
     override fun onCreate(savedInstanceState: Bundle?) {
@@ -34,18 +38,16 @@ class MainActivity : ComponentActivity() {
     }
 
     private fun extractPlaylistUrl(intent: Intent?): String? {
-        val data = intent?.dataString?.trim().orEmpty()
-        if (data.isBlank()) return null
-        val uri = Uri.parse(data)
+        if (intent?.action != Intent.ACTION_SEND) return null
+        val sharedText = intent.getStringExtra(Intent.EXTRA_TEXT)?.trim().orEmpty()
+        if (sharedText.isBlank()) return null
+
+        val url = UrlRegex.find(sharedText)?.value?.trim().orEmpty()
+        if (url.isBlank()) return null
+
+        val uri = Uri.parse(url)
         val scheme = uri.scheme?.lowercase()
         if (scheme != "http" && scheme != "https") return null
-
-        val path = uri.path.orEmpty().lowercase()
-        if (path.endsWith(".m3u8") || path.endsWith(".m3u")) return data
-
-        val host = uri.host?.lowercase().orEmpty()
-        if (host == "github.com" && path.startsWith("/wrenth04/autosrt/releases")) return data
-
-        return null
+        return url
     }
 }
