@@ -74,4 +74,16 @@ class SharedUrlExtractorTest {
             result
         )
     }
+
+    @Test
+    fun `extract m3u8 url from app scheme url without protocol`() {
+        val result = SharedUrlExtractor.extractLaunchTarget(
+            "autosrt-player://github.com/wrenth04/autosrt/releases/download/srt/miad-791.m3u8"
+        )
+
+        assertEquals(
+            LaunchTarget.Url("https://github.com/wrenth04/autosrt/releases/download/srt/miad-791.m3u8"),
+            result
+        )
+    }
 }

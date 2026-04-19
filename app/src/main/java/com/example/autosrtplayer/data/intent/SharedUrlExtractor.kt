@@ -9,6 +9,7 @@ sealed interface LaunchTarget {
 
 object SharedUrlExtractor {
     private val UrlRegex = Regex("https?://\\S+", RegexOption.IGNORE_CASE)
+    private val HostLikeRegex = Regex("^[a-z0-9.-]+\\.[a-z]{2,}(/.*)?$", RegexOption.IGNORE_CASE)
     private const val AppSchemePrefix = "autosrt-player://"
 
     fun extractM3uUrl(sharedText: String?): String? {
@@ -40,13 +41,21 @@ object SharedUrlExtractor {
     }
 
     private fun normalizePayloadUrl(payload: String): String {
-        return when {
+        val normalized = when {
             payload.startsWith("https//", ignoreCase = true) ->
                 payload.replaceFirst("https//", "https://", ignoreCase = true)
             payload.startsWith("http//", ignoreCase = true) ->
                 payload.replaceFirst("http//", "http://", ignoreCase = true)
             else -> payload
         }
+        if (
+            !normalized.contains("://") &&
+            HostLikeRegex.matches(normalized) &&
+            isM3uUrl(normalized)
+        ) {
+            return "https://$normalized"
+        }
+        return normalized
     }
 
     private fun isM3uUrl(url: String): Boolean {
