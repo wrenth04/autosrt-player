@@ -130,12 +130,20 @@ private data class BrightnessState(
 
 @Composable
 fun PlayerScreen(
+    sharedM3uUrl: String? = null,
+    onSharedM3uUrlConsumed: () -> Unit = {},
     viewModel: PlayerViewModel = viewModel()
 ) {
     val uiState by viewModel.uiState.collectAsStateWithLifecycle()
     val context = LocalContext.current
     LaunchedEffect(context) {
         viewModel.initialize(context)
+    }
+    LaunchedEffect(sharedM3uUrl) {
+        if (!sharedM3uUrl.isNullOrBlank()) {
+            viewModel.loadFromSharedUrl(sharedM3uUrl)
+            onSharedM3uUrlConsumed()
+        }
     }
     val activity = context as? Activity
     val entry = uiState.parsedEntry

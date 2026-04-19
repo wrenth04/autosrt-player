@@ -115,6 +115,13 @@ class PlayerViewModel(
         loadFromUrl(targetUrl)
     }
 
+    fun loadFromSharedUrl(url: String) {
+        val normalized = url.trim()
+        if (normalized.isBlank()) return
+        _uiState.update { it.copy(playlistUrl = normalized) }
+        loadFromUrl(normalized)
+    }
+
     fun loadFromText() {
         val content = uiState.value.playlistText.trim()
         if (content.isBlank()) {
