@@ -130,6 +130,9 @@ fun PlayerScreen(
 ) {
     val uiState by viewModel.uiState.collectAsStateWithLifecycle()
     val context = LocalContext.current
+    LaunchedEffect(context) {
+        viewModel.initialize(context)
+    }
     val activity = context as? Activity
     val entry = uiState.parsedEntry
     val player = remember(context, entry?.mediaUrl, entry?.userAgent, entry?.referrer) {
@@ -199,6 +202,52 @@ fun PlayerScreen(
         Text("AutoSRT Player", style = MaterialTheme.typography.headlineMedium)
 
         OutlinedTextField(
+            value = uiState.sourceId,
+            onValueChange = viewModel::onSourceIdChange,
+            modifier = Modifier.fillMaxWidth(),
+            label = { Text("來源 ID") },
+            minLines = 1
+        )
+
+        Button(
+            onClick = viewModel::loadFromId,
+            modifier = Modifier.fillMaxWidth()
+        ) {
+            Text("由 ID 載入")
+        }
+
+        Card(
+            modifier = Modifier.fillMaxWidth(),
+            colors = CardDefaults.cardColors(
+                containerColor = MaterialTheme.colorScheme.surfaceVariant
+            )
+        ) {
+            Column(
+                modifier = Modifier.padding(12.dp),
+                verticalArrangement = Arrangement.spacedBy(8.dp)
+            ) {
+                Text(
+                    text = "設定",
+                    style = MaterialTheme.typography.titleMedium
+                )
+                OutlinedTextField(
+                    value = uiState.sourcePrefix,
+                    onValueChange = viewModel::onSourcePrefixChange,
+                    modifier = Modifier.fillMaxWidth(),
+                    label = { Text("來源 Prefix") },
+                    placeholder = { Text("例如：https://github.com/.../srt/") },
+                    minLines = 1
+                )
+                Button(
+                    onClick = viewModel::saveSourcePrefix,
+                    modifier = Modifier.fillMaxWidth()
+                ) {
+                    Text("儲存設定")
+                }
+            }
+        }
+
+        OutlinedTextField(
             value = uiState.playlistUrl,
             onValueChange = viewModel::onPlaylistUrlChange,
             modifier = Modifier.fillMaxWidth(),
@@ -207,7 +256,7 @@ fun PlayerScreen(
         )
 
         Button(
-            onClick = viewModel::loadFromUrl,
+            onClick = { viewModel.loadFromUrl() },
             modifier = Modifier.fillMaxWidth()
         ) {
             Text("由網址載入")
