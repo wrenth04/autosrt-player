@@ -808,8 +808,12 @@ private fun PlaybackSpeedButton(
         DropdownMenu(
             expanded = expanded,
             onDismissRequest = { expanded = false },
-            modifier = Modifier.alpha(contentAlpha),
-            containerColor = Color.Black.copy(alpha = (0.92f * contentAlpha).coerceIn(0f, 1f))
+            modifier = Modifier
+                .alpha(contentAlpha)
+                .background(
+                    color = Color.Black.copy(alpha = (0.92f * contentAlpha).coerceIn(0f, 1f)),
+                    shape = MaterialTheme.shapes.extraSmall
+                )
         ) {
             PlaybackSpeedOptions.forEach { speed ->
                 DropdownMenuItem(
