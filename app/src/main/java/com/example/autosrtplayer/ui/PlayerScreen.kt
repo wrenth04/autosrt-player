@@ -217,7 +217,7 @@ fun PlayerScreen(
             onValueChange = viewModel::onSourceIdChange,
             modifier = Modifier.fillMaxWidth(),
             label = { Text("輸入影片 ID") },
-            placeholder = { Text("例如：ipx-149") },
+            placeholder = { Text("例如：ABCD-123") },
             minLines = 1,
             singleLine = true,
             keyboardOptions = KeyboardOptions(imeAction = ImeAction.Go),
