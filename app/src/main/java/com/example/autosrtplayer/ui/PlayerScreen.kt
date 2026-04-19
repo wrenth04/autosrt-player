@@ -7,6 +7,7 @@ import android.media.AudioManager
 import android.view.WindowManager
 import androidx.activity.compose.BackHandler
 import androidx.compose.foundation.background
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.gestures.detectDragGestures
 import androidx.compose.foundation.gestures.detectTapGestures
 import androidx.compose.foundation.layout.Arrangement
@@ -41,8 +42,6 @@ import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.ButtonDefaults
-import androidx.compose.material3.DropdownMenu
-import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.LinearProgressIndicator
@@ -805,24 +804,33 @@ private fun PlaybackSpeedButton(
             Text(formatPlaybackSpeed(playbackSpeed), color = Color.White.copy(alpha = contentAlpha))
         }
 
-        DropdownMenu(
-            expanded = expanded,
-            onDismissRequest = { expanded = false },
-            modifier = Modifier
-                .alpha(contentAlpha)
-                .background(
-                    color = Color.Black.copy(alpha = (overlayAlpha * 1.6f * contentAlpha).coerceIn(0f, 1f)),
-                    shape = MaterialTheme.shapes.extraSmall
+        if (expanded) {
+            Card(
+                modifier = Modifier
+                    .padding(top = 44.dp)
+                    .width(92.dp)
+                    .alpha(contentAlpha),
+                shape = MaterialTheme.shapes.small,
+                colors = CardDefaults.cardColors(
+                    containerColor = Color.Black.copy(alpha = (overlayAlpha * 1.8f).coerceIn(0f, 1f))
                 )
-        ) {
-            PlaybackSpeedOptions.forEach { speed ->
-                DropdownMenuItem(
-                    text = { Text(formatPlaybackSpeed(speed), color = Color.White.copy(alpha = contentAlpha)) },
-                    onClick = {
-                        expanded = false
-                        onPlaybackSpeedChange(speed)
+            ) {
+                Column {
+                    PlaybackSpeedOptions.forEach { speed ->
+                        Text(
+                            text = formatPlaybackSpeed(speed),
+                            color = Color.White.copy(alpha = contentAlpha),
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .clickable {
+                                    expanded = false
+                                    onPlaybackSpeedChange(speed)
+                                }
+                                .padding(horizontal = 12.dp, vertical = 10.dp),
+                            fontWeight = if (speed == playbackSpeed) FontWeight.Bold else FontWeight.Medium
+                        )
                     }
-                )
+                }
             }
         }
     }
