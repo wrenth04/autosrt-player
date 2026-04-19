@@ -8,6 +8,8 @@ import android.view.WindowManager
 import androidx.activity.compose.BackHandler
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.text.KeyboardActions
+import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.foundation.gestures.detectDragGestures
 import androidx.compose.foundation.gestures.detectTapGestures
 import androidx.compose.foundation.layout.Arrangement
@@ -49,6 +51,7 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Slider
 import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
@@ -69,6 +72,7 @@ import androidx.compose.ui.input.pointer.consumePositionChange
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalDensity
+import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.viewinterop.AndroidView
@@ -191,6 +195,8 @@ fun PlayerScreen(
         )
         return
     }
+    var advancedExpanded by rememberSaveable { mutableStateOf(false) }
+    var techInfoExpanded by rememberSaveable { mutableStateOf(false) }
 
     Column(
         modifier = Modifier
@@ -200,106 +206,46 @@ fun PlayerScreen(
         verticalArrangement = Arrangement.spacedBy(12.dp)
     ) {
         Text("AutoSRT Player", style = MaterialTheme.typography.headlineMedium)
+        Text(
+            text = "輸入影片 ID 後，直接載入並播放",
+            style = MaterialTheme.typography.bodyMedium,
+            color = MaterialTheme.colorScheme.onSurfaceVariant
+        )
 
         OutlinedTextField(
             value = uiState.sourceId,
             onValueChange = viewModel::onSourceIdChange,
             modifier = Modifier.fillMaxWidth(),
-            label = { Text("來源 ID") },
-            minLines = 1
+            label = { Text("輸入影片 ID") },
+            placeholder = { Text("例如：ABCD-123") },
+            minLines = 1,
+            singleLine = true,
+            keyboardOptions = KeyboardOptions(imeAction = ImeAction.Go),
+            keyboardActions = KeyboardActions(onGo = { viewModel.loadFromId() })
         )
 
         Button(
             onClick = viewModel::loadFromId,
             modifier = Modifier.fillMaxWidth()
         ) {
-            Text("由 ID 載入")
-        }
-
-        Card(
-            modifier = Modifier.fillMaxWidth(),
-            colors = CardDefaults.cardColors(
-                containerColor = MaterialTheme.colorScheme.surfaceVariant
-            )
-        ) {
-            Column(
-                modifier = Modifier.padding(12.dp),
-                verticalArrangement = Arrangement.spacedBy(8.dp)
-            ) {
-                Text(
-                    text = "設定",
-                    style = MaterialTheme.typography.titleMedium
-                )
-                OutlinedTextField(
-                    value = uiState.sourcePrefix,
-                    onValueChange = viewModel::onSourcePrefixChange,
-                    modifier = Modifier.fillMaxWidth(),
-                    label = { Text("來源 Prefix") },
-                    placeholder = { Text("例如：https://github.com/.../srt/") },
-                    minLines = 1
-                )
-                Button(
-                    onClick = viewModel::saveSourcePrefix,
-                    modifier = Modifier.fillMaxWidth()
-                ) {
-                    Text("儲存設定")
-                }
-            }
-        }
-
-        OutlinedTextField(
-            value = uiState.playlistUrl,
-            onValueChange = viewModel::onPlaylistUrlChange,
-            modifier = Modifier.fillMaxWidth(),
-            label = { Text("Playlist URL") },
-            minLines = 1
-        )
-
-        Button(
-            onClick = { viewModel.loadFromUrl() },
-            modifier = Modifier.fillMaxWidth()
-        ) {
-            Text("由網址載入")
-        }
-
-        OutlinedTextField(
-            value = uiState.playlistText,
-            onValueChange = viewModel::onPlaylistTextChange,
-            modifier = Modifier.fillMaxWidth(),
-            label = { Text("EXTM3U 內容") },
-            minLines = 8
-        )
-
-        Button(
-            onClick = viewModel::loadFromText,
-            modifier = Modifier.fillMaxWidth()
-        ) {
-            Text("由文字播放")
+            Text("載入並播放")
         }
 
         if (uiState.isLoading) {
-            CircularProgressIndicator()
-        }
-
-        uiState.errorMessage?.let { message ->
-            Text(
-                text = message,
-                color = MaterialTheme.colorScheme.error,
-                style = MaterialTheme.typography.bodyMedium
-            )
-        }
-
-        entry?.let {
             Card(modifier = Modifier.fillMaxWidth()) {
                 Column(
-                    modifier = Modifier.padding(16.dp),
-                    verticalArrangement = Arrangement.spacedBy(8.dp)
+                    modifier = Modifier.padding(12.dp),
+                    verticalArrangement = Arrangement.spacedBy(6.dp)
                 ) {
-                    Text("Title: ${it.title ?: "(none)"}")
-                    Text("Media URL: ${it.mediaUrl}")
-                    Text("User-Agent: ${it.userAgent ?: "(none)"}")
-                    Text("Referer: ${it.referrer ?: "(none)"}")
-                    Text("Subtitle: ${it.subtitleUrl ?: "(none)"}")
+                    CircularProgressIndicator()
+                    val stageLabel = when (uiState.loadingStage) {
+                        LoadingStage.ResolvingId -> "正在解析 ID…"
+                        LoadingStage.FetchingPlaylist -> "正在取得播放清單…"
+                        LoadingStage.BuildingPlayer -> "播放器初始化中…"
+                        LoadingStage.Idle -> "載入中…"
+                    }
+                    Text(stageLabel)
+                    uiState.currentRequestLabel?.let { Text("來源：$it", style = MaterialTheme.typography.bodySmall) }
                 }
             }
         }
@@ -310,6 +256,106 @@ fun PlayerScreen(
             onPlaybackSpeedChange = viewModel::setPlaybackSpeed,
             onToggleFullscreen = viewModel::toggleFullscreen
         )
+
+        uiState.errorMessage?.let { message ->
+            Card(
+                modifier = Modifier.fillMaxWidth(),
+                colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.errorContainer)
+            ) {
+                Column(
+                    modifier = Modifier.padding(12.dp),
+                    verticalArrangement = Arrangement.spacedBy(6.dp)
+                ) {
+                    Text(text = message, color = MaterialTheme.colorScheme.onErrorContainer)
+                    if (uiState.errorType == UiErrorType.PrefixMissing) {
+                        TextButton(onClick = { advancedExpanded = true }) {
+                            Text("前往進階選項設定來源")
+                        }
+                    }
+                }
+            }
+        }
+
+        entry?.let {
+            Card(modifier = Modifier.fillMaxWidth()) {
+                Column(
+                    modifier = Modifier.padding(16.dp),
+                    verticalArrangement = Arrangement.spacedBy(8.dp)
+                ) {
+                    Text("標題：${it.title ?: "(未提供)"}")
+                    Text("字幕狀態：${if (it.subtitleUrl.isNullOrBlank()) "未載入" else "已載入"}")
+                    Text("來源狀態：可播放")
+                    TextButton(onClick = { techInfoExpanded = !techInfoExpanded }) {
+                        Text(if (techInfoExpanded) "隱藏技術資訊" else "查看技術資訊")
+                    }
+                    if (techInfoExpanded) {
+                        Text("Media URL: ${it.mediaUrl}")
+                        Text("User-Agent: ${it.userAgent ?: "(none)"}")
+                        Text("Referer: ${it.referrer ?: "(none)"}")
+                        Text("Subtitle: ${it.subtitleUrl ?: "(none)"}")
+                    }
+                }
+            }
+        }
+
+        Card(
+            modifier = Modifier.fillMaxWidth(),
+            colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant)
+        ) {
+            Column(
+                modifier = Modifier.padding(12.dp),
+                verticalArrangement = Arrangement.spacedBy(8.dp)
+            ) {
+                TextButton(onClick = { advancedExpanded = !advancedExpanded }) {
+                    Text(if (advancedExpanded) "收合進階選項" else "展開進階選項")
+                }
+                if (advancedExpanded) {
+                    OutlinedTextField(
+                        value = uiState.playlistUrl,
+                        onValueChange = viewModel::onPlaylistUrlChange,
+                        modifier = Modifier.fillMaxWidth(),
+                        label = { Text("M3U8 網址") },
+                        placeholder = { Text("貼上完整播放清單網址") },
+                        minLines = 1,
+                        singleLine = true
+                    )
+                    Button(
+                        onClick = { viewModel.loadFromUrl() },
+                        modifier = Modifier.fillMaxWidth()
+                    ) {
+                        Text("用網址播放")
+                    }
+                    OutlinedTextField(
+                        value = uiState.playlistText,
+                        onValueChange = viewModel::onPlaylistTextChange,
+                        modifier = Modifier.fillMaxWidth(),
+                        label = { Text("貼上 M3U 內容") },
+                        placeholder = { Text("貼上 #EXTM3U 開頭的文字內容") },
+                        minLines = 6
+                    )
+                    Button(
+                        onClick = viewModel::loadFromText,
+                        modifier = Modifier.fillMaxWidth()
+                    ) {
+                        Text("匯入 M3U")
+                    }
+                    OutlinedTextField(
+                        value = uiState.sourcePrefix,
+                        onValueChange = viewModel::onSourcePrefixChange,
+                        modifier = Modifier.fillMaxWidth(),
+                        label = { Text("來源設定") },
+                        placeholder = { Text("例如：https://github.com/.../srt/") },
+                        minLines = 1
+                    )
+                    Button(
+                        onClick = viewModel::saveSourcePrefix,
+                        modifier = Modifier.fillMaxWidth()
+                    ) {
+                        Text("儲存設定")
+                    }
+                }
+            }
+        }
 
         Spacer(modifier = Modifier.height(12.dp))
     }
