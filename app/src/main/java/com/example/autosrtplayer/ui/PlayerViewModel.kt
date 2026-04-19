@@ -31,6 +31,7 @@ class PlayerViewModel(
     companion object {
         private const val PrefsName = "autosrt_player_settings"
         private const val KeySourcePrefix = "source_prefix"
+        private val UrlRegex = Regex("""https?://\S+""")
     }
 
     private val _uiState = MutableStateFlow(PlayerUiState())
@@ -139,6 +140,10 @@ class PlayerViewModel(
             _uiState.update { it.copy(errorMessage = "請先輸入 M3U8 網址", errorType = UiErrorType.Validation) }
             return
         }
+        if (looksLikeM3u8(url)) {
+            loadFromM3u8Url(url)
+            return
+        }
 
         viewModelScope.launch {
             _uiState.update {
@@ -171,6 +176,37 @@ class PlayerViewModel(
                         errorType = UiErrorType.Network,
                         errorMessage = error.message ?: "載入播放清單失敗"
                     )
+                }
+            }
+        }
+    }
+
+    fun handleSharedText(sharedText: String) {
+        val content = sharedText.trim()
+        if (content.isBlank()) return
+        if (content.startsWith("#EXTM3U")) {
+            _uiState.update {
+                it.copy(
+                    playlistText = content,
+                    isLoading = true,
+                    loadingStage = LoadingStage.BuildingPlayer,
+                    currentRequestLabel = "分享的 M3U",
+                    errorMessage = null,
+                    errorType = UiErrorType.None
+                )
+            }
+            parseAndBuild(content)
+            return
+        }
+
+        val urls = UrlRegex.findAll(content).map { it.value.trim() }.toList()
+        val mediaUrl = urls.firstOrNull(::looksLikeM3u8)
+        when {
+            mediaUrl != null -> loadFromM3u8Url(mediaUrl)
+            urls.isNotEmpty() -> loadFromUrl(urls.first())
+            else -> {
+                _uiState.update {
+                    it.copy(errorMessage = "分享內容無可播放網址", errorType = UiErrorType.Validation)
                 }
             }
         }
@@ -233,6 +269,30 @@ class PlayerViewModel(
                 )
             }
         }
+    }
+
+    private fun loadFromM3u8Url(mediaUrl: String) {
+        val syntheticPlaylist = buildString {
+            appendLine("#EXTM3U")
+            append(mediaUrl)
+        }
+        _uiState.update {
+            it.copy(
+                playlistUrl = mediaUrl,
+                playlistText = syntheticPlaylist,
+                isLoading = true,
+                loadingStage = LoadingStage.BuildingPlayer,
+                currentRequestLabel = mediaUrl,
+                errorMessage = null,
+                errorType = UiErrorType.None
+            )
+        }
+        parseAndBuild(content = syntheticPlaylist, playlistUrl = mediaUrl)
+    }
+
+    private fun looksLikeM3u8(url: String): Boolean {
+        val normalized = url.substringBefore('?').lowercase()
+        return normalized.endsWith(".m3u8")
     }
 
     private fun buildPlayer(context: Context): ExoPlayer {
@@ -349,4 +409,5 @@ class PlayerViewModel(
             )
         }
     }
+
 }
