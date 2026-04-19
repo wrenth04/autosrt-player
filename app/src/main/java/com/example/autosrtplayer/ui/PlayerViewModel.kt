@@ -92,24 +92,42 @@ class PlayerViewModel(
         val state = uiState.value
         val id = state.sourceId.trim()
         if (id.isBlank()) {
-            _uiState.update { it.copy(errorMessage = "請先輸入來源 ID") }
+            _uiState.update { it.copy(errorMessage = "請先輸入影片 ID", errorType = UiErrorType.Validation) }
             return
         }
         val prefix = state.sourcePrefix.trim()
         if (prefix.isBlank()) {
-            _uiState.update { it.copy(errorMessage = "請先到設定填入來源 prefix") }
+            _uiState.update { it.copy(errorMessage = "請先到進階選項設定來源", errorType = UiErrorType.PrefixMissing) }
             return
         }
         val targetUrl = "$prefix$id.m3u8"
-        _uiState.update { it.copy(playlistUrl = targetUrl) }
+        _uiState.update {
+            it.copy(
+                playlistUrl = targetUrl,
+                isLoading = true,
+                loadingStage = LoadingStage.ResolvingId,
+                currentRequestLabel = "ID: $id",
+                errorMessage = null,
+                errorType = UiErrorType.None
+            )
+        }
         loadFromUrl(targetUrl)
     }
 
     fun loadFromText() {
         val content = uiState.value.playlistText.trim()
         if (content.isBlank()) {
-            _uiState.update { it.copy(errorMessage = "請先輸入 playlist 內容") }
+            _uiState.update { it.copy(errorMessage = "請先貼上 M3U 內容", errorType = UiErrorType.Validation) }
             return
+        }
+        _uiState.update {
+            it.copy(
+                isLoading = true,
+                loadingStage = LoadingStage.BuildingPlayer,
+                currentRequestLabel = "M3U 文字",
+                errorMessage = null,
+                errorType = UiErrorType.None
+            )
         }
         parseAndBuild(content)
     }
@@ -117,22 +135,40 @@ class PlayerViewModel(
     fun loadFromUrl(targetUrl: String? = null) {
         val url = targetUrl?.trim() ?: uiState.value.playlistUrl.trim()
         if (url.isBlank()) {
-            _uiState.update { it.copy(errorMessage = "請先輸入 playlist 網址") }
+            _uiState.update { it.copy(errorMessage = "請先輸入 M3U8 網址", errorType = UiErrorType.Validation) }
             return
         }
 
         viewModelScope.launch {
-            _uiState.update { it.copy(isLoading = true, errorMessage = null) }
+            _uiState.update {
+                it.copy(
+                    isLoading = true,
+                    loadingStage = LoadingStage.FetchingPlaylist,
+                    currentRequestLabel = url,
+                    errorMessage = null,
+                    errorType = UiErrorType.None
+                )
+            }
             runCatching {
                 repository.loadFromUrl(url)
             }.onSuccess { content ->
-                _uiState.update { current -> current.copy(playlistText = content) }
+                _uiState.update { current ->
+                    current.copy(
+                        playlistText = content,
+                        isLoading = true,
+                        loadingStage = LoadingStage.BuildingPlayer,
+                        currentRequestLabel = url
+                    )
+                }
                 parseAndBuild(content, url)
             }.onFailure { error ->
                 _uiState.update {
                     it.copy(
                         isLoading = false,
-                        errorMessage = error.message ?: "讀取 playlist 失敗"
+                        loadingStage = LoadingStage.Idle,
+                        currentRequestLabel = null,
+                        errorType = UiErrorType.Network,
+                        errorMessage = error.message ?: "載入播放清單失敗"
                     )
                 }
             }
@@ -171,7 +207,10 @@ class PlayerViewModel(
                     parsedEntry = entry,
                     mediaItem = mediaItem,
                     isLoading = false,
-                    errorMessage = null
+                    loadingStage = LoadingStage.Idle,
+                    currentRequestLabel = null,
+                    errorMessage = null,
+                    errorType = UiErrorType.None
                 )
             }
             player?.let(::syncPlayerWithState)
@@ -186,7 +225,10 @@ class PlayerViewModel(
                     playbackPositionMs = 0L,
                     playWhenReady = true,
                     isLoading = false,
-                    errorMessage = error.message ?: "解析 playlist 失敗"
+                    loadingStage = LoadingStage.Idle,
+                    currentRequestLabel = null,
+                    errorType = UiErrorType.Parse,
+                    errorMessage = error.message ?: "解析播放清單失敗"
                 )
             }
         }
