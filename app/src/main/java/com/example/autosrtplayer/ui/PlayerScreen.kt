@@ -568,6 +568,7 @@ private fun FullscreenPlayer(
                     .padding(16.dp)
                     .alpha(controlsContentAlpha),
                 overlayAlpha = ControlOverlayAlpha,
+                contentAlpha = controlsContentAlpha,
                 onExpandedChange = { pingControls() }
             )
 
@@ -783,6 +784,7 @@ private fun PlaybackSpeedButton(
     onPlaybackSpeedChange: (Float) -> Unit,
     modifier: Modifier = Modifier,
     overlayAlpha: Float = 0.45f,
+    contentAlpha: Float = 1f,
     onExpandedChange: (() -> Unit)? = null
 ) {
     var expanded by remember { mutableStateOf(false) }
@@ -796,20 +798,22 @@ private fun PlaybackSpeedButton(
             modifier = Modifier.height(40.dp),
             shape = MaterialTheme.shapes.small,
             colors = ButtonDefaults.buttonColors(
-                containerColor = Color.Black.copy(alpha = overlayAlpha),
-                contentColor = Color.White
+                containerColor = Color.Black.copy(alpha = overlayAlpha * contentAlpha),
+                contentColor = Color.White.copy(alpha = contentAlpha)
             )
         ) {
-            Text(formatPlaybackSpeed(playbackSpeed))
+            Text(formatPlaybackSpeed(playbackSpeed), color = Color.White.copy(alpha = contentAlpha))
         }
 
         DropdownMenu(
             expanded = expanded,
-            onDismissRequest = { expanded = false }
+            onDismissRequest = { expanded = false },
+            modifier = Modifier.alpha(contentAlpha),
+            containerColor = Color.Black.copy(alpha = (0.92f * contentAlpha).coerceIn(0f, 1f))
         ) {
             PlaybackSpeedOptions.forEach { speed ->
                 DropdownMenuItem(
-                    text = { Text(formatPlaybackSpeed(speed)) },
+                    text = { Text(formatPlaybackSpeed(speed), color = Color.White.copy(alpha = contentAlpha)) },
                     onClick = {
                         expanded = false
                         onPlaybackSpeedChange(speed)
