@@ -811,7 +811,7 @@ private fun PlaybackSpeedButton(
             modifier = Modifier
                 .alpha(contentAlpha)
                 .background(
-                    color = Color.Black.copy(alpha = (0.92f * contentAlpha).coerceIn(0f, 1f)),
+                    color = Color.Black.copy(alpha = (overlayAlpha * 1.6f * contentAlpha).coerceIn(0f, 1f)),
                     shape = MaterialTheme.shapes.extraSmall
                 )
         ) {
