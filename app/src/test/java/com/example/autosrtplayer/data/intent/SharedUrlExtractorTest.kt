@@ -31,4 +31,35 @@ class SharedUrlExtractorTest {
 
         assertNull(result)
     }
+
+    @Test
+    fun `extract source id from app scheme url`() {
+        val result = SharedUrlExtractor.extractLaunchTarget("autosrt-player://ABCD-123")
+
+        assertEquals(LaunchTarget.SourceId("ABCD-123"), result)
+    }
+
+    @Test
+    fun `extract m3u8 url from app scheme url`() {
+        val result = SharedUrlExtractor.extractLaunchTarget(
+            "autosrt-player://https://stream.example.com/path/index.m3u8"
+        )
+
+        assertEquals(
+            LaunchTarget.Url("https://stream.example.com/path/index.m3u8"),
+            result
+        )
+    }
+
+    @Test
+    fun `extract encoded m3u8 url from app scheme url`() {
+        val result = SharedUrlExtractor.extractLaunchTarget(
+            "autosrt-player://https%3A%2F%2Fstream.example.com%2Fpath%2Findex.m3u8"
+        )
+
+        assertEquals(
+            LaunchTarget.Url("https://stream.example.com/path/index.m3u8"),
+            result
+        )
+    }
 }

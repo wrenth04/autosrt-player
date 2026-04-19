@@ -122,6 +122,13 @@ class PlayerViewModel(
         loadFromUrl(normalized)
     }
 
+    fun loadFromExternalId(id: String) {
+        val normalized = id.trim()
+        if (normalized.isBlank()) return
+        _uiState.update { it.copy(sourceId = normalized) }
+        loadFromId()
+    }
+
     fun loadFromText() {
         val content = uiState.value.playlistText.trim()
         if (content.isBlank()) {
