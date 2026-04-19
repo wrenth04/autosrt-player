@@ -63,6 +63,7 @@ import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.alpha
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.input.pointer.consumePositionChange
@@ -97,6 +98,7 @@ private const val CenterButtonSize = 72
 private const val ControlOverlayAlpha = 0.14f
 private const val ScrubberOverlayAlpha = 0.10f
 private const val GestureHudAlpha = 0.08f
+private const val MinControlsContentAlpha = 0.18f
 private val PlaybackSpeedOptions = listOf(0.5f, 1f, 2f, 4f, 8f)
 
 private enum class OverlayGestureMode {
@@ -396,6 +398,8 @@ private fun FullscreenPlayer(
             .fillMaxSize()
             .background(Color.Black)
     ) {
+        val controlsContentAlpha =
+            (1f - dimOverlayAlpha).coerceIn(MinControlsContentAlpha, 1f)
         val widthPx = with(density) { maxWidth.toPx() }.takeIf { it > 0f } ?: 1f
         val heightPx = with(density) { maxHeight.toPx() }.takeIf { it > 0f } ?: 1f
 
@@ -430,6 +434,7 @@ private fun FullscreenPlayer(
                     .align(Alignment.Center)
                     .fillMaxWidth()
                     .fillMaxHeight(0.62f)
+                    .alpha(controlsContentAlpha)
             ) {
                 val handleSeekChange: (Long, Long) -> Unit = { deltaMs, targetMs ->
                     hudState = GestureHudState(
@@ -530,6 +535,7 @@ private fun FullscreenPlayer(
                     .align(Alignment.Center)
                     .background(Color.Black.copy(alpha = ControlOverlayAlpha), shape = CircleShape)
                     .size(CenterButtonSize.dp)
+                    .alpha(controlsContentAlpha)
             ) {
                 val isPlaying = player?.isPlaying == true
                 Icon(
@@ -544,7 +550,9 @@ private fun FullscreenPlayer(
         hudState?.let {
             GestureHud(
                 state = it,
-                modifier = Modifier.align(Alignment.Center)
+                modifier = Modifier
+                    .align(Alignment.Center)
+                    .alpha(controlsContentAlpha)
             )
         }
 
@@ -557,8 +565,10 @@ private fun FullscreenPlayer(
                 },
                 modifier = Modifier
                     .align(Alignment.TopStart)
-                    .padding(16.dp),
+                    .padding(16.dp)
+                    .alpha(controlsContentAlpha),
                 overlayAlpha = ControlOverlayAlpha,
+                contentAlpha = controlsContentAlpha,
                 onExpandedChange = { pingControls() }
             )
 
@@ -587,6 +597,7 @@ private fun FullscreenPlayer(
                     .align(Alignment.BottomCenter)
                     .fillMaxWidth()
                     .padding(horizontal = 20.dp, vertical = 20.dp)
+                    .alpha(controlsContentAlpha)
             )
 
             IconButton(
@@ -599,6 +610,7 @@ private fun FullscreenPlayer(
                     .padding(16.dp)
                     .background(Color.Black.copy(alpha = ControlOverlayAlpha), shape = MaterialTheme.shapes.small)
                     .size(48.dp)
+                    .alpha(controlsContentAlpha)
             ) {
                 Icon(
                     imageVector = Icons.Filled.FullscreenExit,
@@ -772,6 +784,7 @@ private fun PlaybackSpeedButton(
     onPlaybackSpeedChange: (Float) -> Unit,
     modifier: Modifier = Modifier,
     overlayAlpha: Float = 0.45f,
+    contentAlpha: Float = 1f,
     onExpandedChange: (() -> Unit)? = null
 ) {
     var expanded by remember { mutableStateOf(false) }
@@ -785,20 +798,26 @@ private fun PlaybackSpeedButton(
             modifier = Modifier.height(40.dp),
             shape = MaterialTheme.shapes.small,
             colors = ButtonDefaults.buttonColors(
-                containerColor = Color.Black.copy(alpha = overlayAlpha),
-                contentColor = Color.White
+                containerColor = Color.Black.copy(alpha = overlayAlpha * contentAlpha),
+                contentColor = Color.White.copy(alpha = contentAlpha)
             )
         ) {
-            Text(formatPlaybackSpeed(playbackSpeed))
+            Text(formatPlaybackSpeed(playbackSpeed), color = Color.White.copy(alpha = contentAlpha))
         }
 
         DropdownMenu(
             expanded = expanded,
-            onDismissRequest = { expanded = false }
+            onDismissRequest = { expanded = false },
+            modifier = Modifier
+                .alpha(contentAlpha)
+                .background(
+                    color = Color.Black.copy(alpha = (overlayAlpha * 1.6f * contentAlpha).coerceIn(0f, 1f)),
+                    shape = MaterialTheme.shapes.extraSmall
+                )
         ) {
             PlaybackSpeedOptions.forEach { speed ->
                 DropdownMenuItem(
-                    text = { Text(formatPlaybackSpeed(speed)) },
+                    text = { Text(formatPlaybackSpeed(speed), color = Color.White.copy(alpha = contentAlpha)) },
                     onClick = {
                         expanded = false
                         onPlaybackSpeedChange(speed)
