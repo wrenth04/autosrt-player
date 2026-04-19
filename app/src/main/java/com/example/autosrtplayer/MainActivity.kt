@@ -1,6 +1,7 @@
 package com.example.autosrtplayer
 
 import android.content.Intent
+import android.net.Uri
 import android.os.Bundle
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
@@ -35,10 +36,8 @@ class MainActivity : ComponentActivity() {
     private fun extractPlaylistUrl(intent: Intent?): String? {
         val data = intent?.dataString?.trim().orEmpty()
         if (data.isBlank()) return null
-        return if (data.substringBefore('?').substringBefore('#').endsWith(".m3u8", ignoreCase = true)) {
-            data
-        } else {
-            null
-        }
+        val uri = Uri.parse(data)
+        val scheme = uri.scheme?.lowercase()
+        return if (scheme == "http" || scheme == "https") data else null
     }
 }

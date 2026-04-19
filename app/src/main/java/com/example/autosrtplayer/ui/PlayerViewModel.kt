@@ -152,16 +152,18 @@ class PlayerViewModel(
             }
             runCatching {
                 repository.loadFromUrl(url)
-            }.onSuccess { content ->
+            }.onSuccess { loaded ->
+                val resolvedUrl = loaded.resolvedUrl
                 _uiState.update { current ->
                     current.copy(
-                        playlistText = content,
+                        playlistUrl = resolvedUrl,
+                        playlistText = loaded.content,
                         isLoading = true,
                         loadingStage = LoadingStage.BuildingPlayer,
-                        currentRequestLabel = url
+                        currentRequestLabel = resolvedUrl
                     )
                 }
-                parseAndBuild(content, url)
+                parseAndBuild(loaded.content, resolvedUrl)
             }.onFailure { error ->
                 _uiState.update {
                     it.copy(
