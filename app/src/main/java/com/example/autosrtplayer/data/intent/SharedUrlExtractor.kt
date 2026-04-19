@@ -26,7 +26,7 @@ object SharedUrlExtractor {
         if (rawPayload.isBlank()) return null
         val decodedPayload = Uri.decode(rawPayload).trim()
 
-        val sanitizedPayload = sanitizeUrl(decodedPayload)
+        val sanitizedPayload = sanitizeUrl(normalizePayloadUrl(decodedPayload))
         if (isM3uUrl(sanitizedPayload)) {
             return LaunchTarget.Url(sanitizedPayload)
         }
@@ -37,6 +37,16 @@ object SharedUrlExtractor {
 
     private fun sanitizeUrl(url: String): String {
         return url.trimEnd('.', ',', ';', ')', ']', '"', '\'')
+    }
+
+    private fun normalizePayloadUrl(payload: String): String {
+        return when {
+            payload.startsWith("https//", ignoreCase = true) ->
+                payload.replaceFirst("https//", "https://", ignoreCase = true)
+            payload.startsWith("http//", ignoreCase = true) ->
+                payload.replaceFirst("http//", "http://", ignoreCase = true)
+            else -> payload
+        }
     }
 
     private fun isM3uUrl(url: String): Boolean {
