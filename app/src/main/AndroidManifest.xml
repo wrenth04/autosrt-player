@@ -17,6 +17,15 @@
 
                 <category android:name="android.intent.category.LAUNCHER" />
             </intent-filter>
+            <intent-filter>
+                <action android:name="android.intent.action.VIEW" />
+
+                <category android:name="android.intent.category.DEFAULT" />
+                <category android:name="android.intent.category.BROWSABLE" />
+
+                <data android:scheme="http" android:pathPattern=".*\\.m3u8" />
+                <data android:scheme="https" android:pathPattern=".*\\.m3u8" />
+            </intent-filter>
         </activity>
     </application>
 

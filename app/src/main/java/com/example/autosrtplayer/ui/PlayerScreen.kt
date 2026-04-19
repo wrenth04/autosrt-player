@@ -130,12 +130,16 @@ private data class BrightnessState(
 
 @Composable
 fun PlayerScreen(
+    initialPlaylistUrl: String? = null,
     viewModel: PlayerViewModel = viewModel()
 ) {
     val uiState by viewModel.uiState.collectAsStateWithLifecycle()
     val context = LocalContext.current
     LaunchedEffect(context) {
         viewModel.initialize(context)
+    }
+    LaunchedEffect(initialPlaylistUrl) {
+        initialPlaylistUrl?.let(viewModel::loadFromUrl)
     }
     val activity = context as? Activity
     val entry = uiState.parsedEntry
