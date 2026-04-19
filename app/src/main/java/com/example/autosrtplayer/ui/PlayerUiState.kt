@@ -4,6 +4,8 @@ import androidx.media3.common.MediaItem
 import com.example.autosrtplayer.data.playlist.PlaylistEntry
 
 data class PlayerUiState(
+    val sourceId: String = "",
+    val sourcePrefix: String = "",
     val playlistText: String = "",
     val playlistUrl: String = "",
     val parsedEntry: PlaylistEntry? = null,

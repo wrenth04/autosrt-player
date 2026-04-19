@@ -1,6 +1,7 @@
 package com.example.autosrtplayer.ui
 
 import android.content.Context
+import android.content.SharedPreferences
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import androidx.media3.common.Player
@@ -27,16 +28,31 @@ class PlayerViewModel(
     private val mediaItemBuilder: MediaItemBuilder = MediaItemBuilder(),
     private val playerFactory: PlayerFactory = PlayerFactory()
 ) : ViewModel() {
+    companion object {
+        private const val PrefsName = "autosrt_player_settings"
+        private const val KeySourcePrefix = "source_prefix"
+    }
+
     private val _uiState = MutableStateFlow(PlayerUiState())
     val uiState: StateFlow<PlayerUiState> = _uiState.asStateFlow()
 
     private var appContext: Context? = null
+    private var settingsPrefs: SharedPreferences? = null
     private var player: ExoPlayer? = null
     private var playerListener: Player.Listener? = null
     private var activePlaybackConfig: PlaybackConfig? = null
 
-    fun getOrCreatePlayer(context: Context): ExoPlayer {
+    fun initialize(context: Context) {
         appContext = context.applicationContext
+        if (settingsPrefs == null) {
+            settingsPrefs = appContext?.getSharedPreferences(PrefsName, Context.MODE_PRIVATE)
+            val sourcePrefix = settingsPrefs?.getString(KeySourcePrefix, "").orEmpty()
+            _uiState.update { it.copy(sourcePrefix = sourcePrefix) }
+        }
+    }
+
+    fun getOrCreatePlayer(context: Context): ExoPlayer {
+        initialize(context)
         val existingPlayer = player
         if (existingPlayer != null) {
             syncPlayerWithState(existingPlayer)
@@ -58,6 +74,37 @@ class PlayerViewModel(
         _uiState.update { it.copy(playlistUrl = value) }
     }
 
+    fun onSourceIdChange(value: String) {
+        _uiState.update { it.copy(sourceId = value) }
+    }
+
+    fun onSourcePrefixChange(value: String) {
+        _uiState.update { it.copy(sourcePrefix = value) }
+    }
+
+    fun saveSourcePrefix() {
+        val sourcePrefix = uiState.value.sourcePrefix.trim()
+        settingsPrefs?.edit()?.putString(KeySourcePrefix, sourcePrefix)?.apply()
+        _uiState.update { it.copy(sourcePrefix = sourcePrefix) }
+    }
+
+    fun loadFromId() {
+        val state = uiState.value
+        val id = state.sourceId.trim()
+        if (id.isBlank()) {
+            _uiState.update { it.copy(errorMessage = "請先輸入來源 ID") }
+            return
+        }
+        val prefix = state.sourcePrefix.trim()
+        if (prefix.isBlank()) {
+            _uiState.update { it.copy(errorMessage = "請先到設定填入來源 prefix") }
+            return
+        }
+        val targetUrl = "$prefix$id.m3u8"
+        _uiState.update { it.copy(playlistUrl = targetUrl) }
+        loadFromUrl(targetUrl)
+    }
+
     fun loadFromText() {
         val content = uiState.value.playlistText.trim()
         if (content.isBlank()) {
@@ -67,8 +114,8 @@ class PlayerViewModel(
         parseAndBuild(content)
     }
 
-    fun loadFromUrl() {
-        val url = uiState.value.playlistUrl.trim()
+    fun loadFromUrl(targetUrl: String? = null) {
+        val url = targetUrl?.trim() ?: uiState.value.playlistUrl.trim()
         if (url.isBlank()) {
             _uiState.update { it.copy(errorMessage = "請先輸入 playlist 網址") }
             return
