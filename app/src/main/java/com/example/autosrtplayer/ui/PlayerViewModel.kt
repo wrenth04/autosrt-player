@@ -41,6 +41,7 @@ class PlayerViewModel(
     private var player: ExoPlayer? = null
     private var playerListener: Player.Listener? = null
     private var activePlaybackConfig: PlaybackConfig? = null
+    private var autoFullscreenPending: Boolean = false
 
     fun initialize(context: Context) {
         appContext = context.applicationContext
@@ -245,6 +246,15 @@ class PlayerViewModel(
 
     private fun attachPlayerListener(player: ExoPlayer) {
         val listener = object : Player.Listener {
+            override fun onIsPlayingChanged(isPlaying: Boolean) {
+                if (isPlaying && autoFullscreenPending) {
+                    autoFullscreenPending = false
+                    _uiState.update { state ->
+                        if (state.isFullscreen) state else state.copy(isFullscreen = true)
+                    }
+                }
+            }
+
             override fun onEvents(player: Player, events: Player.Events) {
                 persistPlaybackState()
                 _uiState.update {
@@ -298,6 +308,7 @@ class PlayerViewModel(
         val startPositionMs = if (resumeSameMedia) state.playbackPositionMs else 0L
         val playWhenReady = if (resumeSameMedia) state.playWhenReady else true
 
+        autoFullscreenPending = true
         activePlaybackConfig = desiredConfig
         targetPlayer.setMediaItem(mediaItem, startPositionMs)
         targetPlayer.prepare()
