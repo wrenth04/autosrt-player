@@ -39,11 +39,12 @@ import androidx.compose.material.icons.filled.Fullscreen
 import androidx.compose.material.icons.filled.FullscreenExit
 import androidx.compose.material.icons.filled.Pause
 import androidx.compose.material.icons.filled.PlayArrow
+import androidx.compose.foundation.BorderStroke
 import androidx.compose.material3.Button
+import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.CircularProgressIndicator
-import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.LinearProgressIndicator
@@ -102,6 +103,10 @@ private const val ControlOverlayAlpha = 0.14f
 private const val ScrubberOverlayAlpha = 0.10f
 private const val GestureHudAlpha = 0.08f
 private const val MinControlsContentAlpha = 0.18f
+private const val MinSpeedControlAlpha = 0.42f
+private const val SpeedMenuContainerAlpha = 0.94f
+private const val SpeedMenuBorderAlpha = 0.36f
+private const val SpeedMenuItemPaddingVertical = 10
 private val PlaybackSpeedOptions = listOf(0.5f, 1f, 2f, 4f, 8f)
 
 private enum class OverlayGestureMode {
@@ -510,6 +515,8 @@ private fun FullscreenPlayer(
     ) {
         val controlsContentAlpha =
             (1f - dimOverlayAlpha).coerceIn(MinControlsContentAlpha, 1f)
+        val speedControlAlpha =
+            (1f - dimOverlayAlpha).coerceIn(MinSpeedControlAlpha, 1f)
         val widthPx = with(density) { maxWidth.toPx() }.takeIf { it > 0f } ?: 1f
         val heightPx = with(density) { maxHeight.toPx() }.takeIf { it > 0f } ?: 1f
 
@@ -676,9 +683,9 @@ private fun FullscreenPlayer(
                 modifier = Modifier
                     .align(Alignment.TopStart)
                     .padding(16.dp)
-                    .alpha(controlsContentAlpha),
+                    .alpha(speedControlAlpha),
                 overlayAlpha = ControlOverlayAlpha,
-                contentAlpha = controlsContentAlpha,
+                contentAlpha = speedControlAlpha,
                 onExpandedChange = { pingControls() }
             )
 
@@ -919,26 +926,37 @@ private fun PlaybackSpeedButton(
             Card(
                 modifier = Modifier
                     .padding(top = 44.dp)
-                    .width(92.dp)
-                    .alpha(contentAlpha),
+                    .width(92.dp),
                 shape = MaterialTheme.shapes.small,
+                border = BorderStroke(
+                    width = 1.dp,
+                    color = Color.White.copy(alpha = SpeedMenuBorderAlpha)
+                ),
                 colors = CardDefaults.cardColors(
-                    containerColor = Color.Black.copy(alpha = (overlayAlpha * 1.8f).coerceIn(0f, 1f))
+                    containerColor = Color.Black.copy(alpha = SpeedMenuContainerAlpha)
                 )
             ) {
-                Column {
+                Column(modifier = Modifier.alpha(contentAlpha)) {
                     PlaybackSpeedOptions.forEach { speed ->
+                        val isSelected = speed == playbackSpeed
                         Text(
                             text = formatPlaybackSpeed(speed),
-                            color = Color.White.copy(alpha = contentAlpha),
+                            color = if (isSelected) Color.White else Color.White.copy(alpha = 0.92f),
                             modifier = Modifier
                                 .fillMaxWidth()
+                                .background(
+                                    if (isSelected) {
+                                        Color.White.copy(alpha = 0.14f)
+                                    } else {
+                                        Color.Transparent
+                                    }
+                                )
                                 .clickable {
                                     expanded = false
                                     onPlaybackSpeedChange(speed)
                                 }
-                                .padding(horizontal = 12.dp, vertical = 10.dp),
-                            fontWeight = if (speed == playbackSpeed) FontWeight.Bold else FontWeight.Medium
+                                .padding(horizontal = 12.dp, vertical = SpeedMenuItemPaddingVertical.dp),
+                            fontWeight = if (isSelected) FontWeight.Bold else FontWeight.Medium
                         )
                     }
                 }
