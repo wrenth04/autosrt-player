@@ -1,6 +1,7 @@
 package com.example.autosrtplayer.data.playback
 
 import android.content.Context
+import androidx.media3.datasource.DefaultDataSource
 import androidx.media3.datasource.okhttp.OkHttpDataSource
 import androidx.media3.exoplayer.ExoPlayer
 import androidx.media3.exoplayer.source.DefaultMediaSourceFactory
@@ -19,10 +20,11 @@ class PlayerFactory(
             referrer?.takeIf { it.isNotBlank() }?.let { put("Referer", it) }
         }
 
-        val dataSourceFactory = OkHttpDataSource.Factory(okHttpClient)
+        val httpDataSourceFactory = OkHttpDataSource.Factory(okHttpClient)
             .setDefaultRequestProperties(requestHeaders)
             .setUserAgent(userAgent ?: "AutoSRT Player")
 
+        val dataSourceFactory = DefaultDataSource.Factory(context, httpDataSourceFactory)
         val mediaSourceFactory = DefaultMediaSourceFactory(dataSourceFactory)
 
         return ExoPlayer.Builder(context)

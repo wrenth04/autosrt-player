@@ -106,6 +106,14 @@ class PlaylistParserTest {
             androidx.media3.common.MimeTypes.TEXT_VTT,
             mediaItemBuilder.inferSubtitleMimeType("https://example.com/a.vtt?token=1")
         )
+        assertEquals(
+            androidx.media3.common.MimeTypes.APPLICATION_SUBRIP,
+            mediaItemBuilder.inferSubtitleMimeType("file:///data/user/0/com.example.autosrtplayer/cache/subtitles/a.srt")
+        )
+        assertEquals(
+            androidx.media3.common.MimeTypes.TEXT_VTT,
+            mediaItemBuilder.inferSubtitleMimeType("file:///data/user/0/com.example.autosrtplayer/cache/subtitles/a.vtt")
+        )
         assertNull(mediaItemBuilder.inferSubtitleMimeType("https://example.com/a.ass"))
     }
 }

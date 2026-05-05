@@ -7,7 +7,7 @@ import androidx.media3.common.MimeTypes
 import com.example.autosrtplayer.data.playlist.PlaylistEntry
 
 class MediaItemBuilder {
-    fun build(entry: PlaylistEntry): MediaItem {
+    fun build(entry: PlaylistEntry, subtitleSource: String? = entry.subtitleUrl): MediaItem {
         val builder = MediaItem.Builder()
             .setUri(entry.mediaUrl)
             .setMediaId(entry.mediaUrl)
@@ -18,12 +18,12 @@ class MediaItemBuilder {
                     .build()
             )
 
-        entry.subtitleUrl?.let { subtitleUrl ->
-            val subtitleMimeType = inferSubtitleMimeType(subtitleUrl)
-                ?: throw IllegalArgumentException("不支援的字幕格式: $subtitleUrl")
+        subtitleSource?.let { source ->
+            val subtitleMimeType = inferSubtitleMimeType(source)
+                ?: throw IllegalArgumentException("不支援的字幕格式: $source")
             builder.setSubtitleConfigurations(
                 listOf(
-                    MediaItem.SubtitleConfiguration.Builder(Uri.parse(subtitleUrl))
+                    MediaItem.SubtitleConfiguration.Builder(Uri.parse(source))
                         .setMimeType(subtitleMimeType)
                         .setLanguage("zh")
                         .setSelectionFlags(C.SELECTION_FLAG_DEFAULT)
