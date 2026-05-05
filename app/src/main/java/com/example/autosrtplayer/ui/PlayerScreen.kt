@@ -759,6 +759,8 @@ private fun GestureZone(
     var startBrightness by remember { mutableFloatStateOf(resolveInitialBrightness(context as? Activity)) }
     var startVolume by remember { mutableStateOf(0 to 0) }
     var startPositionMs by remember { mutableStateOf(0L) }
+    var pendingSeekPositionMs by remember { mutableLongStateOf(0L) }
+    var hasPendingSeek by remember { mutableStateOf(false) }
     var totalDragX by remember { mutableFloatStateOf(0f) }
     var totalDragY by remember { mutableFloatStateOf(0f) }
 
@@ -799,13 +801,21 @@ private fun GestureZone(
                     }
                     if (mode == OverlayGestureMode.Seek) {
                         startPositionMs = player?.currentPosition ?: 0L
+                        pendingSeekPositionMs = startPositionMs
+                        hasPendingSeek = false
                     }
                 },
                 onDragEnd = {
+                    if (mode == OverlayGestureMode.Seek && hasPendingSeek) {
+                        player?.seekTo(pendingSeekPositionMs)
+                        onSeekChange(pendingSeekPositionMs - startPositionMs, pendingSeekPositionMs)
+                    }
+                    hasPendingSeek = false
                     totalDragX = 0f
                     totalDragY = 0f
                 },
                 onDragCancel = {
+                    hasPendingSeek = false
                     totalDragX = 0f
                     totalDragY = 0f
                 },
@@ -838,7 +848,8 @@ private fun GestureZone(
                             } else {
                                 maxOf(0L, unclampedTarget)
                             }
-                            player?.seekTo(targetPosition)
+                            pendingSeekPositionMs = targetPosition
+                            hasPendingSeek = true
                             onSeekChange(targetPosition - startPositionMs, targetPosition)
                         }
                     }

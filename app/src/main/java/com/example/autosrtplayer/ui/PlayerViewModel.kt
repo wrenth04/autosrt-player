@@ -10,6 +10,7 @@ import com.example.autosrtplayer.data.playback.MediaItemBuilder
 import com.example.autosrtplayer.data.playback.PlayerFactory
 import com.example.autosrtplayer.data.playlist.PlaylistParser
 import com.example.autosrtplayer.data.playlist.PlaylistRepository
+import com.example.autosrtplayer.data.playlist.SubtitleRepository
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
@@ -26,6 +27,7 @@ class PlayerViewModel(
     private val parser: PlaylistParser = PlaylistParser(),
     private val repository: PlaylistRepository = PlaylistRepository(),
     private val mediaItemBuilder: MediaItemBuilder = MediaItemBuilder(),
+    private val subtitleRepository: SubtitleRepository = SubtitleRepository(),
     private val playerFactory: PlayerFactory = PlayerFactory()
 ) : ViewModel() {
     companion object {
@@ -144,7 +146,9 @@ class PlayerViewModel(
                 errorType = UiErrorType.None
             )
         }
-        parseAndBuild(content)
+        viewModelScope.launch {
+            parseAndBuild(content)
+        }
     }
 
     fun loadFromUrl(targetUrl: String? = null) {
@@ -212,10 +216,11 @@ class PlayerViewModel(
         super.onCleared()
     }
 
-    private fun parseAndBuild(content: String, playlistUrl: String? = null) {
+    private suspend fun parseAndBuild(content: String, playlistUrl: String? = null) {
         runCatching {
             val entry = parser.parse(content, playlistUrl)
-            entry to mediaItemBuilder.build(entry)
+            val subtitleSource = resolveSubtitleSource(entry)
+            entry to mediaItemBuilder.build(entry, subtitleSource)
         }.onSuccess { (entry, mediaItem) ->
             _uiState.update {
                 it.copy(
@@ -247,6 +252,21 @@ class PlayerViewModel(
                 )
             }
         }
+    }
+
+    private suspend fun resolveSubtitleSource(entry: com.example.autosrtplayer.data.playlist.PlaylistEntry): String? {
+        val subtitleUrl = entry.subtitleUrl?.trim().orEmpty()
+        if (subtitleUrl.isBlank()) {
+            return null
+        }
+
+        val subtitleUri = subtitleRepository.resolveSubtitleUri(
+            context = requireNotNull(appContext),
+            subtitleUrl = subtitleUrl,
+            userAgent = entry.userAgent,
+            referrer = entry.referrer
+        )
+        return subtitleUri.toString()
     }
 
     private fun buildPlayer(context: Context): ExoPlayer {
@@ -295,7 +315,7 @@ class PlayerViewModel(
         )
         val currentConfig = activePlaybackConfig
 
-        if (currentConfig == desiredConfig && player.currentMediaItem != null) {
+        if (currentConfig == desiredConfig && player.currentMediaItem == mediaItem) {
             return
         }
 
