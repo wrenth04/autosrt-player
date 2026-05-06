@@ -8,6 +8,8 @@ import androidx.media3.common.Player
 import androidx.media3.exoplayer.ExoPlayer
 import com.example.autosrtplayer.data.playback.MediaItemBuilder
 import com.example.autosrtplayer.data.playback.PlayerFactory
+import com.example.autosrtplayer.data.playlist.MissavHtmlExtractor
+import com.example.autosrtplayer.data.playlist.MissavPlaylistBuilder
 import com.example.autosrtplayer.data.playlist.PlaylistParser
 import com.example.autosrtplayer.data.playlist.PlaylistRepository
 import com.example.autosrtplayer.data.playlist.SubtitleRepository
@@ -28,6 +30,8 @@ class PlayerViewModel(
     private val repository: PlaylistRepository = PlaylistRepository(),
     private val mediaItemBuilder: MediaItemBuilder = MediaItemBuilder(),
     private val subtitleRepository: SubtitleRepository = SubtitleRepository(),
+    private val missavHtmlExtractor: MissavHtmlExtractor = MissavHtmlExtractor(),
+    private val missavPlaylistBuilder: MissavPlaylistBuilder = MissavPlaylistBuilder(),
     private val playerFactory: PlayerFactory = PlayerFactory()
 ) : ViewModel() {
     companion object {
@@ -44,6 +48,7 @@ class PlayerViewModel(
     private var playerListener: Player.Listener? = null
     private var activePlaybackConfig: PlaybackConfig? = null
     private var autoFullscreenPending: Boolean = false
+    private var sourceResolveRequestCounter: Long = 0
 
     fun initialize(context: Context) {
         appContext = context.applicationContext
@@ -104,23 +109,59 @@ class PlayerViewModel(
             return
         }
         val targetUrl = "$prefix$id.m3u8"
-        _uiState.update {
-            it.copy(
-                playlistUrl = targetUrl,
-                isLoading = true,
-                loadingStage = LoadingStage.ResolvingId,
-                currentRequestLabel = "ID: $id",
-                errorMessage = null,
-                errorType = UiErrorType.None
-            )
+        viewModelScope.launch {
+            _uiState.update {
+                it.copy(
+                    playlistUrl = targetUrl,
+                    isLoading = true,
+                    loadingStage = LoadingStage.ResolvingId,
+                    currentRequestLabel = "ID: $id",
+                    sourceResolveRequest = null,
+                    errorMessage = null,
+                    errorType = UiErrorType.None
+                )
+            }
+
+            runCatching {
+                repository.loadFromUrl(targetUrl)
+            }.onSuccess { content ->
+                _uiState.update {
+                    it.copy(
+                        playlistText = content,
+                        isLoading = true,
+                        loadingStage = LoadingStage.BuildingPlayer,
+                        currentRequestLabel = "ID: $id",
+                        sourceResolveRequest = null,
+                        errorMessage = null,
+                        errorType = UiErrorType.None
+                    )
+                }
+                parseAndBuild(content, targetUrl)
+            }.onFailure {
+                val requestId = ++sourceResolveRequestCounter
+                val resolveUrl = "https://missav.ai/$id"
+                _uiState.update {
+                    it.copy(
+                        isLoading = true,
+                        loadingStage = LoadingStage.ResolvingSource,
+                        currentRequestLabel = "ID: $id",
+                        sourceResolveRequest = SourceWebResolveRequest(
+                            requestId = requestId,
+                            id = id,
+                            url = resolveUrl
+                        ),
+                        errorMessage = null,
+                        errorType = UiErrorType.None
+                    )
+                }
+            }
         }
-        loadFromUrl(targetUrl)
     }
 
     fun loadFromSharedUrl(url: String) {
         val normalized = url.trim()
         if (normalized.isBlank()) return
-        _uiState.update { it.copy(playlistUrl = normalized) }
+        _uiState.update { it.copy(playlistUrl = normalized, sourceResolveRequest = null) }
         loadFromUrl(normalized)
     }
 
@@ -142,6 +183,7 @@ class PlayerViewModel(
                 isLoading = true,
                 loadingStage = LoadingStage.BuildingPlayer,
                 currentRequestLabel = "M3U 文字",
+                sourceResolveRequest = null,
                 errorMessage = null,
                 errorType = UiErrorType.None
             )
@@ -164,6 +206,7 @@ class PlayerViewModel(
                     isLoading = true,
                     loadingStage = LoadingStage.FetchingPlaylist,
                     currentRequestLabel = url,
+                    sourceResolveRequest = null,
                     errorMessage = null,
                     errorType = UiErrorType.None
                 )
@@ -176,7 +219,8 @@ class PlayerViewModel(
                         playlistText = content,
                         isLoading = true,
                         loadingStage = LoadingStage.BuildingPlayer,
-                        currentRequestLabel = url
+                        currentRequestLabel = url,
+                        sourceResolveRequest = null
                     )
                 }
                 parseAndBuild(content, url)
@@ -186,11 +230,70 @@ class PlayerViewModel(
                         isLoading = false,
                         loadingStage = LoadingStage.Idle,
                         currentRequestLabel = null,
+                        sourceResolveRequest = null,
                         errorType = UiErrorType.Network,
                         errorMessage = error.message ?: "載入播放清單失敗"
                     )
                 }
             }
+        }
+    }
+
+    fun onSourceHtmlResolved(requestId: Long, html: String, userAgent: String, finalUrl: String) {
+        val state = uiState.value
+        val request = state.sourceResolveRequest ?: return
+        if (request.requestId != requestId) return
+
+        val extracted = runCatching { missavHtmlExtractor.extract(html) }.getOrElse { error ->
+            _uiState.update {
+                it.copy(
+                    isLoading = false,
+                    loadingStage = LoadingStage.Idle,
+                    currentRequestLabel = null,
+                    sourceResolveRequest = null,
+                    errorType = UiErrorType.Parse,
+                    errorMessage = error.message ?: "解析失敗"
+                )
+            }
+            return
+        }
+        val playlistText = missavPlaylistBuilder.build(
+            id = request.id,
+            detailUrl = finalUrl,
+            mediaUrl = extracted.mediaUrl,
+            title = extracted.title ?: request.id,
+            userAgent = userAgent
+        )
+        _uiState.update {
+            it.copy(
+                playlistText = playlistText,
+                playlistUrl = finalUrl,
+                sourceResolveRequest = null,
+                loadingStage = LoadingStage.BuildingPlayer,
+                currentRequestLabel = request.id,
+                errorMessage = null,
+                errorType = UiErrorType.None
+            )
+        }
+        viewModelScope.launch {
+            parseAndBuild(playlistText, finalUrl)
+        }
+    }
+
+    fun onSourceResolveFailed(requestId: Long, message: String) {
+        val state = uiState.value
+        val request = state.sourceResolveRequest ?: return
+        if (request.requestId != requestId) return
+
+        _uiState.update {
+            it.copy(
+                isLoading = false,
+                loadingStage = LoadingStage.Idle,
+                currentRequestLabel = null,
+                sourceResolveRequest = null,
+                errorType = UiErrorType.Network,
+                errorMessage = message
+            )
         }
     }
 
@@ -229,6 +332,7 @@ class PlayerViewModel(
                     isLoading = false,
                     loadingStage = LoadingStage.Idle,
                     currentRequestLabel = null,
+                    sourceResolveRequest = null,
                     errorMessage = null,
                     errorType = UiErrorType.None
                 )
@@ -247,6 +351,7 @@ class PlayerViewModel(
                     isLoading = false,
                     loadingStage = LoadingStage.Idle,
                     currentRequestLabel = null,
+                    sourceResolveRequest = null,
                     errorType = UiErrorType.Parse,
                     errorMessage = error.message ?: "解析播放清單失敗"
                 )
