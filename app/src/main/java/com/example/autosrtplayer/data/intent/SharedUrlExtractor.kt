@@ -1,6 +1,7 @@
 package com.example.autosrtplayer.data.intent
 
-import android.net.Uri
+import java.net.URLDecoder
+import java.nio.charset.StandardCharsets
 
 sealed interface LaunchTarget {
     data class Url(val value: String) : LaunchTarget
@@ -25,7 +26,10 @@ object SharedUrlExtractor {
 
         val rawPayload = dataString.substring(AppSchemePrefix.length).trim()
         if (rawPayload.isBlank()) return null
-        val decodedPayload = Uri.decode(rawPayload).trim()
+        val decodedPayload = runCatching {
+            URLDecoder.decode(rawPayload, StandardCharsets.UTF_8)
+        }.getOrElse { rawPayload }
+            .trim()
 
         val sanitizedPayload = sanitizeUrl(normalizePayloadUrl(decodedPayload))
         if (isM3uUrl(sanitizedPayload)) {
