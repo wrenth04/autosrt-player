@@ -96,6 +96,7 @@ import androidx.core.view.WindowInsetsCompat
 import androidx.core.view.WindowInsetsControllerCompat
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.lifecycle.viewmodel.compose.viewModel
+import com.example.autosrtplayer.data.favorites.FavoriteItem
 import com.example.autosrtplayer.data.todayhot.TodayHotItem
 import org.json.JSONArray
 import androidx.media3.common.C
@@ -181,6 +182,10 @@ fun PlayerScreen(
     }
     val activity = context as? Activity
     val entry = uiState.parsedEntry
+    val currentSourceId = uiState.currentSourceId
+    val isCurrentFavorite = currentSourceId != null && uiState.favoriteItems.any { item ->
+        item.id.equals(currentSourceId, ignoreCase = true)
+    }
     val player = remember(context, entry?.mediaUrl, entry?.userAgent, entry?.referrer) {
         viewModel.getOrCreatePlayer(context)
     }
@@ -294,6 +299,12 @@ fun PlayerScreen(
             Text(if (uiState.isTodayHotLoading) "載入今日熱門…" else "今日熱門")
         }
 
+        WatchLaterSection(
+            items = uiState.favoriteItems,
+            onItemClick = viewModel::playFavorite,
+            onRemoveClick = viewModel::removeFavorite
+        )
+
         if (uiState.isLoading) {
             Card(modifier = Modifier.fillMaxWidth()) {
                 Column(
@@ -357,6 +368,18 @@ fun PlayerScreen(
                     Text("標題：${it.title ?: "(未提供)"}")
                     Text("字幕狀態：${if (it.subtitleUrl.isNullOrBlank()) "未載入" else "已載入"}")
                     Text("來源狀態：可播放")
+                    Button(
+                        onClick = viewModel::toggleCurrentFavorite,
+                        enabled = !currentSourceId.isNullOrBlank()
+                    ) {
+                        Text(
+                            when {
+                                currentSourceId.isNullOrBlank() -> "無可儲存 ID"
+                                isCurrentFavorite -> "已加入稍後觀看"
+                                else -> "加入稍後觀看"
+                            }
+                        )
+                    }
                     TextButton(onClick = { techInfoExpanded = !techInfoExpanded }) {
                         Text(if (techInfoExpanded) "隱藏技術資訊" else "查看技術資訊")
                     }
@@ -430,6 +453,57 @@ fun PlayerScreen(
         }
 
         Spacer(modifier = Modifier.height(12.dp))
+    }
+}
+
+@Composable
+private fun WatchLaterSection(
+    items: List<FavoriteItem>,
+    onItemClick: (String) -> Unit,
+    onRemoveClick: (String) -> Unit
+) {
+    Card(modifier = Modifier.fillMaxWidth()) {
+        Column(
+            modifier = Modifier.padding(12.dp),
+            verticalArrangement = Arrangement.spacedBy(12.dp)
+        ) {
+            Text("稍後觀看", style = MaterialTheme.typography.titleMedium)
+            if (items.isEmpty()) {
+                Text(
+                    text = "尚未加入稍後觀看",
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    style = MaterialTheme.typography.bodySmall
+                )
+            } else {
+                Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
+                    items.forEach { item ->
+                        Card(modifier = Modifier.fillMaxWidth()) {
+                            Column(
+                                modifier = Modifier.padding(12.dp),
+                                verticalArrangement = Arrangement.spacedBy(8.dp)
+                            ) {
+                                Text("ID：${item.id}")
+                                item.title?.takeIf { it.isNotBlank() }?.let { title ->
+                                    Text(title, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                                }
+                                Row(
+                                    modifier = Modifier.fillMaxWidth(),
+                                    horizontalArrangement = Arrangement.SpaceBetween,
+                                    verticalAlignment = Alignment.CenterVertically
+                                ) {
+                                    TextButton(onClick = { onItemClick(item.id) }) {
+                                        Text("播放")
+                                    }
+                                    TextButton(onClick = { onRemoveClick(item.id) }) {
+                                        Text("移除")
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        }
     }
 }
 
