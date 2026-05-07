@@ -13,6 +13,7 @@ import com.example.autosrtplayer.data.playlist.MissavPlaylistBuilder
 import com.example.autosrtplayer.data.playlist.PlaylistParser
 import com.example.autosrtplayer.data.playlist.PlaylistRepository
 import com.example.autosrtplayer.data.playlist.SubtitleRepository
+import com.example.autosrtplayer.data.todayhot.TodayHotRepository
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
@@ -25,11 +26,13 @@ private data class PlaybackConfig(
     val referrer: String?
 )
 
+@androidx.media3.common.util.UnstableApi
 class PlayerViewModel(
     private val parser: PlaylistParser = PlaylistParser(),
     private val repository: PlaylistRepository = PlaylistRepository(),
     private val mediaItemBuilder: MediaItemBuilder = MediaItemBuilder(),
     private val subtitleRepository: SubtitleRepository = SubtitleRepository(),
+    private val todayHotRepository: TodayHotRepository = TodayHotRepository(),
     private val missavHtmlExtractor: MissavHtmlExtractor = MissavHtmlExtractor(),
     private val missavPlaylistBuilder: MissavPlaylistBuilder = MissavPlaylistBuilder(),
     private val playerFactory: PlayerFactory = PlayerFactory()
@@ -105,7 +108,7 @@ class PlayerViewModel(
         }
         val prefix = state.sourcePrefix.trim()
         if (prefix.isBlank()) {
-            _uiState.update { it.copy(errorMessage = "請先到進階選項設定來源", errorType = UiErrorType.PrefixMissing) }
+            startSourceResolve(id)
             return
         }
         val targetUrl = "$prefix$id.m3u8"
@@ -138,23 +141,28 @@ class PlayerViewModel(
                 }
                 parseAndBuild(content, targetUrl)
             }.onFailure {
-                val requestId = ++sourceResolveRequestCounter
-                val resolveUrl = "https://missav.ai/$id"
-                _uiState.update {
-                    it.copy(
-                        isLoading = true,
-                        loadingStage = LoadingStage.ResolvingSource,
-                        currentRequestLabel = "ID: $id",
-                        sourceResolveRequest = SourceWebResolveRequest(
-                            requestId = requestId,
-                            id = id,
-                            url = resolveUrl
-                        ),
-                        errorMessage = null,
-                        errorType = UiErrorType.None
-                    )
-                }
+                startSourceResolve(id)
             }
+        }
+    }
+
+    private fun startSourceResolve(id: String) {
+        val requestId = ++sourceResolveRequestCounter
+        val resolveUrl = "https://missav.ai/$id"
+        _uiState.update {
+            it.copy(
+                playlistUrl = resolveUrl,
+                isLoading = true,
+                loadingStage = LoadingStage.ResolvingSource,
+                currentRequestLabel = "ID: $id",
+                sourceResolveRequest = SourceWebResolveRequest(
+                    requestId = requestId,
+                    id = id,
+                    url = resolveUrl
+                ),
+                errorMessage = null,
+                errorType = UiErrorType.None
+            )
         }
     }
 
@@ -168,6 +176,48 @@ class PlayerViewModel(
     fun loadFromExternalId(id: String) {
         val normalized = id.trim()
         if (normalized.isBlank()) return
+        _uiState.update { it.copy(sourceId = normalized) }
+        loadFromId()
+    }
+
+    fun loadTodayHot() {
+        viewModelScope.launch {
+            _uiState.update {
+                it.copy(
+                    isTodayHotLoading = true,
+                    isTodayHotVisible = true,
+                    todayHotErrorMessage = null
+                )
+            }
+            runCatching {
+                todayHotRepository.loadTodayHot()
+            }.onSuccess { feed ->
+                _uiState.update {
+                    it.copy(
+                        todayHotItems = feed.items,
+                        isTodayHotLoading = false,
+                        isTodayHotVisible = true,
+                        todayHotErrorMessage = null
+                    )
+                }
+            }.onFailure { error ->
+                _uiState.update {
+                    it.copy(
+                        isTodayHotLoading = false,
+                        isTodayHotVisible = true,
+                        todayHotErrorMessage = error.message ?: "載入今日熱門失敗"
+                    )
+                }
+            }
+        }
+    }
+
+    fun playTodayHotCode(code: String) {
+        val normalized = code.trim()
+        if (normalized.isBlank()) {
+            _uiState.update { it.copy(errorMessage = "今日熱門代碼無效", errorType = UiErrorType.Validation) }
+            return
+        }
         _uiState.update { it.copy(sourceId = normalized) }
         loadFromId()
     }
