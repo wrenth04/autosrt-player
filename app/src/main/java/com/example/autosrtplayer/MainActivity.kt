@@ -13,6 +13,7 @@ import com.example.autosrtplayer.data.intent.SharedUrlExtractor
 import com.example.autosrtplayer.ui.PlayerScreen
 import com.example.autosrtplayer.ui.theme.AutoSrtPlayerTheme
 
+@androidx.media3.common.util.UnstableApi
 class MainActivity : ComponentActivity() {
     private var sharedM3uUrl by mutableStateOf<String?>(null)
     private var sharedSourceId by mutableStateOf<String?>(null)

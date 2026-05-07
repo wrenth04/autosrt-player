@@ -3,6 +3,7 @@ package com.example.autosrtplayer.ui
 import android.annotation.SuppressLint
 import android.app.Activity
 import android.content.Context
+import android.graphics.BitmapFactory
 import android.graphics.Color as AndroidColor
 import android.media.AudioManager
 import android.os.SystemClock
@@ -10,6 +11,9 @@ import android.view.WindowManager
 import androidx.activity.compose.BackHandler
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
+import androidx.compose.ui.draw.clip
+import androidx.compose.ui.graphics.asImageBitmap
+import androidx.compose.ui.layout.ContentScale
 import androidx.compose.foundation.text.KeyboardActions
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.foundation.gestures.detectDragGestures
@@ -62,12 +66,14 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableFloatStateOf
 import androidx.compose.runtime.mutableLongStateOf
 import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.produceState
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.foundation.Image
 import androidx.compose.ui.draw.alpha
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.vector.ImageVector
@@ -90,12 +96,17 @@ import androidx.core.view.WindowInsetsCompat
 import androidx.core.view.WindowInsetsControllerCompat
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.lifecycle.viewmodel.compose.viewModel
+import com.example.autosrtplayer.data.todayhot.TodayHotItem
 import org.json.JSONArray
 import androidx.media3.common.C
 import androidx.media3.common.Player
 import androidx.media3.ui.CaptionStyleCompat
 import androidx.media3.ui.PlayerView
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.delay
+import kotlinx.coroutines.withContext
+import okhttp3.OkHttpClient
+import okhttp3.Request
 import kotlin.math.abs
 import kotlin.math.roundToInt
 
@@ -142,6 +153,7 @@ private data class BrightnessState(
     val overlayAlpha: Float
 )
 
+@androidx.media3.common.util.UnstableApi
 @Composable
 fun PlayerScreen(
     sharedM3uUrl: String? = null,
@@ -225,6 +237,19 @@ fun PlayerScreen(
         )
         return
     }
+    if (uiState.isTodayHotVisible) {
+        BackHandler(enabled = true) {
+            viewModel.closeTodayHot()
+        }
+        TodayHotScreen(
+            items = uiState.todayHotItems,
+            isLoading = uiState.isTodayHotLoading,
+            errorMessage = uiState.todayHotErrorMessage,
+            onBack = viewModel::closeTodayHot,
+            onItemClick = viewModel::playTodayHotCode
+        )
+        return
+    }
     var advancedExpanded by rememberSaveable { mutableStateOf(false) }
     var techInfoExpanded by rememberSaveable { mutableStateOf(false) }
 
@@ -259,6 +284,14 @@ fun PlayerScreen(
             modifier = Modifier.fillMaxWidth()
         ) {
             Text("載入並播放")
+        }
+
+        Button(
+            onClick = viewModel::loadTodayHot,
+            modifier = Modifier.fillMaxWidth(),
+            enabled = !uiState.isTodayHotLoading
+        ) {
+            Text(if (uiState.isTodayHotLoading) "載入今日熱門…" else "今日熱門")
         }
 
         if (uiState.isLoading) {
@@ -400,6 +433,166 @@ fun PlayerScreen(
     }
 }
 
+@Composable
+private fun TodayHotScreen(
+    items: List<TodayHotItem>,
+    isLoading: Boolean,
+    errorMessage: String?,
+    onBack: () -> Unit,
+    onItemClick: (String) -> Unit
+) {
+    Column(
+        modifier = Modifier
+            .fillMaxSize()
+            .verticalScroll(rememberScrollState())
+            .padding(16.dp),
+        verticalArrangement = Arrangement.spacedBy(12.dp)
+    ) {
+        Row(
+            modifier = Modifier.fillMaxWidth(),
+            horizontalArrangement = Arrangement.SpaceBetween,
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            Text("今日熱門", style = MaterialTheme.typography.headlineSmall)
+            TextButton(onClick = onBack) {
+                Text("返回")
+            }
+        }
+
+        TodayHotSection(
+            items = items,
+            isLoading = isLoading,
+            errorMessage = errorMessage,
+            onItemClick = onItemClick
+        )
+    }
+}
+
+@Composable
+private fun TodayHotSection(
+    items: List<TodayHotItem>,
+    isLoading: Boolean,
+    errorMessage: String?,
+    onItemClick: (String) -> Unit
+) {
+    Card(modifier = Modifier.fillMaxWidth()) {
+        Column(
+            modifier = Modifier.padding(12.dp),
+            verticalArrangement = Arrangement.spacedBy(12.dp)
+        ) {
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.SpaceBetween,
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                Text("今日熱門", style = MaterialTheme.typography.titleMedium)
+                if (isLoading) {
+                    CircularProgressIndicator(modifier = Modifier.size(20.dp), strokeWidth = 2.dp)
+                }
+            }
+
+            errorMessage?.let {
+                Text(text = it, color = MaterialTheme.colorScheme.error)
+            }
+
+            if (items.isNotEmpty()) {
+                Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
+                    items.forEach { item ->
+                        TodayHotItemCard(item = item, onItemClick = onItemClick)
+                    }
+                }
+            } else if (!isLoading && errorMessage == null) {
+                Text(
+                    text = "尚未載入資料",
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    style = MaterialTheme.typography.bodySmall
+                )
+            }
+        }
+    }
+}
+
+@Composable
+private fun TodayHotCoverImage(
+    imageUrl: String,
+    contentDescription: String
+) {
+    val client = remember { OkHttpClient() }
+    val bitmapState = produceState<androidx.compose.ui.graphics.ImageBitmap?>(initialValue = null, imageUrl) {
+        value = withContext(Dispatchers.IO) {
+            runCatching {
+                val request = Request.Builder().url(imageUrl).build()
+                client.newCall(request).execute().use { response ->
+                    if (!response.isSuccessful) return@runCatching null
+                    response.body?.byteStream()?.use { input ->
+                        BitmapFactory.decodeStream(input)?.asImageBitmap()
+                    }
+                }
+            }.getOrNull()
+        }
+    }
+
+    val bitmap = bitmapState.value
+    if (bitmap != null) {
+        Image(
+            bitmap = bitmap,
+            contentDescription = contentDescription,
+            modifier = Modifier.fillMaxSize(),
+            contentScale = ContentScale.Crop
+        )
+    } else {
+        Box(
+            modifier = Modifier
+                .fillMaxSize()
+                .background(MaterialTheme.colorScheme.surfaceVariant),
+            contentAlignment = Alignment.Center
+        ) {
+            Text(
+                text = "封面載入中",
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                style = MaterialTheme.typography.bodySmall
+            )
+        }
+    }
+}
+
+@Composable
+private fun TodayHotItemCard(
+    item: TodayHotItem,
+    onItemClick: (String) -> Unit
+) {
+    Card(modifier = Modifier.fillMaxWidth()) {
+        Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
+            Box(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .height(220.dp)
+                    .clip(RoundedCornerShape(topStart = 16.dp, topEnd = 16.dp))
+                    .clickable { onItemClick(item.code) }
+            ) {
+                TodayHotCoverImage(
+                    imageUrl = item.fourHoiCoverUrl,
+                    contentDescription = item.title ?: item.code
+                )
+            }
+            Column(
+                modifier = Modifier.padding(horizontal = 12.dp, vertical = 2.dp),
+                verticalArrangement = Arrangement.spacedBy(4.dp)
+            ) {
+                Text(text = item.code, style = MaterialTheme.typography.titleSmall)
+                Text(text = item.title ?: item.code, style = MaterialTheme.typography.bodyMedium)
+                item.updatedAt?.takeIf { it.isNotBlank() }?.let {
+                    Text(
+                        text = "更新時間：$it",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                    )
+                }
+            }
+        }
+    }
+}
+
 @SuppressLint("SetJavaScriptEnabled")
 @Composable
 private fun SourceResolveWebViewHost(
@@ -514,6 +707,7 @@ private fun decodeJsValue(value: String?): String {
     return runCatching { JSONArray("[$value]").getString(0) }.getOrDefault(value.trim('"'))
 }
 
+@androidx.media3.common.util.UnstableApi
 @Composable
 private fun InlinePlayer(
     player: androidx.media3.exoplayer.ExoPlayer?,
@@ -569,6 +763,7 @@ private fun InlinePlayer(
     }
 }
 
+@androidx.media3.common.util.UnstableApi
 @Composable
 private fun FullscreenPlayer(
     activity: Activity?,
@@ -1227,6 +1422,7 @@ private fun rememberPlaybackProgressState(
     )
 }
 
+@androidx.media3.common.util.UnstableApi
 private fun PlayerView.applySubtitleStyle() {
     subtitleView?.setStyle(
         CaptionStyleCompat(
