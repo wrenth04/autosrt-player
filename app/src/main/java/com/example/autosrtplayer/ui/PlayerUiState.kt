@@ -45,6 +45,7 @@ data class PlayerUiState(
     val currentRequestLabel: String? = null,
     val sourceResolveRequest: SourceWebResolveRequest? = null,
     val favoriteItems: List<FavoriteItem> = emptyList(),
+    val isFavoritesVisible: Boolean = false,
     val todayHotItems: List<TodayHotItem> = emptyList(),
     val isTodayHotLoading: Boolean = false,
     val isTodayHotVisible: Boolean = false,

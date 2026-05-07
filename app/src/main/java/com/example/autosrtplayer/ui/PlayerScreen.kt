@@ -41,10 +41,12 @@ import androidx.compose.material.icons.automirrored.filled.VolumeUp
 import androidx.compose.material.icons.filled.Brightness6
 import androidx.compose.material.icons.filled.FastForward
 import androidx.compose.material.icons.filled.FastRewind
+import androidx.compose.material.icons.filled.Favorite
 import androidx.compose.material.icons.filled.Fullscreen
 import androidx.compose.material.icons.filled.FullscreenExit
 import androidx.compose.material.icons.filled.Pause
 import androidx.compose.material.icons.filled.PlayArrow
+import androidx.compose.material.icons.outlined.FavoriteBorder
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
@@ -237,8 +239,23 @@ fun PlayerScreen(
             activity = activity,
             player = player,
             playbackSpeed = uiState.playbackSpeed,
+            isCurrentFavorite = isCurrentFavorite,
+            canToggleFavorite = !currentSourceId.isNullOrBlank(),
             onPlaybackSpeedChange = viewModel::setPlaybackSpeed,
+            onToggleFavorite = viewModel::toggleCurrentFavorite,
             onToggleFullscreen = viewModel::toggleFullscreen
+        )
+        return
+    }
+    if (uiState.isFavoritesVisible) {
+        BackHandler(enabled = true) {
+            viewModel.closeFavorites()
+        }
+        FavoritesScreen(
+            items = uiState.favoriteItems,
+            onBack = viewModel::closeFavorites,
+            onItemClick = viewModel::playFavorite,
+            onRemoveClick = viewModel::removeFavorite
         )
         return
     }
@@ -299,11 +316,12 @@ fun PlayerScreen(
             Text(if (uiState.isTodayHotLoading) "載入今日熱門…" else "今日熱門")
         }
 
-        WatchLaterSection(
-            items = uiState.favoriteItems,
-            onItemClick = viewModel::playFavorite,
-            onRemoveClick = viewModel::removeFavorite
-        )
+        Button(
+            onClick = viewModel::openFavorites,
+            modifier = Modifier.fillMaxWidth()
+        ) {
+            Text("我的最愛 (${uiState.favoriteItems.size})")
+        }
 
         if (uiState.isLoading) {
             Card(modifier = Modifier.fillMaxWidth()) {
@@ -457,45 +475,61 @@ fun PlayerScreen(
 }
 
 @Composable
-private fun WatchLaterSection(
+private fun FavoritesScreen(
     items: List<FavoriteItem>,
+    onBack: () -> Unit,
     onItemClick: (String) -> Unit,
     onRemoveClick: (String) -> Unit
 ) {
-    Card(modifier = Modifier.fillMaxWidth()) {
-        Column(
-            modifier = Modifier.padding(12.dp),
-            verticalArrangement = Arrangement.spacedBy(12.dp)
+    Column(
+        modifier = Modifier
+            .fillMaxSize()
+            .verticalScroll(rememberScrollState())
+            .padding(16.dp),
+        verticalArrangement = Arrangement.spacedBy(12.dp)
+    ) {
+        Row(
+            modifier = Modifier.fillMaxWidth(),
+            horizontalArrangement = Arrangement.SpaceBetween,
+            verticalAlignment = Alignment.CenterVertically
         ) {
-            Text("稍後觀看", style = MaterialTheme.typography.titleMedium)
-            if (items.isEmpty()) {
-                Text(
-                    text = "尚未加入稍後觀看",
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                    style = MaterialTheme.typography.bodySmall
-                )
-            } else {
-                Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
-                    items.forEach { item ->
-                        Card(modifier = Modifier.fillMaxWidth()) {
-                            Column(
-                                modifier = Modifier.padding(12.dp),
-                                verticalArrangement = Arrangement.spacedBy(8.dp)
-                            ) {
-                                Text("ID：${item.id}")
-                                item.title?.takeIf { it.isNotBlank() }?.let { title ->
-                                    Text(title, color = MaterialTheme.colorScheme.onSurfaceVariant)
-                                }
+            Text("我的最愛", style = MaterialTheme.typography.headlineSmall)
+            TextButton(onClick = onBack) {
+                Text("返回")
+            }
+        }
+
+        Card(modifier = Modifier.fillMaxWidth()) {
+            Column(
+                modifier = Modifier.padding(12.dp),
+                verticalArrangement = Arrangement.spacedBy(12.dp)
+            ) {
+                if (items.isEmpty()) {
+                    Text(
+                        text = "尚未加入我的最愛",
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        style = MaterialTheme.typography.bodySmall
+                    )
+                } else {
+                    Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
+                        items.forEach { item ->
+                            Card(modifier = Modifier.fillMaxWidth()) {
                                 Row(
-                                    modifier = Modifier.fillMaxWidth(),
-                                    horizontalArrangement = Arrangement.SpaceBetween,
+                                    modifier = Modifier
+                                        .fillMaxWidth()
+                                        .padding(horizontal = 12.dp, vertical = 8.dp),
+                                    horizontalArrangement = Arrangement.spacedBy(8.dp),
                                     verticalAlignment = Alignment.CenterVertically
                                 ) {
+                                    Text(
+                                        text = item.id,
+                                        modifier = Modifier.weight(1f)
+                                    )
                                     TextButton(onClick = { onItemClick(item.id) }) {
-                                        Text("播放")
+                                        Text("▶")
                                     }
                                     TextButton(onClick = { onRemoveClick(item.id) }) {
-                                        Text("移除")
+                                        Text("✕")
                                     }
                                 }
                             }
@@ -843,7 +877,10 @@ private fun FullscreenPlayer(
     activity: Activity?,
     player: androidx.media3.exoplayer.ExoPlayer?,
     playbackSpeed: Float,
+    isCurrentFavorite: Boolean,
+    canToggleFavorite: Boolean,
     onPlaybackSpeedChange: (Float) -> Unit,
+    onToggleFavorite: () -> Unit,
     onToggleFullscreen: () -> Unit
 ) {
     var hudState by remember { mutableStateOf<GestureHudState?>(null) }
@@ -1118,23 +1155,46 @@ private fun FullscreenPlayer(
                     .alpha(controlsContentAlpha)
             )
 
-            IconButton(
-                onClick = {
-                    pingControls()
-                    onToggleFullscreen()
-                },
+            Row(
                 modifier = Modifier
                     .align(Alignment.TopEnd)
                     .padding(16.dp)
-                    .background(Color.Black.copy(alpha = ControlOverlayAlpha), shape = MaterialTheme.shapes.small)
-                    .size(48.dp)
-                    .alpha(controlsContentAlpha)
+                    .alpha(controlsContentAlpha),
+                horizontalArrangement = Arrangement.spacedBy(8.dp),
+                verticalAlignment = Alignment.CenterVertically
             ) {
-                Icon(
-                    imageVector = Icons.Filled.FullscreenExit,
-                    contentDescription = "Exit fullscreen",
-                    tint = Color.White
-                )
+                IconButton(
+                    onClick = {
+                        pingControls()
+                        onToggleFavorite()
+                    },
+                    enabled = canToggleFavorite,
+                    modifier = Modifier
+                        .background(Color.Black.copy(alpha = ControlOverlayAlpha), shape = MaterialTheme.shapes.small)
+                        .size(48.dp)
+                ) {
+                    Icon(
+                        imageVector = if (isCurrentFavorite) Icons.Filled.Favorite else Icons.Outlined.FavoriteBorder,
+                        contentDescription = if (isCurrentFavorite) "Remove from favorites" else "Add to favorites",
+                        tint = if (canToggleFavorite) Color.White else Color.White.copy(alpha = 0.38f)
+                    )
+                }
+
+                IconButton(
+                    onClick = {
+                        pingControls()
+                        onToggleFullscreen()
+                    },
+                    modifier = Modifier
+                        .background(Color.Black.copy(alpha = ControlOverlayAlpha), shape = MaterialTheme.shapes.small)
+                        .size(48.dp)
+                ) {
+                    Icon(
+                        imageVector = Icons.Filled.FullscreenExit,
+                        contentDescription = "Exit fullscreen",
+                        tint = Color.White
+                    )
+                }
             }
         }
     }

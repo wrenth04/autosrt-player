@@ -103,6 +103,14 @@ class PlayerViewModel(
         _uiState.update { it.copy(sourcePrefix = sourcePrefix) }
     }
 
+    fun openFavorites() {
+        _uiState.update { it.copy(isFavoritesVisible = true) }
+    }
+
+    fun closeFavorites() {
+        _uiState.update { it.copy(isFavoritesVisible = false) }
+    }
+
     fun toggleCurrentFavorite() {
         val state = uiState.value
         val id = state.currentSourceId?.trim().orEmpty()
@@ -111,21 +119,14 @@ class PlayerViewModel(
             return
         }
 
-        val updated = state.favoriteItems
-            .filterNot { it.id.equals(id, ignoreCase = true) }
-            .let { items ->
-                if (items.size == state.favoriteItems.size) {
-                    listOf(
-                        FavoriteItem(
-                            id = id,
-                            title = state.parsedEntry?.title,
-                            addedAtMs = System.currentTimeMillis()
-                        )
-                    ) + items
-                } else {
-                    items
-                }
-            }
+        val normalized = id.lowercase()
+        val updated = state.favoriteItems.toMutableList()
+        val existingIndex = updated.indexOfFirst { it.id.lowercase() == normalized }
+        if (existingIndex >= 0) {
+            updated.removeAt(existingIndex)
+        } else {
+            updated.add(0, FavoriteItem(id = id))
+        }
         persistFavoriteItems(updated)
         _uiState.update { it.copy(favoriteItems = updated) }
     }
@@ -141,7 +142,7 @@ class PlayerViewModel(
     fun playFavorite(id: String) {
         val normalized = id.trim()
         if (normalized.isBlank()) return
-        _uiState.update { it.copy(sourceId = normalized) }
+        _uiState.update { it.copy(sourceId = normalized, isFavoritesVisible = false) }
         loadFromId()
     }
 
