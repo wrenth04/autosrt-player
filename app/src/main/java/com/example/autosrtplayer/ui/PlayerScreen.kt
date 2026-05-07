@@ -237,6 +237,19 @@ fun PlayerScreen(
         )
         return
     }
+    if (uiState.isTodayHotVisible) {
+        BackHandler(enabled = true) {
+            viewModel.closeTodayHot()
+        }
+        TodayHotScreen(
+            items = uiState.todayHotItems,
+            isLoading = uiState.isTodayHotLoading,
+            errorMessage = uiState.todayHotErrorMessage,
+            onBack = viewModel::closeTodayHot,
+            onItemClick = viewModel::playTodayHotCode
+        )
+        return
+    }
     var advancedExpanded by rememberSaveable { mutableStateOf(false) }
     var techInfoExpanded by rememberSaveable { mutableStateOf(false) }
 
@@ -279,15 +292,6 @@ fun PlayerScreen(
             enabled = !uiState.isTodayHotLoading
         ) {
             Text(if (uiState.isTodayHotLoading) "載入今日熱門…" else "今日熱門")
-        }
-
-        if (uiState.isTodayHotLoading || uiState.isTodayHotVisible || uiState.todayHotErrorMessage != null || uiState.todayHotItems.isNotEmpty()) {
-            TodayHotSection(
-                items = uiState.todayHotItems,
-                isLoading = uiState.isTodayHotLoading,
-                errorMessage = uiState.todayHotErrorMessage,
-                onItemClick = viewModel::playTodayHotCode
-            )
         }
 
         if (uiState.isLoading) {
@@ -426,6 +430,41 @@ fun PlayerScreen(
         }
 
         Spacer(modifier = Modifier.height(12.dp))
+    }
+}
+
+@Composable
+private fun TodayHotScreen(
+    items: List<TodayHotItem>,
+    isLoading: Boolean,
+    errorMessage: String?,
+    onBack: () -> Unit,
+    onItemClick: (String) -> Unit
+) {
+    Column(
+        modifier = Modifier
+            .fillMaxSize()
+            .verticalScroll(rememberScrollState())
+            .padding(16.dp),
+        verticalArrangement = Arrangement.spacedBy(12.dp)
+    ) {
+        Row(
+            modifier = Modifier.fillMaxWidth(),
+            horizontalArrangement = Arrangement.SpaceBetween,
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            Text("今日熱門", style = MaterialTheme.typography.headlineSmall)
+            TextButton(onClick = onBack) {
+                Text("返回")
+            }
+        }
+
+        TodayHotSection(
+            items = items,
+            isLoading = isLoading,
+            errorMessage = errorMessage,
+            onItemClick = onItemClick
+        )
     }
 }
 

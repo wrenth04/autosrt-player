@@ -212,13 +212,17 @@ class PlayerViewModel(
         }
     }
 
+    fun closeTodayHot() {
+        _uiState.update { it.copy(isTodayHotVisible = false) }
+    }
+
     fun playTodayHotCode(code: String) {
         val normalized = code.trim()
         if (normalized.isBlank()) {
             _uiState.update { it.copy(errorMessage = "今日熱門代碼無效", errorType = UiErrorType.Validation) }
             return
         }
-        _uiState.update { it.copy(sourceId = normalized) }
+        _uiState.update { it.copy(sourceId = normalized, isTodayHotVisible = false) }
         loadFromId()
     }
 
