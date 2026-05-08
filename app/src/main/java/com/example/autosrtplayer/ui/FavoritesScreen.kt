@@ -51,7 +51,7 @@ internal fun FavoritesScreen(
             .fillMaxSize()
             .verticalScroll(rememberScrollState())
             .padding(16.dp),
-        verticalArrangement = Arrangement.spacedBy(12.dp)
+        verticalArrangement = Arrangement.spacedBy(8.dp)
     ) {
         Row(
             modifier = Modifier.fillMaxWidth(),
@@ -70,7 +70,7 @@ internal fun FavoritesScreen(
         Card(modifier = Modifier.fillMaxWidth()) {
             Column(
                 modifier = Modifier.padding(12.dp),
-                verticalArrangement = Arrangement.spacedBy(12.dp)
+                verticalArrangement = Arrangement.spacedBy(8.dp)
             ) {
                 if (items.isEmpty()) {
                     Text(
@@ -79,22 +79,22 @@ internal fun FavoritesScreen(
                         style = MaterialTheme.typography.bodySmall
                     )
                 } else {
-                    Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
+                    Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
                         items.forEach { item ->
                             Card(modifier = Modifier.fillMaxWidth()) {
                                 Row(
                                     modifier = Modifier
                                         .fillMaxWidth()
-                                        .padding(horizontal = 12.dp, vertical = 8.dp),
-                                    horizontalArrangement = Arrangement.spacedBy(8.dp),
+                                        .padding(horizontal = 12.dp, vertical = 6.dp),
+                                    horizontalArrangement = Arrangement.spacedBy(6.dp),
                                     verticalAlignment = Alignment.CenterVertically
                                 ) {
                                     FavoriteCoverImage(
                                         imageUrl = favoriteCoverUrl(item.id),
                                         contentDescription = item.id,
                                         modifier = Modifier
-                                            .width(72.dp)
-                                            .aspectRatio(16f / 9f)
+                                            .width(80.dp)
+                                            .aspectRatio(4f / 3f)
                                     )
                                     Text(
                                         text = item.id,
