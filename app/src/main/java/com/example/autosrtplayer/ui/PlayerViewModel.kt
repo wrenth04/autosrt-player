@@ -6,6 +6,8 @@ import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import androidx.media3.common.Player
 import androidx.media3.exoplayer.ExoPlayer
+import com.example.autosrtplayer.data.favorites.FavoriteCodec
+import com.example.autosrtplayer.data.favorites.FavoriteItem
 import com.example.autosrtplayer.data.playback.MediaItemBuilder
 import com.example.autosrtplayer.data.playback.PlayerFactory
 import com.example.autosrtplayer.data.playlist.MissavHtmlExtractor
@@ -40,6 +42,7 @@ class PlayerViewModel(
     companion object {
         private const val PrefsName = "autosrt_player_settings"
         private const val KeySourcePrefix = "source_prefix"
+        private const val KeyFavoriteItems = "favorite_items"
     }
 
     private val _uiState = MutableStateFlow(PlayerUiState())
@@ -58,7 +61,8 @@ class PlayerViewModel(
         if (settingsPrefs == null) {
             settingsPrefs = appContext?.getSharedPreferences(PrefsName, Context.MODE_PRIVATE)
             val sourcePrefix = settingsPrefs?.getString(KeySourcePrefix, "").orEmpty()
-            _uiState.update { it.copy(sourcePrefix = sourcePrefix) }
+            val favoriteItems = FavoriteCodec.decode(settingsPrefs?.getString(KeyFavoriteItems, null))
+            _uiState.update { it.copy(sourcePrefix = sourcePrefix, favoriteItems = favoriteItems) }
         }
     }
 
@@ -97,6 +101,53 @@ class PlayerViewModel(
         val sourcePrefix = uiState.value.sourcePrefix.trim()
         settingsPrefs?.edit()?.putString(KeySourcePrefix, sourcePrefix)?.apply()
         _uiState.update { it.copy(sourcePrefix = sourcePrefix) }
+    }
+
+    fun openFavorites() {
+        _uiState.update { it.copy(isFavoritesVisible = true) }
+    }
+
+    fun closeFavorites() {
+        _uiState.update { it.copy(isFavoritesVisible = false) }
+    }
+
+    fun toggleCurrentFavorite() {
+        val state = uiState.value
+        val id = state.currentSourceId?.trim().orEmpty()
+        if (id.isBlank()) {
+            _uiState.update { it.copy(errorMessage = "目前影片沒有可儲存的 ID", errorType = UiErrorType.Validation) }
+            return
+        }
+
+        val normalized = id.lowercase()
+        val updated = state.favoriteItems.toMutableList()
+        val existingIndex = updated.indexOfFirst { it.id.lowercase() == normalized }
+        if (existingIndex >= 0) {
+            updated.removeAt(existingIndex)
+        } else {
+            updated.add(0, FavoriteItem(id = id))
+        }
+        persistFavoriteItems(updated)
+        _uiState.update { it.copy(favoriteItems = updated) }
+    }
+
+    fun removeFavorite(id: String) {
+        val normalized = id.trim()
+        if (normalized.isBlank()) return
+        val updated = uiState.value.favoriteItems.filterNot { it.id.equals(normalized, ignoreCase = true) }
+        persistFavoriteItems(updated)
+        _uiState.update { it.copy(favoriteItems = updated) }
+    }
+
+    fun playFavorite(id: String) {
+        val normalized = id.trim()
+        if (normalized.isBlank()) return
+        _uiState.update { it.copy(sourceId = normalized, isFavoritesVisible = false) }
+        loadFromId()
+    }
+
+    private fun persistFavoriteItems(items: List<FavoriteItem>) {
+        settingsPrefs?.edit()?.putString(KeyFavoriteItems, FavoriteCodec.encode(items))?.apply()
     }
 
     fun loadFromId() {
@@ -139,7 +190,7 @@ class PlayerViewModel(
                         errorType = UiErrorType.None
                     )
                 }
-                parseAndBuild(content, targetUrl)
+                parseAndBuild(content, targetUrl, id)
             }.onFailure {
                 startSourceResolve(id)
             }
@@ -169,7 +220,7 @@ class PlayerViewModel(
     fun loadFromSharedUrl(url: String) {
         val normalized = url.trim()
         if (normalized.isBlank()) return
-        _uiState.update { it.copy(playlistUrl = normalized, sourceResolveRequest = null) }
+        _uiState.update { it.copy(playlistUrl = normalized, sourceResolveRequest = null, currentSourceId = null) }
         loadFromUrl(normalized)
     }
 
@@ -238,6 +289,7 @@ class PlayerViewModel(
                 loadingStage = LoadingStage.BuildingPlayer,
                 currentRequestLabel = "M3U 文字",
                 sourceResolveRequest = null,
+                currentSourceId = null,
                 errorMessage = null,
                 errorType = UiErrorType.None
             )
@@ -261,6 +313,7 @@ class PlayerViewModel(
                     loadingStage = LoadingStage.FetchingPlaylist,
                     currentRequestLabel = url,
                     sourceResolveRequest = null,
+                    currentSourceId = null,
                     errorMessage = null,
                     errorType = UiErrorType.None
                 )
@@ -330,7 +383,7 @@ class PlayerViewModel(
             )
         }
         viewModelScope.launch {
-            parseAndBuild(playlistText, finalUrl)
+            parseAndBuild(playlistText, finalUrl, request.id)
         }
     }
 
@@ -352,11 +405,19 @@ class PlayerViewModel(
     }
 
     fun setFullscreen(isFullscreen: Boolean) {
+        val wasFullscreen = _uiState.value.isFullscreen
         _uiState.update { it.copy(isFullscreen = isFullscreen) }
+        if (wasFullscreen && !isFullscreen) {
+            player?.pause()
+        }
     }
 
     fun toggleFullscreen() {
+        val wasFullscreen = _uiState.value.isFullscreen
         _uiState.update { it.copy(isFullscreen = !it.isFullscreen) }
+        if (wasFullscreen) {
+            player?.pause()
+        }
     }
 
     fun setPlaybackSpeed(speed: Float) {
@@ -373,7 +434,7 @@ class PlayerViewModel(
         super.onCleared()
     }
 
-    private suspend fun parseAndBuild(content: String, playlistUrl: String? = null) {
+    private suspend fun parseAndBuild(content: String, playlistUrl: String? = null, sourceId: String? = null) {
         runCatching {
             val entry = parser.parse(content, playlistUrl)
             val subtitleSource = resolveSubtitleSource(entry)
@@ -383,6 +444,7 @@ class PlayerViewModel(
                 it.copy(
                     parsedEntry = entry,
                     mediaItem = mediaItem,
+                    currentSourceId = sourceId?.trim()?.takeIf { it.isNotBlank() },
                     isLoading = false,
                     loadingStage = LoadingStage.Idle,
                     currentRequestLabel = null,
@@ -399,6 +461,7 @@ class PlayerViewModel(
                 it.copy(
                     parsedEntry = null,
                     mediaItem = null,
+                    currentSourceId = null,
                     lastPlayedMediaUrl = null,
                     playbackPositionMs = 0L,
                     playWhenReady = true,

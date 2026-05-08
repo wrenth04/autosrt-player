@@ -1,159 +1,49 @@
 package com.example.autosrtplayer.ui
 
-import android.annotation.SuppressLint
 import android.app.Activity
-import android.content.Context
-import android.graphics.BitmapFactory
-import android.graphics.Color as AndroidColor
-import android.media.AudioManager
-import android.os.SystemClock
 import android.view.WindowManager
 import androidx.activity.compose.BackHandler
-import androidx.compose.foundation.background
-import androidx.compose.foundation.clickable
-import androidx.compose.ui.draw.clip
-import androidx.compose.ui.graphics.asImageBitmap
-import androidx.compose.ui.layout.ContentScale
-import androidx.compose.foundation.text.KeyboardActions
-import androidx.compose.foundation.text.KeyboardOptions
-import androidx.compose.foundation.gestures.detectDragGestures
-import androidx.compose.foundation.gestures.detectTapGestures
 import androidx.compose.foundation.layout.Arrangement
-import androidx.compose.foundation.layout.Box
-import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
-import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
-import androidx.compose.foundation.layout.size
-import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.rememberScrollState
-import androidx.compose.foundation.shape.CircleShape
-import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.foundation.text.KeyboardActions
+import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.foundation.verticalScroll
-import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.automirrored.filled.VolumeOff
-import androidx.compose.material.icons.automirrored.filled.VolumeUp
-import androidx.compose.material.icons.filled.Brightness6
-import androidx.compose.material.icons.filled.FastForward
-import androidx.compose.material.icons.filled.FastRewind
-import androidx.compose.material.icons.filled.Fullscreen
-import androidx.compose.material.icons.filled.FullscreenExit
-import androidx.compose.material.icons.filled.Pause
-import androidx.compose.material.icons.filled.PlayArrow
-import androidx.compose.foundation.BorderStroke
 import androidx.compose.material3.Button
-import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.CircularProgressIndicator
-import androidx.compose.material3.Icon
-import androidx.compose.material3.IconButton
-import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedTextField
-import androidx.compose.material3.Slider
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
-import androidx.compose.runtime.mutableFloatStateOf
-import androidx.compose.runtime.mutableLongStateOf
 import androidx.compose.runtime.mutableStateOf
-import androidx.compose.runtime.produceState
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.saveable.rememberSaveable
-import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.foundation.Image
-import androidx.compose.ui.draw.alpha
-import androidx.compose.ui.graphics.Color
-import androidx.compose.ui.graphics.vector.ImageVector
-import androidx.compose.ui.input.pointer.consumePositionChange
-import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.platform.LocalContext
-import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.text.input.ImeAction
-import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
-import androidx.compose.ui.viewinterop.AndroidView
-import android.webkit.CookieManager
-import android.webkit.WebChromeClient
-import android.webkit.WebResourceError
-import android.webkit.WebResourceRequest
-import android.webkit.WebView
-import android.webkit.WebViewClient
 import androidx.core.view.WindowCompat
 import androidx.core.view.WindowInsetsCompat
 import androidx.core.view.WindowInsetsControllerCompat
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.lifecycle.viewmodel.compose.viewModel
-import com.example.autosrtplayer.data.todayhot.TodayHotItem
-import org.json.JSONArray
-import androidx.media3.common.C
-import androidx.media3.common.Player
-import androidx.media3.ui.CaptionStyleCompat
-import androidx.media3.ui.PlayerView
-import kotlinx.coroutines.Dispatchers
-import kotlinx.coroutines.delay
-import kotlinx.coroutines.withContext
-import okhttp3.OkHttpClient
-import okhttp3.Request
-import kotlin.math.abs
-import kotlin.math.roundToInt
+import androidx.media3.common.util.UnstableApi
 
-private const val GestureHudTimeoutMs = 900L
-private const val FullscreenControlsAutoHideMs = 2500L
-private const val SubtitleBackgroundAlpha = 0x66
-private const val MinBrightness = 0.05f
-private const val ExtraDimThreshold = 0.2f
-private const val MaxExtraDimAlpha = 0.85f
-private const val SeekMaxOffsetMs = 180_000L
-private const val SeekStepMs = 60_000L
-private const val CenterButtonSize = 72
-private const val ControlOverlayAlpha = 0.14f
-private const val ScrubberOverlayAlpha = 0.10f
-private const val GestureHudAlpha = 0.08f
-private const val MinControlsContentAlpha = 0.18f
-private const val MinSpeedControlAlpha = 0.42f
-private const val SpeedMenuContainerAlpha = 0.94f
-private const val SpeedMenuBorderAlpha = 0.36f
-private const val SpeedMenuItemPaddingVertical = 10
-private val PlaybackSpeedOptions = listOf(0.5f, 1f, 2f, 4f, 8f)
-
-private enum class OverlayGestureMode {
-    Seek,
-    Brightness,
-    Volume
-}
-
-private data class GestureHudState(
-    val icon: ImageVector,
-    val label: String,
-    val valueText: String? = null,
-    val progress: Float? = null
-)
-
-private data class PlaybackProgressState(
-    val currentPositionMs: Long,
-    val durationMs: Long
-)
-
-private data class BrightnessState(
-    val gestureValue: Float,
-    val screenBrightness: Float,
-    val overlayAlpha: Float
-)
-
-@androidx.media3.common.util.UnstableApi
+@UnstableApi
 @Composable
 fun PlayerScreen(
     sharedM3uUrl: String? = null,
@@ -181,6 +71,10 @@ fun PlayerScreen(
     }
     val activity = context as? Activity
     val entry = uiState.parsedEntry
+    val currentSourceId = uiState.currentSourceId
+    val isCurrentFavorite = currentSourceId != null && uiState.favoriteItems.any { item ->
+        item.id.equals(currentSourceId, ignoreCase = true)
+    }
     val player = remember(context, entry?.mediaUrl, entry?.userAgent, entry?.referrer) {
         viewModel.getOrCreatePlayer(context)
     }
@@ -232,8 +126,23 @@ fun PlayerScreen(
             activity = activity,
             player = player,
             playbackSpeed = uiState.playbackSpeed,
+            isCurrentFavorite = isCurrentFavorite,
+            canToggleFavorite = !currentSourceId.isNullOrBlank(),
             onPlaybackSpeedChange = viewModel::setPlaybackSpeed,
+            onToggleFavorite = viewModel::toggleCurrentFavorite,
             onToggleFullscreen = viewModel::toggleFullscreen
+        )
+        return
+    }
+    if (uiState.isFavoritesVisible) {
+        BackHandler(enabled = true) {
+            viewModel.closeFavorites()
+        }
+        FavoritesScreen(
+            items = uiState.favoriteItems,
+            onBack = viewModel::closeFavorites,
+            onItemClick = viewModel::playFavorite,
+            onRemoveClick = viewModel::removeFavorite
         )
         return
     }
@@ -262,36 +171,54 @@ fun PlayerScreen(
     ) {
         Text("AutoSRT Player", style = MaterialTheme.typography.headlineMedium)
         Text(
-            text = "輸入影片 ID 後，直接載入並播放",
+            text = "輸入 ID 後播放",
             style = MaterialTheme.typography.bodyMedium,
             color = MaterialTheme.colorScheme.onSurfaceVariant
         )
 
-        OutlinedTextField(
-            value = uiState.sourceId,
-            onValueChange = viewModel::onSourceIdChange,
+        Row(
             modifier = Modifier.fillMaxWidth(),
-            label = { Text("輸入影片 ID") },
-            placeholder = { Text("例如：ABCD-123") },
-            minLines = 1,
-            singleLine = true,
-            keyboardOptions = KeyboardOptions(imeAction = ImeAction.Go),
-            keyboardActions = KeyboardActions(onGo = { viewModel.loadFromId() })
-        )
-
-        Button(
-            onClick = viewModel::loadFromId,
-            modifier = Modifier.fillMaxWidth()
+            verticalAlignment = Alignment.Bottom,
+            horizontalArrangement = Arrangement.spacedBy(8.dp)
         ) {
-            Text("載入並播放")
+            OutlinedTextField(
+                value = uiState.sourceId,
+                onValueChange = viewModel::onSourceIdChange,
+                modifier = Modifier.weight(1f),
+                label = { Text("輸入影片 ID") },
+                placeholder = { Text("例如：ABCD-123") },
+                minLines = 1,
+                singleLine = true,
+                keyboardOptions = KeyboardOptions(imeAction = ImeAction.Go),
+                keyboardActions = KeyboardActions(onGo = { viewModel.loadFromId() })
+            )
+
+            Button(
+                onClick = viewModel::loadFromId,
+                modifier = Modifier.height(48.dp)
+            ) {
+                Text("播放")
+            }
         }
 
-        Button(
-            onClick = viewModel::loadTodayHot,
+        Row(
             modifier = Modifier.fillMaxWidth(),
-            enabled = !uiState.isTodayHotLoading
+            horizontalArrangement = Arrangement.spacedBy(8.dp)
         ) {
-            Text(if (uiState.isTodayHotLoading) "載入今日熱門…" else "今日熱門")
+            Button(
+                onClick = viewModel::loadTodayHot,
+                modifier = Modifier.weight(1f),
+                enabled = !uiState.isTodayHotLoading
+            ) {
+                Text(if (uiState.isTodayHotLoading) "載入中…" else "熱門")
+            }
+
+            Button(
+                onClick = viewModel::openFavorites,
+                modifier = Modifier.weight(1f)
+            ) {
+                Text("最愛 (${uiState.favoriteItems.size})")
+            }
         }
 
         if (uiState.isLoading) {
@@ -322,13 +249,6 @@ fun PlayerScreen(
             )
         }
 
-        InlinePlayer(
-            player = player,
-            playbackSpeed = uiState.playbackSpeed,
-            onPlaybackSpeedChange = viewModel::setPlaybackSpeed,
-            onToggleFullscreen = viewModel::toggleFullscreen
-        )
-
         uiState.errorMessage?.let { message ->
             Card(
                 modifier = Modifier.fillMaxWidth(),
@@ -357,6 +277,18 @@ fun PlayerScreen(
                     Text("標題：${it.title ?: "(未提供)"}")
                     Text("字幕狀態：${if (it.subtitleUrl.isNullOrBlank()) "未載入" else "已載入"}")
                     Text("來源狀態：可播放")
+                    Button(
+                        onClick = viewModel::toggleCurrentFavorite,
+                        enabled = !currentSourceId.isNullOrBlank()
+                    ) {
+                        Text(
+                            when {
+                                currentSourceId.isNullOrBlank() -> "無可儲存 ID"
+                                isCurrentFavorite -> "已加入稍後觀看"
+                                else -> "加入稍後觀看"
+                            }
+                        )
+                    }
                     TextButton(onClick = { techInfoExpanded = !techInfoExpanded }) {
                         Text(if (techInfoExpanded) "隱藏技術資訊" else "查看技術資訊")
                     }
@@ -431,1050 +363,4 @@ fun PlayerScreen(
 
         Spacer(modifier = Modifier.height(12.dp))
     }
-}
-
-@Composable
-private fun TodayHotScreen(
-    items: List<TodayHotItem>,
-    isLoading: Boolean,
-    errorMessage: String?,
-    onBack: () -> Unit,
-    onItemClick: (String) -> Unit
-) {
-    Column(
-        modifier = Modifier
-            .fillMaxSize()
-            .verticalScroll(rememberScrollState())
-            .padding(16.dp),
-        verticalArrangement = Arrangement.spacedBy(12.dp)
-    ) {
-        Row(
-            modifier = Modifier.fillMaxWidth(),
-            horizontalArrangement = Arrangement.SpaceBetween,
-            verticalAlignment = Alignment.CenterVertically
-        ) {
-            Text("今日熱門", style = MaterialTheme.typography.headlineSmall)
-            TextButton(onClick = onBack) {
-                Text("返回")
-            }
-        }
-
-        TodayHotSection(
-            items = items,
-            isLoading = isLoading,
-            errorMessage = errorMessage,
-            onItemClick = onItemClick
-        )
-    }
-}
-
-@Composable
-private fun TodayHotSection(
-    items: List<TodayHotItem>,
-    isLoading: Boolean,
-    errorMessage: String?,
-    onItemClick: (String) -> Unit
-) {
-    Card(modifier = Modifier.fillMaxWidth()) {
-        Column(
-            modifier = Modifier.padding(12.dp),
-            verticalArrangement = Arrangement.spacedBy(12.dp)
-        ) {
-            Row(
-                modifier = Modifier.fillMaxWidth(),
-                horizontalArrangement = Arrangement.SpaceBetween,
-                verticalAlignment = Alignment.CenterVertically
-            ) {
-                Text("今日熱門", style = MaterialTheme.typography.titleMedium)
-                if (isLoading) {
-                    CircularProgressIndicator(modifier = Modifier.size(20.dp), strokeWidth = 2.dp)
-                }
-            }
-
-            errorMessage?.let {
-                Text(text = it, color = MaterialTheme.colorScheme.error)
-            }
-
-            if (items.isNotEmpty()) {
-                Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
-                    items.forEach { item ->
-                        TodayHotItemCard(item = item, onItemClick = onItemClick)
-                    }
-                }
-            } else if (!isLoading && errorMessage == null) {
-                Text(
-                    text = "尚未載入資料",
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                    style = MaterialTheme.typography.bodySmall
-                )
-            }
-        }
-    }
-}
-
-@Composable
-private fun TodayHotCoverImage(
-    imageUrl: String,
-    contentDescription: String
-) {
-    val client = remember { OkHttpClient() }
-    val bitmapState = produceState<androidx.compose.ui.graphics.ImageBitmap?>(initialValue = null, imageUrl) {
-        value = withContext(Dispatchers.IO) {
-            runCatching {
-                val request = Request.Builder().url(imageUrl).build()
-                client.newCall(request).execute().use { response ->
-                    if (!response.isSuccessful) return@runCatching null
-                    response.body?.byteStream()?.use { input ->
-                        BitmapFactory.decodeStream(input)?.asImageBitmap()
-                    }
-                }
-            }.getOrNull()
-        }
-    }
-
-    val bitmap = bitmapState.value
-    if (bitmap != null) {
-        Image(
-            bitmap = bitmap,
-            contentDescription = contentDescription,
-            modifier = Modifier.fillMaxSize(),
-            contentScale = ContentScale.Crop
-        )
-    } else {
-        Box(
-            modifier = Modifier
-                .fillMaxSize()
-                .background(MaterialTheme.colorScheme.surfaceVariant),
-            contentAlignment = Alignment.Center
-        ) {
-            Text(
-                text = "封面載入中",
-                color = MaterialTheme.colorScheme.onSurfaceVariant,
-                style = MaterialTheme.typography.bodySmall
-            )
-        }
-    }
-}
-
-@Composable
-private fun TodayHotItemCard(
-    item: TodayHotItem,
-    onItemClick: (String) -> Unit
-) {
-    Card(modifier = Modifier.fillMaxWidth()) {
-        Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
-            Box(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .height(220.dp)
-                    .clip(RoundedCornerShape(topStart = 16.dp, topEnd = 16.dp))
-                    .clickable { onItemClick(item.code) }
-            ) {
-                TodayHotCoverImage(
-                    imageUrl = item.fourHoiCoverUrl,
-                    contentDescription = item.title ?: item.code
-                )
-            }
-            Column(
-                modifier = Modifier.padding(horizontal = 12.dp, vertical = 2.dp),
-                verticalArrangement = Arrangement.spacedBy(4.dp)
-            ) {
-                Text(text = item.code, style = MaterialTheme.typography.titleSmall)
-                Text(text = item.title ?: item.code, style = MaterialTheme.typography.bodyMedium)
-                item.updatedAt?.takeIf { it.isNotBlank() }?.let {
-                    Text(
-                        text = "更新時間：$it",
-                        style = MaterialTheme.typography.bodySmall,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant
-                    )
-                }
-            }
-        }
-    }
-}
-
-@SuppressLint("SetJavaScriptEnabled")
-@Composable
-private fun SourceResolveWebViewHost(
-    request: SourceWebResolveRequest,
-    onHtmlResolved: (requestId: Long, html: String, userAgent: String, finalUrl: String) -> Unit,
-    onResolveFailed: (requestId: Long, message: String) -> Unit
-) {
-    val latestRequestState = rememberUpdatedState(request)
-    val latestOnHtmlResolvedState = rememberUpdatedState(onHtmlResolved)
-    val latestOnResolveFailedState = rememberUpdatedState(onResolveFailed)
-    var webView by remember { mutableStateOf<WebView?>(null) }
-    val startedAtMs = remember(request.requestId) { SystemClock.elapsedRealtime() }
-    val startedAtMsState = rememberUpdatedState(startedAtMs)
-
-    DisposableEffect(request.requestId) {
-        onDispose {
-            webView?.stopLoading()
-            webView?.destroy()
-            webView = null
-        }
-    }
-
-    AndroidView(
-        factory = { viewContext ->
-            WebView(viewContext).apply {
-                webView = this
-                tag = request.requestId
-                setBackgroundColor(AndroidColor.TRANSPARENT)
-                settings.javaScriptEnabled = true
-                settings.domStorageEnabled = true
-                settings.loadWithOverviewMode = true
-                settings.useWideViewPort = true
-                CookieManager.getInstance().setAcceptCookie(true)
-                webChromeClient = WebChromeClient()
-                webViewClient = object : WebViewClient() {
-                    override fun onPageFinished(view: WebView, url: String?) {
-                        super.onPageFinished(view, url)
-                        val activeRequest = latestRequestState.value
-                        if ((view.tag as? Long) != activeRequest.requestId) return
-                        pollForHtml(
-                            view,
-                            activeRequest,
-                            startedAtMsState.value,
-                            latestOnHtmlResolvedState.value,
-                            latestOnResolveFailedState.value
-                        )
-                    }
-
-                    override fun onReceivedError(
-                        view: WebView,
-                        request: WebResourceRequest,
-                        error: WebResourceError
-                    ) {
-                        if (!request.isForMainFrame) return
-                        val activeRequest = latestRequestState.value
-                        if ((view.tag as? Long) != activeRequest.requestId) return
-                        latestOnResolveFailedState.value(activeRequest.requestId, "解析失敗，請稍後再試或改用手動 M3U8。")
-                    }
-                }
-                loadUrl(request.url)
-            }
-        },
-        update = { view ->
-            if (view.tag != request.requestId) {
-                view.tag = request.requestId
-                view.stopLoading()
-                view.loadUrl(request.url)
-            }
-        },
-        modifier = Modifier
-            .fillMaxWidth()
-            .height(1.dp)
-            .alpha(0.01f)
-    )
-}
-
-private fun pollForHtml(
-    webView: WebView,
-    request: SourceWebResolveRequest,
-    startedAtMs: Long,
-    onHtmlResolved: (requestId: Long, html: String, userAgent: String, finalUrl: String) -> Unit,
-    onResolveFailed: (requestId: Long, message: String) -> Unit
-) {
-    if ((webView.tag as? Long) != request.requestId) return
-    val elapsed = SystemClock.elapsedRealtime() - startedAtMs
-    if (elapsed > 25_000L) {
-        onResolveFailed(request.requestId, "解析失敗，請稍後再試或改用手動 M3U8。")
-        return
-    }
-
-    webView.evaluateJavascript("document.documentElement.outerHTML") { htmlResult ->
-        val html = decodeJsValue(htmlResult).orEmpty()
-        if (html.contains("eval(function(p,a,c,k,e,d)") || html.contains(".m3u8")) {
-            webView.evaluateJavascript("navigator.userAgent") { uaResult ->
-                val userAgent = decodeJsValue(uaResult).orEmpty().ifBlank { webView.settings.userAgentString.orEmpty() }
-                webView.evaluateJavascript("location.href") { urlResult ->
-                    val finalUrl = decodeJsValue(urlResult).orEmpty().ifBlank { request.url }
-                    if ((webView.tag as? Long) == request.requestId) {
-                        onHtmlResolved(request.requestId, html, userAgent, finalUrl)
-                    }
-                }
-            }
-            return@evaluateJavascript
-        }
-
-        webView.postDelayed({ pollForHtml(webView, request, startedAtMs, onHtmlResolved, onResolveFailed) }, 700L)
-    }
-}
-
-private fun decodeJsValue(value: String?): String {
-    if (value.isNullOrBlank() || value == "null") return ""
-    return runCatching { JSONArray("[$value]").getString(0) }.getOrDefault(value.trim('"'))
-}
-
-@androidx.media3.common.util.UnstableApi
-@Composable
-private fun InlinePlayer(
-    player: androidx.media3.exoplayer.ExoPlayer?,
-    playbackSpeed: Float,
-    onPlaybackSpeedChange: (Float) -> Unit,
-    onToggleFullscreen: () -> Unit
-) {
-    if (player == null) return
-
-    Box(
-        modifier = Modifier
-            .fillMaxWidth()
-            .height(240.dp)
-            .background(Color.Black)
-    ) {
-        AndroidView(
-            factory = { viewContext ->
-                PlayerView(viewContext).apply {
-                    this.player = player
-                    useController = true
-                    applySubtitleStyle()
-                }
-            },
-            modifier = Modifier.fillMaxSize(),
-            update = {
-                it.player = player
-                it.applySubtitleStyle()
-            }
-        )
-
-        PlaybackSpeedButton(
-            playbackSpeed = playbackSpeed,
-            onPlaybackSpeedChange = onPlaybackSpeedChange,
-            modifier = Modifier
-                .align(Alignment.TopStart)
-                .padding(8.dp)
-        )
-
-        IconButton(
-            onClick = onToggleFullscreen,
-            modifier = Modifier
-                .align(Alignment.TopEnd)
-                .padding(8.dp)
-                .background(Color.Black.copy(alpha = 0.45f), shape = MaterialTheme.shapes.small)
-                .size(40.dp)
-        ) {
-            Icon(
-                imageVector = Icons.Filled.Fullscreen,
-                contentDescription = "Enter fullscreen",
-                tint = Color.White
-            )
-        }
-    }
-}
-
-@androidx.media3.common.util.UnstableApi
-@Composable
-private fun FullscreenPlayer(
-    activity: Activity?,
-    player: androidx.media3.exoplayer.ExoPlayer?,
-    playbackSpeed: Float,
-    onPlaybackSpeedChange: (Float) -> Unit,
-    onToggleFullscreen: () -> Unit
-) {
-    var hudState by remember { mutableStateOf<GestureHudState?>(null) }
-    var appBrightness by rememberSaveable {
-        mutableStateOf<Float?>(null)
-    }
-    var dimOverlayAlpha by rememberSaveable {
-        mutableStateOf(0f)
-    }
-    val progressState = rememberPlaybackProgressState(player)
-    var controlsVisible by remember(player) { mutableStateOf(true) }
-    var controlsInteractionTick by remember(player) { mutableLongStateOf(0L) }
-    var isScrubbing by remember(player) { mutableStateOf(false) }
-    var scrubPositionMs by remember(player) { mutableLongStateOf(0L) }
-    val displayedPositionMs = if (isScrubbing) scrubPositionMs else progressState.currentPositionMs
-    val latestPlayer by rememberUpdatedState(player)
-    val density = LocalDensity.current
-
-    fun pingControls() {
-        controlsInteractionTick += 1
-    }
-
-    DisposableEffect(activity, appBrightness) {
-        val window = activity?.window
-        val originalBrightness = window?.attributes?.screenBrightness ?: WindowManager.LayoutParams.BRIGHTNESS_OVERRIDE_NONE
-        val brightnessValue = appBrightness
-        if (brightnessValue != null) {
-            val brightnessState = mapBrightnessState(brightnessValue)
-            dimOverlayAlpha = brightnessState.overlayAlpha
-            window?.let {
-                val attributes = it.attributes
-                attributes.screenBrightness = brightnessState.screenBrightness
-                it.attributes = attributes
-            }
-        } else {
-            dimOverlayAlpha = 0f
-            window?.let {
-                val attributes = it.attributes
-                attributes.screenBrightness = WindowManager.LayoutParams.BRIGHTNESS_OVERRIDE_NONE
-                it.attributes = attributes
-            }
-        }
-        onDispose {
-            window?.let {
-                val attributes = it.attributes
-                attributes.screenBrightness = originalBrightness
-                it.attributes = attributes
-            }
-        }
-    }
-
-    LaunchedEffect(hudState) {
-        if (hudState != null) {
-            delay(GestureHudTimeoutMs)
-            hudState = null
-        }
-    }
-
-    LaunchedEffect(controlsVisible, isScrubbing, controlsInteractionTick) {
-        if (controlsVisible && !isScrubbing) {
-            delay(FullscreenControlsAutoHideMs)
-            controlsVisible = false
-        }
-    }
-
-    BoxWithConstraints(
-        modifier = Modifier
-            .fillMaxSize()
-            .background(Color.Black)
-    ) {
-        val controlsContentAlpha =
-            (1f - dimOverlayAlpha).coerceIn(MinControlsContentAlpha, 1f)
-        val speedControlAlpha =
-            (1f - dimOverlayAlpha).coerceIn(MinSpeedControlAlpha, 1f)
-        val widthPx = with(density) { maxWidth.toPx() }.takeIf { it > 0f } ?: 1f
-        val heightPx = with(density) { maxHeight.toPx() }.takeIf { it > 0f } ?: 1f
-
-        if (player != null) {
-            AndroidView(
-                factory = { viewContext ->
-                    PlayerView(viewContext).apply {
-                        this.player = player
-                        useController = false
-                        applySubtitleStyle()
-                    }
-                },
-                modifier = Modifier.fillMaxSize(),
-                update = {
-                    it.player = player
-                    it.applySubtitleStyle()
-                }
-            )
-        }
-
-        if (dimOverlayAlpha > 0f) {
-            Box(
-                modifier = Modifier
-                    .fillMaxSize()
-                    .background(Color.Black.copy(alpha = dimOverlayAlpha))
-            )
-        }
-
-        if (!controlsVisible) {
-            Row(
-                modifier = Modifier
-                    .align(Alignment.Center)
-                    .fillMaxWidth()
-                    .fillMaxHeight(0.62f)
-                    .alpha(controlsContentAlpha)
-            ) {
-                val handleSeekChange: (Long, Long) -> Unit = { deltaMs, targetMs ->
-                    hudState = GestureHudState(
-                        icon = if (deltaMs >= 0) Icons.Filled.FastForward else Icons.Filled.FastRewind,
-                        label = if (deltaMs >= 0) "快轉" else "倒退",
-                        valueText = "${abs(deltaMs) / 1000}秒 · ${formatDuration(targetMs)}"
-                    )
-                }
-
-                GestureZone(
-                    modifier = Modifier
-                        .weight(0.24f)
-                        .fillMaxHeight(),
-                    mode = OverlayGestureMode.Brightness,
-                    widthPx = widthPx,
-                    heightPx = heightPx,
-                    player = latestPlayer,
-                    currentBrightness = appBrightness,
-                    onTap = {
-                        controlsVisible = !controlsVisible
-                        if (controlsVisible) pingControls()
-                    },
-                    onBrightnessChange = { value ->
-                        appBrightness = value
-                        val brightnessState = mapBrightnessState(value)
-                        dimOverlayAlpha = brightnessState.overlayAlpha
-                        activity?.window?.let { window ->
-                            val attributes = window.attributes
-                            attributes.screenBrightness = brightnessState.screenBrightness
-                            window.attributes = attributes
-                        }
-                        hudState = GestureHudState(
-                            icon = Icons.Filled.Brightness6,
-                            label = "亮度",
-                            valueText = "${(brightnessState.gestureValue * 100).roundToInt()}%",
-                            progress = brightnessState.gestureValue
-                        )
-                    },
-                    onVolumeChange = { _, _ -> },
-                    onSeekChange = handleSeekChange
-                )
-
-                GestureZone(
-                    modifier = Modifier
-                        .weight(0.52f)
-                        .fillMaxHeight(),
-                    mode = OverlayGestureMode.Seek,
-                    widthPx = widthPx,
-                    heightPx = heightPx,
-                    player = latestPlayer,
-                    currentBrightness = appBrightness,
-                    onTap = {
-                        controlsVisible = !controlsVisible
-                        if (controlsVisible) pingControls()
-                    },
-                    onBrightnessChange = { },
-                    onVolumeChange = { _, _ -> },
-                    onSeekChange = handleSeekChange
-                )
-
-                GestureZone(
-                    modifier = Modifier
-                        .weight(0.24f)
-                        .fillMaxHeight(),
-                    mode = OverlayGestureMode.Volume,
-                    widthPx = widthPx,
-                    heightPx = heightPx,
-                    player = latestPlayer,
-                    currentBrightness = appBrightness,
-                    onTap = {
-                        controlsVisible = !controlsVisible
-                        if (controlsVisible) pingControls()
-                    },
-                    onBrightnessChange = { },
-                    onVolumeChange = { current, max ->
-                        val progress = if (max > 0) current / max.toFloat() else 0f
-                        hudState = GestureHudState(
-                            icon = if (current == 0) Icons.AutoMirrored.Filled.VolumeOff else Icons.AutoMirrored.Filled.VolumeUp,
-                            label = "音量",
-                            valueText = "${(progress * 100).roundToInt()}%",
-                            progress = progress
-                        )
-                    },
-                    onSeekChange = handleSeekChange
-                )
-            }
-        }
-
-        if (controlsVisible) {
-            IconButton(
-                onClick = {
-                    player?.let {
-                        if (it.isPlaying) it.pause() else it.play()
-                        pingControls()
-                    }
-                },
-                modifier = Modifier
-                    .align(Alignment.Center)
-                    .background(Color.Black.copy(alpha = ControlOverlayAlpha), shape = CircleShape)
-                    .size(CenterButtonSize.dp)
-                    .alpha(controlsContentAlpha)
-            ) {
-                val isPlaying = player?.isPlaying == true
-                Icon(
-                    imageVector = if (isPlaying) Icons.Filled.Pause else Icons.Filled.PlayArrow,
-                    contentDescription = if (isPlaying) "Pause" else "Play",
-                    tint = Color.White,
-                    modifier = Modifier.size(40.dp)
-                )
-            }
-        }
-
-        hudState?.let {
-            GestureHud(
-                state = it,
-                modifier = Modifier
-                    .align(Alignment.Center)
-                    .alpha(controlsContentAlpha)
-            )
-        }
-
-        if (controlsVisible) {
-            PlaybackSpeedButton(
-                playbackSpeed = playbackSpeed,
-                onPlaybackSpeedChange = {
-                    onPlaybackSpeedChange(it)
-                    pingControls()
-                },
-                modifier = Modifier
-                    .align(Alignment.TopStart)
-                    .padding(16.dp)
-                    .alpha(speedControlAlpha),
-                overlayAlpha = ControlOverlayAlpha,
-                contentAlpha = speedControlAlpha,
-                onExpandedChange = { pingControls() }
-            )
-
-            FullscreenScrubber(
-                currentPositionMs = displayedPositionMs,
-                durationMs = progressState.durationMs,
-                onValueChange = { value ->
-                    if (!isScrubbing) {
-                        scrubPositionMs = progressState.currentPositionMs
-                    }
-                    isScrubbing = true
-                    scrubPositionMs = value
-                    pingControls()
-                },
-                onValueChangeFinished = {
-                    val duration = progressState.durationMs
-                    if (duration > 0L) {
-                        val target = scrubPositionMs.coerceIn(0L, duration)
-                        player?.seekTo(target)
-                        scrubPositionMs = target
-                    }
-                    isScrubbing = false
-                    pingControls()
-                },
-                modifier = Modifier
-                    .align(Alignment.BottomCenter)
-                    .fillMaxWidth()
-                    .padding(horizontal = 20.dp, vertical = 20.dp)
-                    .alpha(controlsContentAlpha)
-            )
-
-            IconButton(
-                onClick = {
-                    pingControls()
-                    onToggleFullscreen()
-                },
-                modifier = Modifier
-                    .align(Alignment.TopEnd)
-                    .padding(16.dp)
-                    .background(Color.Black.copy(alpha = ControlOverlayAlpha), shape = MaterialTheme.shapes.small)
-                    .size(48.dp)
-                    .alpha(controlsContentAlpha)
-            ) {
-                Icon(
-                    imageVector = Icons.Filled.FullscreenExit,
-                    contentDescription = "Exit fullscreen",
-                    tint = Color.White
-                )
-            }
-        }
-    }
-}
-
-@Composable
-private fun GestureZone(
-    modifier: Modifier,
-    mode: OverlayGestureMode,
-    widthPx: Float,
-    heightPx: Float,
-    player: androidx.media3.exoplayer.ExoPlayer?,
-    currentBrightness: Float?,
-    onTap: () -> Unit,
-    onBrightnessChange: (Float) -> Unit,
-    onVolumeChange: (Int, Int) -> Unit,
-    onSeekChange: (Long, Long) -> Unit
-) {
-    val context = LocalContext.current
-    val audioManager = remember(context) {
-        context.getSystemService(Context.AUDIO_SERVICE) as? AudioManager
-    }
-    var startBrightness by remember { mutableFloatStateOf(resolveInitialBrightness(context as? Activity)) }
-    var startVolume by remember { mutableStateOf(0 to 0) }
-    var startPositionMs by remember { mutableStateOf(0L) }
-    var pendingSeekPositionMs by remember { mutableLongStateOf(0L) }
-    var hasPendingSeek by remember { mutableStateOf(false) }
-    var totalDragX by remember { mutableFloatStateOf(0f) }
-    var totalDragY by remember { mutableFloatStateOf(0f) }
-
-    Box(
-        modifier = modifier
-            .pointerInput(mode, player) {
-                detectTapGestures(
-                    onTap = { onTap() },
-                    onDoubleTap = {
-                        if (player == null) return@detectTapGestures
-                        val currentPos = player.currentPosition
-                        val duration = player.duration
-                        if (mode == OverlayGestureMode.Brightness) {
-                            val target = (currentPos - SeekStepMs).coerceAtLeast(0L)
-                            player.seekTo(target)
-                            onSeekChange(-SeekStepMs, target)
-                        } else if (mode == OverlayGestureMode.Volume) {
-                            val target = if (duration > 0) (currentPos + SeekStepMs).coerceAtMost(duration) else currentPos + SeekStepMs
-                            player.seekTo(target)
-                            onSeekChange(SeekStepMs, target)
-                        }
-                    }
-                )
-            }
-            .pointerInput(mode, player, widthPx, heightPx) {
-                detectDragGestures(
-                onDragStart = {
-                    totalDragX = 0f
-                    totalDragY = 0f
-                    if (mode == OverlayGestureMode.Brightness) {
-                        val activity = context as? Activity
-                        startBrightness = currentBrightness ?: resolveInitialBrightness(activity)
-                    }
-                    if (mode == OverlayGestureMode.Volume) {
-                        val maxVolume = audioManager?.getStreamMaxVolume(AudioManager.STREAM_MUSIC) ?: 0
-                        val currentVolume = audioManager?.getStreamVolume(AudioManager.STREAM_MUSIC) ?: 0
-                        startVolume = currentVolume to maxVolume
-                    }
-                    if (mode == OverlayGestureMode.Seek) {
-                        startPositionMs = player?.currentPosition ?: 0L
-                        pendingSeekPositionMs = startPositionMs
-                        hasPendingSeek = false
-                    }
-                },
-                onDragEnd = {
-                    if (mode == OverlayGestureMode.Seek && hasPendingSeek) {
-                        player?.seekTo(pendingSeekPositionMs)
-                        onSeekChange(pendingSeekPositionMs - startPositionMs, pendingSeekPositionMs)
-                    }
-                    hasPendingSeek = false
-                    totalDragX = 0f
-                    totalDragY = 0f
-                },
-                onDragCancel = {
-                    hasPendingSeek = false
-                    totalDragX = 0f
-                    totalDragY = 0f
-                },
-                onDrag = { change, dragAmount ->
-                    change.consume()
-                    totalDragX += dragAmount.x
-                    totalDragY += dragAmount.y
-                    when (mode) {
-                        OverlayGestureMode.Brightness -> {
-                            val delta = -(totalDragY / heightPx)
-                            onBrightnessChange((startBrightness + delta).coerceIn(0f, 1f))
-                        }
-
-                        OverlayGestureMode.Volume -> {
-                            val (currentVolume, maxVolume) = startVolume
-                            if (maxVolume > 0) {
-                                val stepDelta = (-(totalDragY / heightPx) * maxVolume).roundToInt()
-                                val targetVolume = (currentVolume + stepDelta).coerceIn(0, maxVolume)
-                                audioManager?.setStreamVolume(AudioManager.STREAM_MUSIC, targetVolume, 0)
-                                onVolumeChange(targetVolume, maxVolume)
-                            }
-                        }
-
-                        OverlayGestureMode.Seek -> {
-                            val duration = player?.duration?.takeIf { it != C.TIME_UNSET } ?: 0L
-                            val mappedDelta = ((totalDragX / widthPx) * SeekMaxOffsetMs).roundToInt().toLong()
-                            val unclampedTarget = startPositionMs + mappedDelta
-                            val targetPosition = if (duration > 0) {
-                                unclampedTarget.coerceIn(0L, duration)
-                            } else {
-                                maxOf(0L, unclampedTarget)
-                            }
-                            pendingSeekPositionMs = targetPosition
-                            hasPendingSeek = true
-                            onSeekChange(targetPosition - startPositionMs, targetPosition)
-                        }
-                    }
-                }
-            )
-        }
-    )
-}
-
-@Composable
-private fun FullscreenScrubber(
-    currentPositionMs: Long,
-    durationMs: Long,
-    onValueChange: (Long) -> Unit,
-    onValueChangeFinished: () -> Unit,
-    modifier: Modifier = Modifier
-) {
-    val isSeekable = durationMs > 0L
-    Card(
-        modifier = modifier,
-        shape = RoundedCornerShape(18.dp),
-        colors = CardDefaults.cardColors(containerColor = Color.Transparent)
-    ) {
-        Column(
-            modifier = Modifier
-                .background(Color.Black.copy(alpha = ScrubberOverlayAlpha))
-                .padding(horizontal = 16.dp, vertical = 12.dp),
-            verticalArrangement = Arrangement.spacedBy(6.dp)
-        ) {
-            Slider(
-                value = if (isSeekable) currentPositionMs.toFloat().coerceIn(0f, durationMs.toFloat()) else 0f,
-                onValueChange = { onValueChange(it.roundToInt().toLong()) },
-                valueRange = 0f..maxOf(durationMs.toFloat(), 1f),
-                onValueChangeFinished = onValueChangeFinished,
-                enabled = isSeekable,
-                modifier = Modifier.fillMaxWidth()
-            )
-            Row(
-                modifier = Modifier.fillMaxWidth(),
-                horizontalArrangement = Arrangement.SpaceBetween
-            ) {
-                Text(
-                    text = formatDuration(currentPositionMs),
-                    color = Color.White,
-                    style = MaterialTheme.typography.bodySmall
-                )
-                Text(
-                    text = if (isSeekable) formatDuration(durationMs) else "--:--",
-                    color = Color.White,
-                    style = MaterialTheme.typography.bodySmall
-                )
-            }
-        }
-    }
-}
-
-@Composable
-private fun PlaybackSpeedButton(
-    playbackSpeed: Float,
-    onPlaybackSpeedChange: (Float) -> Unit,
-    modifier: Modifier = Modifier,
-    overlayAlpha: Float = 0.45f,
-    contentAlpha: Float = 1f,
-    onExpandedChange: (() -> Unit)? = null
-) {
-    var expanded by remember { mutableStateOf(false) }
-
-    Box(modifier = modifier) {
-        Button(
-            onClick = {
-                expanded = !expanded
-                onExpandedChange?.invoke()
-            },
-            modifier = Modifier.height(40.dp),
-            shape = MaterialTheme.shapes.small,
-            colors = ButtonDefaults.buttonColors(
-                containerColor = Color.Black.copy(alpha = overlayAlpha * contentAlpha),
-                contentColor = Color.White.copy(alpha = contentAlpha)
-            )
-        ) {
-            Text(formatPlaybackSpeed(playbackSpeed), color = Color.White.copy(alpha = contentAlpha))
-        }
-
-        if (expanded) {
-            Card(
-                modifier = Modifier
-                    .padding(top = 44.dp)
-                    .width(92.dp),
-                shape = MaterialTheme.shapes.small,
-                border = BorderStroke(
-                    width = 1.dp,
-                    color = Color.White.copy(alpha = SpeedMenuBorderAlpha)
-                ),
-                colors = CardDefaults.cardColors(
-                    containerColor = Color.Black.copy(alpha = SpeedMenuContainerAlpha)
-                )
-            ) {
-                Column(modifier = Modifier.alpha(contentAlpha)) {
-                    PlaybackSpeedOptions.forEach { speed ->
-                        val isSelected = speed == playbackSpeed
-                        Text(
-                            text = formatPlaybackSpeed(speed),
-                            color = if (isSelected) Color.White else Color.White.copy(alpha = 0.92f),
-                            modifier = Modifier
-                                .fillMaxWidth()
-                                .background(
-                                    if (isSelected) {
-                                        Color.White.copy(alpha = 0.14f)
-                                    } else {
-                                        Color.Transparent
-                                    }
-                                )
-                                .clickable {
-                                    expanded = false
-                                    onPlaybackSpeedChange(speed)
-                                }
-                                .padding(horizontal = 12.dp, vertical = SpeedMenuItemPaddingVertical.dp),
-                            fontWeight = if (isSelected) FontWeight.Bold else FontWeight.Medium
-                        )
-                    }
-                }
-            }
-        }
-    }
-}
-
-@Composable
-private fun GestureHud(
-    state: GestureHudState,
-    modifier: Modifier = Modifier
-) {
-    Card(
-        modifier = modifier.width(176.dp),
-        shape = RoundedCornerShape(16.dp),
-        colors = CardDefaults.cardColors(containerColor = Color.Transparent)
-    ) {
-        Column(
-            modifier = Modifier
-                .background(Color.Black.copy(alpha = GestureHudAlpha))
-                .padding(horizontal = 14.dp, vertical = 10.dp),
-            horizontalAlignment = Alignment.CenterHorizontally,
-            verticalArrangement = Arrangement.spacedBy(6.dp)
-        ) {
-            Icon(
-                imageVector = state.icon,
-                contentDescription = state.label,
-                tint = Color.White,
-                modifier = Modifier.size(24.dp)
-            )
-            Text(
-                text = state.label,
-                color = Color.White,
-                style = MaterialTheme.typography.bodyMedium,
-                fontWeight = FontWeight.SemiBold
-            )
-            state.valueText?.let {
-                Text(
-                    text = it,
-                    color = Color.White,
-                    style = MaterialTheme.typography.bodySmall
-                )
-            }
-            state.progress?.let {
-                LinearProgressIndicator(
-                    progress = { it.coerceIn(0f, 1f) },
-                    modifier = Modifier.fillMaxWidth(),
-                    color = Color.White,
-                    trackColor = Color.White.copy(alpha = 0.28f)
-                )
-            }
-        }
-    }
-}
-
-@Composable
-private fun rememberIsPlayingState(
-    player: androidx.media3.exoplayer.ExoPlayer?
-): Boolean {
-    var isPlaying by remember(player) { mutableStateOf(player?.isPlaying == true) }
-
-    DisposableEffect(player) {
-        if (player == null) {
-            isPlaying = false
-            onDispose { }
-        } else {
-            val listener = object : Player.Listener {
-                override fun onEvents(player: Player, events: Player.Events) {
-                    isPlaying = player.isPlaying
-                }
-            }
-            player.addListener(listener)
-            isPlaying = player.isPlaying
-            onDispose {
-                player.removeListener(listener)
-            }
-        }
-    }
-
-    return isPlaying
-}
-
-@Composable
-private fun rememberPlaybackProgressState(
-    player: androidx.media3.exoplayer.ExoPlayer?
-): PlaybackProgressState {
-    var currentPositionMs by remember(player) { mutableLongStateOf(player?.currentPosition ?: 0L) }
-    var durationMs by remember(player) {
-        mutableLongStateOf(player?.duration?.takeIf { it != C.TIME_UNSET && it > 0L } ?: 0L)
-    }
-
-    DisposableEffect(player) {
-        if (player == null) {
-            currentPositionMs = 0L
-            durationMs = 0L
-            onDispose { }
-        } else {
-            val listener = object : Player.Listener {
-                override fun onEvents(player: Player, events: Player.Events) {
-                    currentPositionMs = player.currentPosition
-                    durationMs = player.duration.takeIf { it != C.TIME_UNSET && it > 0L } ?: 0L
-                }
-            }
-            player.addListener(listener)
-            currentPositionMs = player.currentPosition
-            durationMs = player.duration.takeIf { it != C.TIME_UNSET && it > 0L } ?: 0L
-            onDispose {
-                player.removeListener(listener)
-            }
-        }
-    }
-
-    LaunchedEffect(player) {
-        while (player != null) {
-            currentPositionMs = player.currentPosition
-            durationMs = player.duration.takeIf { it != C.TIME_UNSET && it > 0L } ?: 0L
-            delay(250)
-        }
-    }
-
-    return PlaybackProgressState(
-        currentPositionMs = currentPositionMs,
-        durationMs = durationMs
-    )
-}
-
-@androidx.media3.common.util.UnstableApi
-private fun PlayerView.applySubtitleStyle() {
-    subtitleView?.setStyle(
-        CaptionStyleCompat(
-            AndroidColor.WHITE,
-            AndroidColor.argb(SubtitleBackgroundAlpha, 0, 0, 0),
-            AndroidColor.TRANSPARENT,
-            CaptionStyleCompat.EDGE_TYPE_NONE,
-            AndroidColor.TRANSPARENT,
-            null
-        )
-    )
-}
-
-private fun mapBrightnessState(gestureValue: Float): BrightnessState {
-    val clampedGestureValue = gestureValue.coerceIn(0f, 1f)
-    return if (clampedGestureValue >= ExtraDimThreshold) {
-        val normalizedBrightness = (clampedGestureValue - ExtraDimThreshold) / (1f - ExtraDimThreshold)
-        BrightnessState(
-            gestureValue = clampedGestureValue,
-            screenBrightness = (MinBrightness + normalizedBrightness * (1f - MinBrightness)).coerceIn(MinBrightness, 1f),
-            overlayAlpha = 0f
-        )
-    } else {
-        val overlayProgress = 1f - (clampedGestureValue / ExtraDimThreshold)
-        BrightnessState(
-            gestureValue = clampedGestureValue,
-            screenBrightness = MinBrightness,
-            overlayAlpha = (overlayProgress * MaxExtraDimAlpha).coerceIn(0f, MaxExtraDimAlpha)
-        )
-    }
-}
-
-private fun resolveInitialBrightness(activity: Activity?): Float {
-    val value = activity?.window?.attributes?.screenBrightness ?: WindowManager.LayoutParams.BRIGHTNESS_OVERRIDE_NONE
-    if (value !in MinBrightness..1f) return 0.5f
-    val normalizedBrightness = (value - MinBrightness) / (1f - MinBrightness)
-    return (ExtraDimThreshold + normalizedBrightness * (1f - ExtraDimThreshold)).coerceIn(ExtraDimThreshold, 1f)
-}
-
-private fun formatDuration(durationMs: Long): String {
-    val totalSeconds = (durationMs / 1000).coerceAtLeast(0L)
-    val hours = totalSeconds / 3600
-    val minutes = (totalSeconds % 3600) / 60
-    val seconds = totalSeconds % 60
-    return if (hours > 0) {
-        "%d:%02d:%02d".format(hours, minutes, seconds)
-    } else {
-        "%02d:%02d".format(minutes, seconds)
-    }
-}
-
-private fun formatPlaybackSpeed(speed: Float): String {
-    val normalized = if (speed % 1f == 0f) speed.toInt().toString() else speed.toString()
-    return "${normalized}x"
 }
