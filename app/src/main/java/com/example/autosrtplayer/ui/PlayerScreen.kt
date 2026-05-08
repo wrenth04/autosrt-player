@@ -4,6 +4,7 @@ import android.app.Activity
 import android.view.WindowManager
 import androidx.activity.compose.BackHandler
 import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
@@ -11,14 +12,21 @@ import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.text.KeyboardActions
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.foundation.verticalScroll
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.automirrored.filled.ArrowBack
+import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
+import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.CircularProgressIndicator
+import androidx.compose.material3.Icon
+import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Text
@@ -69,6 +77,7 @@ fun PlayerScreen(
             onSharedSourceIdConsumed()
         }
     }
+
     val activity = context as? Activity
     val entry = uiState.parsedEntry
     val currentSourceId = uiState.currentSourceId
@@ -79,13 +88,17 @@ fun PlayerScreen(
         viewModel.getOrCreatePlayer(context)
     }
     val isPlaying = rememberIsPlayingState(player)
+    val showingFavorites = uiState.isFavoritesVisible
+    val showingTodayHot = uiState.isTodayHotVisible
+    val showingSettings = uiState.isSettingsVisible
+    val showingPlayerShell = !showingFavorites && !showingTodayHot && !showingSettings
 
-    DisposableEffect(activity, uiState.isFullscreen) {
+    DisposableEffect(activity, showingPlayerShell) {
         val window = activity?.window
         if (window != null) {
-            WindowCompat.setDecorFitsSystemWindows(window, !uiState.isFullscreen)
+            WindowCompat.setDecorFitsSystemWindows(window, !showingPlayerShell)
             val controller = WindowInsetsControllerCompat(window, window.decorView)
-            if (uiState.isFullscreen) {
+            if (showingPlayerShell) {
                 controller.hide(WindowInsetsCompat.Type.systemBars())
                 controller.systemBarsBehavior = WindowInsetsControllerCompat.BEHAVIOR_SHOW_TRANSIENT_BARS_BY_SWIPE
             } else {
@@ -117,48 +130,107 @@ fun PlayerScreen(
         }
     }
 
-    BackHandler(enabled = uiState.isFullscreen) {
-        viewModel.setFullscreen(false)
+    BackHandler(enabled = showingFavorites) {
+        viewModel.closeFavorites()
+    }
+    BackHandler(enabled = showingTodayHot) {
+        viewModel.closeTodayHot()
+    }
+    BackHandler(enabled = showingSettings) {
+        viewModel.closeSettings()
     }
 
-    if (uiState.isFullscreen) {
-        FullscreenPlayer(
-            activity = activity,
-            player = player,
-            playbackSpeed = uiState.playbackSpeed,
-            isCurrentFavorite = isCurrentFavorite,
-            canToggleFavorite = !currentSourceId.isNullOrBlank(),
-            onPlaybackSpeedChange = viewModel::setPlaybackSpeed,
-            onToggleFavorite = viewModel::toggleCurrentFavorite,
-            onToggleFullscreen = viewModel::toggleFullscreen
-        )
-        return
-    }
-    if (uiState.isFavoritesVisible) {
-        BackHandler(enabled = true) {
-            viewModel.closeFavorites()
+    Box(modifier = Modifier.fillMaxSize()) {
+        when {
+            showingFavorites -> {
+                FavoritesScreen(
+                    items = uiState.favoriteItems,
+                    onBack = viewModel::closeFavorites,
+                    onItemClick = viewModel::playFavorite,
+                    onRemoveClick = viewModel::removeFavorite
+                )
+            }
+            showingTodayHot -> {
+                TodayHotScreen(
+                    items = uiState.todayHotItems,
+                    isLoading = uiState.isTodayHotLoading,
+                    errorMessage = uiState.todayHotErrorMessage,
+                    onBack = viewModel::closeTodayHot,
+                    onItemClick = viewModel::playTodayHotCode
+                )
+            }
+            showingSettings -> {
+                PlayerOptionsScreen(
+                    uiState = uiState,
+                    currentSourceId = currentSourceId,
+                    isCurrentFavorite = isCurrentFavorite,
+                    onSourceIdChange = viewModel::onSourceIdChange,
+                    onLoadFromId = viewModel::loadFromId,
+                    onTodayHotClick = viewModel::loadTodayHot,
+                    onFavoritesClick = viewModel::openFavorites,
+                    onPlaylistUrlChange = viewModel::onPlaylistUrlChange,
+                    onLoadFromUrl = { viewModel.loadFromUrl() },
+                    onPlaylistTextChange = viewModel::onPlaylistTextChange,
+                    onLoadFromText = viewModel::loadFromText,
+                    onSourcePrefixChange = viewModel::onSourcePrefixChange,
+                    onSaveSourcePrefix = viewModel::saveSourcePrefix,
+                    onToggleFavorite = viewModel::toggleCurrentFavorite,
+                    onBack = viewModel::closeSettings,
+                    onStartupDestinationChange = viewModel::setStartupDestination
+                )
+            }
+            else -> {
+                FullscreenPlayer(
+                    activity = activity,
+                    player = player,
+                    playbackSpeed = uiState.playbackSpeed,
+                    currentSourceId = currentSourceId,
+                    currentRequestLabel = uiState.currentRequestLabel,
+                    isCurrentFavorite = isCurrentFavorite,
+                    canToggleFavorite = !currentSourceId.isNullOrBlank(),
+                    favoriteCount = uiState.favoriteItems.size,
+                    isLoading = uiState.isLoading,
+                    loadingStage = uiState.loadingStage,
+                    errorMessage = uiState.errorMessage,
+                    onPlaybackSpeedChange = viewModel::setPlaybackSpeed,
+                    onToggleFavorite = viewModel::toggleCurrentFavorite,
+                    onOpenTodayHot = viewModel::loadTodayHot,
+                    onOpenFavorites = viewModel::openFavorites,
+                    onOpenSettings = viewModel::openSettings,
+                    onSubmitSourceId = viewModel::loadFromExternalId
+                )
+            }
         }
-        FavoritesScreen(
-            items = uiState.favoriteItems,
-            onBack = viewModel::closeFavorites,
-            onItemClick = viewModel::playFavorite,
-            onRemoveClick = viewModel::removeFavorite
-        )
-        return
-    }
-    if (uiState.isTodayHotVisible) {
-        BackHandler(enabled = true) {
-            viewModel.closeTodayHot()
+
+        uiState.sourceResolveRequest?.let { request ->
+            SourceResolveWebViewHost(
+                request = request,
+                onHtmlResolved = viewModel::onSourceHtmlResolved,
+                onResolveFailed = viewModel::onSourceResolveFailed
+            )
         }
-        TodayHotScreen(
-            items = uiState.todayHotItems,
-            isLoading = uiState.isTodayHotLoading,
-            errorMessage = uiState.todayHotErrorMessage,
-            onBack = viewModel::closeTodayHot,
-            onItemClick = viewModel::playTodayHotCode
-        )
-        return
     }
+}
+
+@Composable
+private fun PlayerOptionsScreen(
+    uiState: PlayerUiState,
+    currentSourceId: String?,
+    isCurrentFavorite: Boolean,
+    onSourceIdChange: (String) -> Unit,
+    onLoadFromId: () -> Unit,
+    onTodayHotClick: () -> Unit,
+    onFavoritesClick: () -> Unit,
+    onPlaylistUrlChange: (String) -> Unit,
+    onLoadFromUrl: () -> Unit,
+    onPlaylistTextChange: (String) -> Unit,
+    onLoadFromText: () -> Unit,
+    onSourcePrefixChange: (String) -> Unit,
+    onSaveSourcePrefix: () -> Unit,
+    onToggleFavorite: () -> Unit,
+    onBack: () -> Unit,
+    onStartupDestinationChange: (StartupDestination) -> Unit
+) {
     var advancedExpanded by rememberSaveable { mutableStateOf(false) }
     var techInfoExpanded by rememberSaveable { mutableStateOf(false) }
 
@@ -169,12 +241,46 @@ fun PlayerScreen(
             .padding(16.dp),
         verticalArrangement = Arrangement.spacedBy(12.dp)
     ) {
-        Text("AutoSRT Player", style = MaterialTheme.typography.headlineMedium)
-        Text(
-            text = "輸入 ID 後播放",
-            style = MaterialTheme.typography.bodyMedium,
-            color = MaterialTheme.colorScheme.onSurfaceVariant
-        )
+        Row(
+            modifier = Modifier.fillMaxWidth(),
+            horizontalArrangement = Arrangement.SpaceBetween,
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            IconButton(onClick = onBack) {
+                Icon(
+                    imageVector = Icons.AutoMirrored.Filled.ArrowBack,
+                    contentDescription = "返回播放器"
+                )
+            }
+            Text("設定 / 選項", style = MaterialTheme.typography.headlineMedium)
+            Spacer(modifier = Modifier.width(48.dp))
+        }
+
+        Card(modifier = Modifier.fillMaxWidth()) {
+            Column(
+                modifier = Modifier.padding(12.dp),
+                verticalArrangement = Arrangement.spacedBy(8.dp)
+            ) {
+                Text("開 APP 時顯示")
+                Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                    StartupDestinationButton(
+                        selected = uiState.startupDestination == StartupDestination.Player,
+                        text = "全畫面 Player",
+                        onClick = { onStartupDestinationChange(StartupDestination.Player) }
+                    )
+                    StartupDestinationButton(
+                        selected = uiState.startupDestination == StartupDestination.TodayHot,
+                        text = "每日熱門",
+                        onClick = { onStartupDestinationChange(StartupDestination.TodayHot) }
+                    )
+                    StartupDestinationButton(
+                        selected = uiState.startupDestination == StartupDestination.Favorites,
+                        text = "我的最愛",
+                        onClick = { onStartupDestinationChange(StartupDestination.Favorites) }
+                    )
+                }
+            }
+        }
 
         Row(
             modifier = Modifier.fillMaxWidth(),
@@ -183,18 +289,18 @@ fun PlayerScreen(
         ) {
             OutlinedTextField(
                 value = uiState.sourceId,
-                onValueChange = viewModel::onSourceIdChange,
+                onValueChange = onSourceIdChange,
                 modifier = Modifier.weight(1f),
                 label = { Text("輸入影片 ID") },
                 placeholder = { Text("例如：ABCD-123") },
                 minLines = 1,
                 singleLine = true,
                 keyboardOptions = KeyboardOptions(imeAction = ImeAction.Go),
-                keyboardActions = KeyboardActions(onGo = { viewModel.loadFromId() })
+                keyboardActions = KeyboardActions(onGo = { onLoadFromId() })
             )
 
             Button(
-                onClick = viewModel::loadFromId,
+                onClick = onLoadFromId,
                 modifier = Modifier.height(48.dp)
             ) {
                 Text("播放")
@@ -206,7 +312,7 @@ fun PlayerScreen(
             horizontalArrangement = Arrangement.spacedBy(8.dp)
         ) {
             Button(
-                onClick = viewModel::loadTodayHot,
+                onClick = onTodayHotClick,
                 modifier = Modifier.weight(1f),
                 enabled = !uiState.isTodayHotLoading
             ) {
@@ -214,7 +320,7 @@ fun PlayerScreen(
             }
 
             Button(
-                onClick = viewModel::openFavorites,
+                onClick = onFavoritesClick,
                 modifier = Modifier.weight(1f)
             ) {
                 Text("最愛 (${uiState.favoriteItems.size})")
@@ -241,14 +347,6 @@ fun PlayerScreen(
             }
         }
 
-        uiState.sourceResolveRequest?.let { request ->
-            SourceResolveWebViewHost(
-                request = request,
-                onHtmlResolved = viewModel::onSourceHtmlResolved,
-                onResolveFailed = viewModel::onSourceResolveFailed
-            )
-        }
-
         uiState.errorMessage?.let { message ->
             Card(
                 modifier = Modifier.fillMaxWidth(),
@@ -268,7 +366,7 @@ fun PlayerScreen(
             }
         }
 
-        entry?.let {
+        uiState.parsedEntry?.let {
             Card(modifier = Modifier.fillMaxWidth()) {
                 Column(
                     modifier = Modifier.padding(16.dp),
@@ -278,7 +376,7 @@ fun PlayerScreen(
                     Text("字幕狀態：${if (it.subtitleUrl.isNullOrBlank()) "未載入" else "已載入"}")
                     Text("來源狀態：可播放")
                     Button(
-                        onClick = viewModel::toggleCurrentFavorite,
+                        onClick = onToggleFavorite,
                         enabled = !currentSourceId.isNullOrBlank()
                     ) {
                         Text(
@@ -316,7 +414,7 @@ fun PlayerScreen(
                 if (advancedExpanded) {
                     OutlinedTextField(
                         value = uiState.playlistUrl,
-                        onValueChange = viewModel::onPlaylistUrlChange,
+                        onValueChange = onPlaylistUrlChange,
                         modifier = Modifier.fillMaxWidth(),
                         label = { Text("M3U8 網址") },
                         placeholder = { Text("貼上完整播放清單網址") },
@@ -324,35 +422,35 @@ fun PlayerScreen(
                         singleLine = true
                     )
                     Button(
-                        onClick = { viewModel.loadFromUrl() },
+                        onClick = onLoadFromUrl,
                         modifier = Modifier.fillMaxWidth()
                     ) {
                         Text("用網址播放")
                     }
                     OutlinedTextField(
                         value = uiState.playlistText,
-                        onValueChange = viewModel::onPlaylistTextChange,
+                        onValueChange = onPlaylistTextChange,
                         modifier = Modifier.fillMaxWidth(),
                         label = { Text("貼上 M3U 內容") },
                         placeholder = { Text("貼上 #EXTM3U 開頭的文字內容") },
                         minLines = 6
                     )
                     Button(
-                        onClick = viewModel::loadFromText,
+                        onClick = onLoadFromText,
                         modifier = Modifier.fillMaxWidth()
                     ) {
                         Text("匯入 M3U")
                     }
                     OutlinedTextField(
                         value = uiState.sourcePrefix,
-                        onValueChange = viewModel::onSourcePrefixChange,
+                        onValueChange = onSourcePrefixChange,
                         modifier = Modifier.fillMaxWidth(),
                         label = { Text("來源設定") },
                         placeholder = { Text("例如：https://github.com/.../srt/") },
                         minLines = 1
                     )
                     Button(
-                        onClick = viewModel::saveSourcePrefix,
+                        onClick = onSaveSourcePrefix,
                         modifier = Modifier.fillMaxWidth()
                     ) {
                         Text("儲存設定")
@@ -362,5 +460,30 @@ fun PlayerScreen(
         }
 
         Spacer(modifier = Modifier.height(12.dp))
+    }
+}
+
+@Composable
+private fun StartupDestinationButton(
+    selected: Boolean,
+    text: String,
+    onClick: () -> Unit
+) {
+    Button(
+        onClick = onClick,
+        colors = ButtonDefaults.buttonColors(
+            containerColor = if (selected) {
+                MaterialTheme.colorScheme.primaryContainer
+            } else {
+                MaterialTheme.colorScheme.surfaceVariant
+            },
+            contentColor = if (selected) {
+                MaterialTheme.colorScheme.onPrimaryContainer
+            } else {
+                MaterialTheme.colorScheme.onSurfaceVariant
+            }
+        )
+    ) {
+        Text(if (selected) "✓ $text" else text)
     }
 }
