@@ -62,7 +62,9 @@ class PlayerViewModel(
     private var appContext: Context? = null
     private var settingsPrefs: SharedPreferences? = null
     private var player: ExoPlayer? = null
+    private var thumbnailPlayer: ExoPlayer? = null
     private var playerListener: Player.Listener? = null
+    private var thumbnailPlayerMediaUrl: String? = null
     private var activePlaybackConfig: PlaybackConfig? = null
     private var autoFullscreenPending: Boolean = false
     private var sourceResolveRequestCounter: Long = 0
@@ -615,7 +617,29 @@ class PlayerViewModel(
         playerListener = null
         player?.release()
         player = null
+        thumbnailPlayer?.release()
+        thumbnailPlayer = null
+        thumbnailPlayerMediaUrl = null
         super.onCleared()
+    }
+
+    private fun prepareHiddenThumbnailPlayer(entry: com.example.autosrtplayer.data.playlist.PlaylistEntry, mediaItem: androidx.media3.common.MediaItem) {
+        val context = appContext ?: return
+        val needsRecreate = thumbnailPlayer == null || thumbnailPlayerMediaUrl != entry.mediaUrl
+        if (needsRecreate) {
+            thumbnailPlayer?.release()
+            thumbnailPlayer = playerFactory.create(context, entry.userAgent, entry.referrer).apply {
+                volume = 0f
+                playWhenReady = false
+            }
+            thumbnailPlayerMediaUrl = entry.mediaUrl
+        }
+
+        thumbnailPlayer?.apply {
+            setMediaItem(mediaItem)
+            prepare()
+            pause()
+        }
     }
 
     private suspend fun parseAndBuild(content: String, playlistUrl: String? = null, sourceId: String? = null) {
@@ -624,6 +648,7 @@ class PlayerViewModel(
             val subtitleSource = resolveSubtitleSource(entry)
             entry to mediaItemBuilder.build(entry, subtitleSource)
         }.onSuccess { (entry, mediaItem) ->
+            prepareHiddenThumbnailPlayer(entry, mediaItem)
             _uiState.update {
                 it.copy(
                     parsedEntry = entry,
