@@ -6,15 +6,17 @@ import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
-import androidx.compose.foundation.verticalScroll
 import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.Card
 import androidx.compose.material3.CircularProgressIndicator
@@ -99,9 +101,23 @@ private fun TodayHotSection(
             }
 
             if (items.isNotEmpty()) {
-                Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
-                    items.forEach { item ->
-                        TodayHotItemCard(item = item, onItemClick = onItemClick)
+                BoxWithConstraints {
+                    val columnCount = if (maxWidth >= 600.dp) 2 else 1
+                    Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
+                        items.chunked(columnCount).forEach { rowItems ->
+                            Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+                                rowItems.forEach { item ->
+                                    TodayHotItemCard(
+                                        item = item,
+                                        onItemClick = onItemClick,
+                                        modifier = Modifier.weight(1f)
+                                    )
+                                }
+                                if (columnCount > rowItems.size) {
+                                    Spacer(modifier = Modifier.weight(1f))
+                                }
+                            }
+                        }
                     }
                 }
             } else if (!isLoading && errorMessage == null) {
@@ -162,9 +178,10 @@ private fun TodayHotCoverImage(
 @Composable
 private fun TodayHotItemCard(
     item: TodayHotItem,
-    onItemClick: (String) -> Unit
+    onItemClick: (String) -> Unit,
+    modifier: Modifier = Modifier
 ) {
-    Card(modifier = Modifier.fillMaxWidth()) {
+    Card(modifier = modifier) {
         Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
             Box(
                 modifier = Modifier
