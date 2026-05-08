@@ -2,6 +2,7 @@ package com.example.autosrtplayer.data.playback
 
 import android.graphics.Bitmap
 import android.media.MediaMetadataRetriever
+import android.net.Uri
 import android.os.Build
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
@@ -15,10 +16,7 @@ class VideoThumbnailRepository {
     ): List<VideoFrameThumbnail> = withContext(Dispatchers.IO) {
         val retriever = MediaMetadataRetriever()
         try {
-            val headers = buildMap {
-                request.userAgent?.takeIf { it.isNotBlank() }?.let { put("User-Agent", it) }
-                request.referrer?.takeIf { it.isNotBlank() }?.let { put("Referer", it) }
-            }
+            val headers = buildRequestHeaders(request.userAgent, request.referrer)
             if (headers.isEmpty()) {
                 retriever.setDataSource(request.mediaUrl)
             } else {
@@ -33,6 +31,25 @@ class VideoThumbnailRepository {
             }
         } finally {
             retriever.release()
+        }
+    }
+
+
+    private fun buildRequestHeaders(userAgent: String?, referrer: String?): Map<String, String> = buildMap {
+        userAgent?.takeIf { it.isNotBlank() }?.let { put("User-Agent", it) }
+        referrer?.takeIf { it.isNotBlank() }?.let { referer ->
+            put("Referer", referer)
+            val origin = runCatching {
+                val uri = Uri.parse(referer)
+                val scheme = uri.scheme?.takeIf { it.isNotBlank() }
+                val host = uri.host?.takeIf { it.isNotBlank() }
+                if (scheme != null && host != null) {
+                    if (uri.port > 0) "$scheme://$host:${uri.port}" else "$scheme://$host"
+                } else {
+                    null
+                }
+            }.getOrNull()
+            origin?.let { put("Origin", it) }
         }
     }
 
