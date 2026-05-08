@@ -34,6 +34,9 @@ import androidx.compose.material.icons.filled.Favorite
 import androidx.compose.material.icons.filled.Fullscreen
 import androidx.compose.material.icons.filled.Pause
 import androidx.compose.material.icons.filled.PlayArrow
+import androidx.compose.material.icons.filled.ScreenLockLandscape
+import androidx.compose.material.icons.filled.ScreenLockPortrait
+import androidx.compose.material.icons.filled.ScreenRotation
 import androidx.compose.material.icons.filled.Settings
 import androidx.compose.material.icons.filled.Speed
 import androidx.compose.material.icons.filled.Whatshot
@@ -188,6 +191,7 @@ internal fun FullscreenPlayer(
     activity: Activity?,
     player: ExoPlayer?,
     playbackSpeed: Float,
+    screenOrientationMode: ScreenOrientationMode,
     currentSourceId: String?,
     currentRequestLabel: String?,
     isCurrentFavorite: Boolean,
@@ -197,6 +201,7 @@ internal fun FullscreenPlayer(
     loadingStage: LoadingStage,
     errorMessage: String?,
     onPlaybackSpeedChange: (Float) -> Unit,
+    onToggleScreenOrientationMode: () -> Unit,
     onToggleFavorite: () -> Unit,
     onOpenTodayHot: () -> Unit,
     onOpenFavorites: () -> Unit,
@@ -532,6 +537,36 @@ internal fun FullscreenPlayer(
                         tint = if (canToggleFavorite) androidx.compose.ui.graphics.Color.White else androidx.compose.ui.graphics.Color.White.copy(alpha = 0.38f)
                     )
                 }
+            }
+
+            val orientationIcon = when (screenOrientationMode) {
+                ScreenOrientationMode.Auto -> Icons.Filled.ScreenRotation
+                ScreenOrientationMode.Portrait -> Icons.Filled.ScreenLockPortrait
+                ScreenOrientationMode.Landscape -> Icons.Filled.ScreenLockLandscape
+            }
+            val orientationDescription = when (screenOrientationMode) {
+                ScreenOrientationMode.Auto -> "螢幕方向：自動旋轉"
+                ScreenOrientationMode.Portrait -> "螢幕方向：直向鎖定"
+                ScreenOrientationMode.Landscape -> "螢幕方向：橫向鎖定"
+            }
+
+            IconButton(
+                onClick = {
+                    pingControls()
+                    onToggleScreenOrientationMode()
+                },
+                modifier = Modifier
+                    .align(Alignment.BottomEnd)
+                    .padding(end = 20.dp, bottom = 84.dp)
+                    .alpha(controlsContentAlpha)
+                    .background(androidx.compose.ui.graphics.Color.Black.copy(alpha = ControlOverlayAlpha), shape = MaterialTheme.shapes.small)
+                    .size(48.dp)
+            ) {
+                Icon(
+                    imageVector = orientationIcon,
+                    contentDescription = orientationDescription,
+                    tint = androidx.compose.ui.graphics.Color.White
+                )
             }
 
             FullscreenScrubber(

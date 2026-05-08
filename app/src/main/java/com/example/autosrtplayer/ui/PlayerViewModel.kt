@@ -44,6 +44,7 @@ class PlayerViewModel(
         private const val KeySourcePrefix = "source_prefix"
         private const val KeyFavoriteItems = "favorite_items"
         private const val KeyStartupDestination = "startup_destination"
+        private const val KeyScreenOrientationMode = "screen_orientation_mode"
     }
 
     private val _uiState = MutableStateFlow(PlayerUiState())
@@ -66,11 +67,15 @@ class PlayerViewModel(
             val startupDestination = settingsPrefs
                 ?.getString(KeyStartupDestination, null)
                 .toStartupDestination()
+            val screenOrientationMode = settingsPrefs
+                ?.getString(KeyScreenOrientationMode, null)
+                .toScreenOrientationMode()
             _uiState.update {
                 it.copy(
                     sourcePrefix = sourcePrefix,
                     favoriteItems = favoriteItems,
-                    startupDestination = startupDestination
+                    startupDestination = startupDestination,
+                    screenOrientationMode = screenOrientationMode
                 )
             }
             when (startupDestination) {
@@ -149,6 +154,16 @@ class PlayerViewModel(
     fun setStartupDestination(destination: StartupDestination) {
         settingsPrefs?.edit()?.putString(KeyStartupDestination, destination.name)?.apply()
         _uiState.update { it.copy(startupDestination = destination) }
+    }
+
+    fun toggleScreenOrientationMode() {
+        val nextMode = when (_uiState.value.screenOrientationMode) {
+            ScreenOrientationMode.Auto -> ScreenOrientationMode.Portrait
+            ScreenOrientationMode.Portrait -> ScreenOrientationMode.Landscape
+            ScreenOrientationMode.Landscape -> ScreenOrientationMode.Auto
+        }
+        settingsPrefs?.edit()?.putString(KeyScreenOrientationMode, nextMode.name)?.apply()
+        _uiState.update { it.copy(screenOrientationMode = nextMode) }
     }
 
     fun toggleCurrentFavorite() {
@@ -668,4 +683,10 @@ private fun String?.toStartupDestination(): StartupDestination {
     return runCatching {
         StartupDestination.valueOf(this.orEmpty())
     }.getOrDefault(StartupDestination.Player)
+}
+
+private fun String?.toScreenOrientationMode(): ScreenOrientationMode {
+    return runCatching {
+        ScreenOrientationMode.valueOf(this.orEmpty())
+    }.getOrDefault(ScreenOrientationMode.Auto)
 }

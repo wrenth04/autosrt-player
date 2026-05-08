@@ -1,6 +1,7 @@
 package com.example.autosrtplayer.ui
 
 import android.app.Activity
+import android.content.pm.ActivityInfo
 import android.view.WindowManager
 import androidx.activity.compose.BackHandler
 import androidx.compose.foundation.layout.Arrangement
@@ -130,6 +131,23 @@ fun PlayerScreen(
         }
     }
 
+    DisposableEffect(activity, uiState.screenOrientationMode) {
+        val originalOrientation = activity?.requestedOrientation
+        if (activity != null) {
+            activity.requestedOrientation = when (uiState.screenOrientationMode) {
+                ScreenOrientationMode.Auto -> ActivityInfo.SCREEN_ORIENTATION_FULL_SENSOR
+                ScreenOrientationMode.Portrait -> ActivityInfo.SCREEN_ORIENTATION_PORTRAIT
+                ScreenOrientationMode.Landscape -> ActivityInfo.SCREEN_ORIENTATION_LANDSCAPE
+            }
+        }
+
+        onDispose {
+            if (activity != null && originalOrientation != null) {
+                activity.requestedOrientation = originalOrientation
+            }
+        }
+    }
+
     BackHandler(enabled = showingFavorites) {
         viewModel.closeFavorites()
     }
@@ -184,6 +202,7 @@ fun PlayerScreen(
                     activity = activity,
                     player = player,
                     playbackSpeed = uiState.playbackSpeed,
+                    screenOrientationMode = uiState.screenOrientationMode,
                     currentSourceId = currentSourceId,
                     currentRequestLabel = uiState.currentRequestLabel,
                     isCurrentFavorite = isCurrentFavorite,
@@ -193,6 +212,7 @@ fun PlayerScreen(
                     loadingStage = uiState.loadingStage,
                     errorMessage = uiState.errorMessage,
                     onPlaybackSpeedChange = viewModel::setPlaybackSpeed,
+                    onToggleScreenOrientationMode = viewModel::toggleScreenOrientationMode,
                     onToggleFavorite = viewModel::toggleCurrentFavorite,
                     onOpenTodayHot = viewModel::loadTodayHot,
                     onOpenFavorites = viewModel::openFavorites,
