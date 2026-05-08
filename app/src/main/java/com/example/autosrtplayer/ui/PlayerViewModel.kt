@@ -592,6 +592,7 @@ class PlayerViewModel(
             } catch (cancelled: CancellationException) {
                 throw cancelled
             } catch (error: Throwable) {
+                val unsupported = error.message?.contains("無法直接擷取", ignoreCase = true) == true
                 _uiState.update { current ->
                     if (current.thumbnailState.key == key) {
                         current.copy(
@@ -599,7 +600,8 @@ class PlayerViewModel(
                                 key = key,
                                 isLoading = false,
                                 thumbnails = emptyList(),
-                                errorMessage = error.message ?: "縮圖載入失敗"
+                                errorMessage = error.message ?: "縮圖載入失敗",
+                                isUnsupportedSource = unsupported
                             )
                         )
                     } else {

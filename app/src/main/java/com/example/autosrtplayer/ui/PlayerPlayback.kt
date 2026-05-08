@@ -928,6 +928,14 @@ private fun PausedThumbnailGrid(
                 )
             }
 
+            if (thumbnailState.isUnsupportedSource) {
+                Text(
+                    text = "此來源暫不支援九宮格縮圖，仍可拖曳進度列或點擊時間跳轉。",
+                    color = androidx.compose.ui.graphics.Color.White.copy(alpha = 0.72f)
+                )
+                return@Column
+            }
+
             expectedThumbnails.chunked(columnCount).forEach { row ->
                 Row(
                     modifier = Modifier.fillMaxWidth(),

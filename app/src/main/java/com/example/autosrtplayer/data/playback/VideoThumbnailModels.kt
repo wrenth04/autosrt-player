@@ -18,5 +18,6 @@ data class VideoThumbnailState(
     val key: VideoThumbnailKey? = null,
     val isLoading: Boolean = false,
     val thumbnails: List<VideoFrameThumbnail> = emptyList(),
-    val errorMessage: String? = null
+    val errorMessage: String? = null,
+    val isUnsupportedSource: Boolean = false
 )
