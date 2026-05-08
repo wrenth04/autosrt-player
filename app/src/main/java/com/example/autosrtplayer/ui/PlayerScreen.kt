@@ -5,13 +5,14 @@ import android.view.WindowManager
 import androidx.activity.compose.BackHandler
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
-import androidx.compose.foundation.verticalScroll
 import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.Button
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
@@ -169,43 +170,53 @@ fun PlayerScreen(
     ) {
         Text("AutoSRT Player", style = MaterialTheme.typography.headlineMedium)
         Text(
-            text = "輸入影片 ID 後，直接載入並播放",
+            text = "輸入 ID 後播放",
             style = MaterialTheme.typography.bodyMedium,
             color = MaterialTheme.colorScheme.onSurfaceVariant
         )
 
-        OutlinedTextField(
-            value = uiState.sourceId,
-            onValueChange = viewModel::onSourceIdChange,
+        Row(
             modifier = Modifier.fillMaxWidth(),
-            label = { Text("輸入影片 ID") },
-            placeholder = { Text("例如：ABCD-123") },
-            minLines = 1,
-            singleLine = true,
-            keyboardOptions = KeyboardOptions(imeAction = ImeAction.Go),
-            keyboardActions = KeyboardActions(onGo = { viewModel.loadFromId() })
-        )
-
-        Button(
-            onClick = viewModel::loadFromId,
-            modifier = Modifier.fillMaxWidth()
+            horizontalArrangement = Arrangement.spacedBy(8.dp)
         ) {
-            Text("載入並播放")
+            OutlinedTextField(
+                value = uiState.sourceId,
+                onValueChange = viewModel::onSourceIdChange,
+                modifier = Modifier.weight(1f),
+                label = { Text("輸入影片 ID") },
+                placeholder = { Text("例如：ABCD-123") },
+                minLines = 1,
+                singleLine = true,
+                keyboardOptions = KeyboardOptions(imeAction = ImeAction.Go),
+                keyboardActions = KeyboardActions(onGo = { viewModel.loadFromId() })
+            )
+
+            Button(
+                onClick = viewModel::loadFromId,
+                modifier = Modifier.height(56.dp)
+            ) {
+                Text("播放")
+            }
         }
 
-        Button(
-            onClick = viewModel::loadTodayHot,
+        Row(
             modifier = Modifier.fillMaxWidth(),
-            enabled = !uiState.isTodayHotLoading
+            horizontalArrangement = Arrangement.spacedBy(8.dp)
         ) {
-            Text(if (uiState.isTodayHotLoading) "載入今日熱門…" else "今日熱門")
-        }
+            Button(
+                onClick = viewModel::loadTodayHot,
+                modifier = Modifier.weight(1f),
+                enabled = !uiState.isTodayHotLoading
+            ) {
+                Text(if (uiState.isTodayHotLoading) "載入中…" else "熱門")
+            }
 
-        Button(
-            onClick = viewModel::openFavorites,
-            modifier = Modifier.fillMaxWidth()
-        ) {
-            Text("我的最愛 (${uiState.favoriteItems.size})")
+            Button(
+                onClick = viewModel::openFavorites,
+                modifier = Modifier.weight(1f)
+            ) {
+                Text("最愛 (${uiState.favoriteItems.size})")
+            }
         }
 
         if (uiState.isLoading) {
