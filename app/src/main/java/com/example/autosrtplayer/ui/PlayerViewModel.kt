@@ -405,11 +405,19 @@ class PlayerViewModel(
     }
 
     fun setFullscreen(isFullscreen: Boolean) {
+        val wasFullscreen = _uiState.value.isFullscreen
         _uiState.update { it.copy(isFullscreen = isFullscreen) }
+        if (wasFullscreen && !isFullscreen) {
+            player?.pause()
+        }
     }
 
     fun toggleFullscreen() {
+        val wasFullscreen = _uiState.value.isFullscreen
         _uiState.update { it.copy(isFullscreen = !it.isFullscreen) }
+        if (wasFullscreen) {
+            player?.pause()
+        }
     }
 
     fun setPlaybackSpeed(speed: Float) {
