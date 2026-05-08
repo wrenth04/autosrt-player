@@ -18,10 +18,20 @@ class VideoThumbnailRepository {
         try {
             val headers = buildRequestHeaders(request.userAgent, request.referrer)
             Log.d(TAG, "loadThumbnails: mediaUrl=${request.mediaUrl}, headers=${headers.keys}")
-            if (headers.isEmpty()) {
-                retriever.setDataSource(request.mediaUrl)
-            } else {
-                retriever.setDataSource(request.mediaUrl, headers)
+            runCatching {
+                if (headers.isEmpty()) {
+                    retriever.setDataSource(request.mediaUrl)
+                } else {
+                    retriever.setDataSource(request.mediaUrl, headers)
+                }
+            }.getOrElse { cause ->
+                val isHlsLike = request.mediaUrl.contains(".m3u8", ignoreCase = true)
+                val message = if (isHlsLike) {
+                    "目前來源為 HLS（m3u8），系統縮圖器無法直接擷取，請改用播放器截圖流程"
+                } else {
+                    "設定縮圖資料來源失敗：${cause.message ?: cause::class.java.simpleName}"
+                }
+                throw IllegalStateException(message, cause)
             }
 
             val thumbnails = buildThumbnailTimes(request.durationMs, count).map { timeMs ->
