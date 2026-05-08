@@ -578,7 +578,9 @@ class PlayerViewModel(
                 val thumbnails = runCatching {
                     val context = appContext
                     if (context != null && android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.N) {
-                        playerFrameThumbnailRepository.loadThumbnails(context, key)
+                        val playerFrames = playerFrameThumbnailRepository.loadThumbnails(context, key)
+                        val hasAnyFrame = playerFrames.any { it.bitmap != null }
+                        if (hasAnyFrame) playerFrames else videoThumbnailRepository.loadThumbnails(key)
                     } else {
                         videoThumbnailRepository.loadThumbnails(key)
                     }
