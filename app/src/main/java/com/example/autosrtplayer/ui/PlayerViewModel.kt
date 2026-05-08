@@ -13,6 +13,7 @@ import com.example.autosrtplayer.data.playback.PlayerFactory
 import com.example.autosrtplayer.data.playback.VideoFrameThumbnail
 import com.example.autosrtplayer.data.playback.VideoThumbnailKey
 import com.example.autosrtplayer.data.playback.VideoThumbnailRepository
+import com.example.autosrtplayer.data.playback.ThumbnailPlayerLifecycle
 import com.example.autosrtplayer.data.playback.VideoThumbnailState
 import com.example.autosrtplayer.data.playlist.MissavHtmlExtractor
 import com.example.autosrtplayer.data.playlist.MissavPlaylistBuilder
@@ -67,6 +68,8 @@ class PlayerViewModel(
     private var autoFullscreenPending: Boolean = false
     private var sourceResolveRequestCounter: Long = 0
     private var thumbnailJob: Job? = null
+    private var thumbnailRequestToken: Long = 0
+    private var lastSuccessfulThumbnails: List<VideoFrameThumbnail> = emptyList()
     private val thumbnailCache = object : LinkedHashMap<VideoThumbnailKey, List<VideoFrameThumbnail>>(MaxThumbnailCacheEntries, 0.75f, true) {
         override fun removeEldestEntry(eldest: MutableMap.MutableEntry<VideoThumbnailKey, List<VideoFrameThumbnail>>): Boolean {
             return size > MaxThumbnailCacheEntries
@@ -113,6 +116,7 @@ class PlayerViewModel(
         player = newPlayer
         attachPlayerListener(newPlayer)
         syncPlayerWithState(newPlayer)
+        _uiState.update { it.copy(playerLifecycle = PlayerLifecycle.Ready) }
         return newPlayer
     }
 
@@ -221,11 +225,12 @@ class PlayerViewModel(
     }
 
     private fun showPlayerShell() {
+        thumbnailRequestToken += 1
         thumbnailJob?.cancel()
         thumbnailJob = null
         _uiState.update {
             it.copy(
-                thumbnailState = VideoThumbnailState(),
+                thumbnailState = VideoThumbnailState(lifecycle = ThumbnailPlayerLifecycle.Dispose),
                 isFavoritesVisible = false,
                 isTodayHotVisible = false,
                 isSettingsVisible = false
@@ -541,6 +546,7 @@ class PlayerViewModel(
                     current.copy(
                         thumbnailState = VideoThumbnailState(
                             key = key,
+                            lifecycle = ThumbnailPlayerLifecycle.Ready,
                             isLoading = false,
                             thumbnails = cached,
                             errorMessage = null
@@ -553,6 +559,8 @@ class PlayerViewModel(
             return
         }
 
+        thumbnailRequestToken += 1
+        val requestToken = thumbnailRequestToken
         thumbnailJob?.cancel()
         _uiState.update { current ->
             if (current.thumbnailState.key == key && current.thumbnailState.isLoading) {
@@ -561,6 +569,7 @@ class PlayerViewModel(
                 current.copy(
                     thumbnailState = VideoThumbnailState(
                         key = key,
+                        lifecycle = ThumbnailPlayerLifecycle.Busy,
                         isLoading = true,
                         thumbnails = emptyList(),
                         errorMessage = null
@@ -571,13 +580,17 @@ class PlayerViewModel(
 
         thumbnailJob = viewModelScope.launch {
             try {
-                val thumbnails = videoThumbnailRepository.loadThumbnails(key)
+                val policy = VideoThumbnailRepository.buildPolicy(requireNotNull(appContext), durationMs)
+                val thumbnails = videoThumbnailRepository.loadThumbnails(key, policy)
+                if (requestToken != thumbnailRequestToken) return@launch
                 thumbnailCache[key] = thumbnails
+                if (thumbnails.isNotEmpty()) lastSuccessfulThumbnails = thumbnails
                 _uiState.update { current ->
                     if (current.thumbnailState.key == key) {
                         current.copy(
                             thumbnailState = VideoThumbnailState(
                                 key = key,
+                                lifecycle = ThumbnailPlayerLifecycle.Ready,
                                 isLoading = false,
                                 thumbnails = thumbnails,
                                 errorMessage = null
@@ -590,14 +603,17 @@ class PlayerViewModel(
             } catch (cancelled: CancellationException) {
                 throw cancelled
             } catch (error: Throwable) {
+                if (requestToken != thumbnailRequestToken) return@launch
+                val fallback = lastSuccessfulThumbnails
                 _uiState.update { current ->
                     if (current.thumbnailState.key == key) {
                         current.copy(
                             thumbnailState = VideoThumbnailState(
                                 key = key,
+                                lifecycle = ThumbnailPlayerLifecycle.Ready,
                                 isLoading = false,
-                                thumbnails = emptyList(),
-                                errorMessage = error.message ?: "縮圖載入失敗"
+                                thumbnails = fallback,
+                                errorMessage = if (fallback.isEmpty()) error.message ?: "縮圖載入失敗" else "縮圖載入失敗，已回退最近成功快取"
                             )
                         )
                     } else {
@@ -609,6 +625,12 @@ class PlayerViewModel(
     }
 
     override fun onCleared() {
+        _uiState.update {
+            it.copy(
+                playerLifecycle = PlayerLifecycle.Dispose,
+                thumbnailState = it.thumbnailState.copy(lifecycle = ThumbnailPlayerLifecycle.Dispose)
+            )
+        }
         persistPlaybackState()
         thumbnailJob?.cancel()
         playerListener?.let { listener -> player?.removeListener(listener) }
@@ -711,6 +733,7 @@ class PlayerViewModel(
     }
 
     private fun syncPlayerWithState(player: ExoPlayer) {
+        _uiState.update { it.copy(playerLifecycle = PlayerLifecycle.Busy) }
         val state = uiState.value
         val entry = state.parsedEntry ?: return
         val mediaItem = state.mediaItem ?: return
@@ -758,7 +781,8 @@ class PlayerViewModel(
             it.copy(
                 lastPlayedMediaUrl = desiredConfig.mediaUrl,
                 playbackPositionMs = startPositionMs,
-                playWhenReady = playWhenReady
+                playWhenReady = playWhenReady,
+                playerLifecycle = PlayerLifecycle.Ready
             )
         }
     }

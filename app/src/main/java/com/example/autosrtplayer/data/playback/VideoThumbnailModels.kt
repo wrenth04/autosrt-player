@@ -14,8 +14,16 @@ data class VideoFrameThumbnail(
     val bitmap: Bitmap?
 )
 
+enum class ThumbnailPlayerLifecycle {
+    Init,
+    Ready,
+    Busy,
+    Dispose
+}
+
 data class VideoThumbnailState(
     val key: VideoThumbnailKey? = null,
+    val lifecycle: ThumbnailPlayerLifecycle = ThumbnailPlayerLifecycle.Init,
     val isLoading: Boolean = false,
     val thumbnails: List<VideoFrameThumbnail> = emptyList(),
     val errorMessage: String? = null

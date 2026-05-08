@@ -41,6 +41,13 @@ enum class ScreenOrientationMode {
     Landscape
 }
 
+enum class PlayerLifecycle {
+    Init,
+    Ready,
+    Busy,
+    Dispose
+}
+
 data class PlayerUiState(
     val sourceId: String = "",
     val currentSourceId: String? = null,
@@ -67,6 +74,7 @@ data class PlayerUiState(
     val isSettingsVisible: Boolean = false,
     val startupDestination: StartupDestination = StartupDestination.Player,
     val isFullscreen: Boolean = true,
+    val playerLifecycle: PlayerLifecycle = PlayerLifecycle.Init,
     val screenOrientationMode: ScreenOrientationMode = ScreenOrientationMode.Auto,
     val errorMessage: String? = null,
     val errorType: UiErrorType = UiErrorType.None

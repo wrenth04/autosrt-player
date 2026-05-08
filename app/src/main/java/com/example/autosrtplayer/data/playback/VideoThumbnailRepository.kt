@@ -1,17 +1,27 @@
 package com.example.autosrtplayer.data.playback
 
 import android.graphics.Bitmap
+import android.app.ActivityManager
+import android.content.Context
 import android.media.MediaMetadataRetriever
 import android.os.Build
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 
 class VideoThumbnailRepository {
+    data class ThumbnailDecodePolicy(
+        val count: Int,
+        val targetWidth: Int,
+        val targetHeight: Int
+    )
+
     suspend fun loadThumbnails(
         request: VideoThumbnailKey,
-        count: Int = DefaultThumbnailCount,
-        targetWidth: Int = DefaultThumbnailWidth,
-        targetHeight: Int = DefaultThumbnailHeight
+        policy: ThumbnailDecodePolicy = ThumbnailDecodePolicy(
+            count = DefaultThumbnailCount,
+            targetWidth = DefaultThumbnailWidth,
+            targetHeight = DefaultThumbnailHeight
+        )
     ): List<VideoFrameThumbnail> = withContext(Dispatchers.IO) {
         val retriever = MediaMetadataRetriever()
         try {
@@ -25,10 +35,11 @@ class VideoThumbnailRepository {
                 retriever.setDataSource(request.mediaUrl, headers)
             }
 
-            buildThumbnailTimes(request.durationMs, count).map { timeMs ->
+            // Single-thread decode by design to protect low-end devices (no 9-way parallel decode).
+            buildThumbnailTimes(request.durationMs, policy.count).map { timeMs ->
                 VideoFrameThumbnail(
                     timeMs = timeMs,
-                    bitmap = extractFrame(retriever, timeMs, targetWidth, targetHeight)
+                    bitmap = extractFrame(retriever, timeMs, policy.targetWidth, policy.targetHeight)
                 )
             }
         } finally {
@@ -85,5 +96,28 @@ class VideoThumbnailRepository {
         private const val DefaultThumbnailCount = 9
         private const val DefaultThumbnailWidth = 320
         private const val DefaultThumbnailHeight = 180
+
+        fun buildPolicy(
+            context: Context,
+            durationMs: Long,
+            preferMaxHeight: Int = 480
+        ): ThumbnailDecodePolicy {
+            val am = context.getSystemService(Context.ACTIVITY_SERVICE) as? ActivityManager
+            val lowRam = am?.isLowRamDevice ?: false
+            val memoryClass = am?.memoryClass ?: 128
+            val longVideo = durationMs >= 90L * 60L * 1000L
+
+            val maxHeight = if (lowRam || memoryClass <= 192) 320 else preferMaxHeight.coerceAtMost(480)
+            val baseCount = when {
+                lowRam -> 4
+                longVideo -> 6
+                else -> DefaultThumbnailCount
+            }
+            return ThumbnailDecodePolicy(
+                count = baseCount,
+                targetWidth = maxHeight * 16 / 9,
+                targetHeight = maxHeight
+            )
+        }
     }
 }
