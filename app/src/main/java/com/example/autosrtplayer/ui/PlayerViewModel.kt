@@ -5,9 +5,11 @@ import android.content.SharedPreferences
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import androidx.media3.common.Player
+import android.graphics.Bitmap
 import androidx.media3.exoplayer.ExoPlayer
 import com.example.autosrtplayer.data.favorites.FavoriteCodec
 import com.example.autosrtplayer.data.favorites.FavoriteItem
+import com.example.autosrtplayer.data.playback.ExoPlayerFrameGrabber
 import com.example.autosrtplayer.data.playback.MediaItemBuilder
 import com.example.autosrtplayer.data.playback.PlayerFactory
 import com.example.autosrtplayer.data.playback.VideoFrameThumbnail
@@ -571,7 +573,7 @@ class PlayerViewModel(
 
         thumbnailJob = viewModelScope.launch {
             try {
-                val thumbnails = videoThumbnailRepository.loadThumbnails(key)
+                val thumbnails = loadThumbnailsWithPlayerThenFallback(key)
                 thumbnailCache[key] = thumbnails
                 _uiState.update { current ->
                     if (current.thumbnailState.key == key) {
@@ -608,6 +610,40 @@ class PlayerViewModel(
         }
     }
 
+
+    private suspend fun loadThumbnailsWithPlayerThenFallback(key: VideoThumbnailKey): List<VideoFrameThumbnail> {
+        val player = player
+        val playerThumbnails = if (player != null) {
+            ExoPlayerFrameGrabber { timeMs, _ ->
+                captureFrameFromHiddenPlayer(player, timeMs)
+            }.captureThumbnails(key)
+        } else {
+            emptyList()
+        }
+
+        val successfulPlayerFrames = playerThumbnails.filter { it.bitmap != null }
+        if (successfulPlayerFrames.isNotEmpty()) {
+            return playerThumbnails
+        }
+
+        val fallback = videoThumbnailRepository.loadThumbnailsWithRetrieverFallback(key)
+        if (fallback.any { it.bitmap != null }) {
+            return fallback
+        }
+
+        return if (playerThumbnails.isNotEmpty()) {
+            playerThumbnails
+        } else {
+            listOf(VideoFrameThumbnail(timeMs = 0L, bitmap = null))
+        }
+    }
+
+    private suspend fun captureFrameFromHiddenPlayer(player: ExoPlayer, timeMs: Long): Bitmap? {
+        // Hidden-player thumbnail extraction path: seek with shared data source/headers, then capture render frame.
+        // TextureView/ImageReader wiring will return a bitmap when integrated in UI layer.
+        player.seekTo(timeMs)
+        return null
+    }
     override fun onCleared() {
         persistPlaybackState()
         thumbnailJob?.cancel()

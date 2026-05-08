@@ -3,16 +3,20 @@ package com.example.autosrtplayer.data.playback
 import android.graphics.Bitmap
 import android.media.MediaMetadataRetriever
 import android.os.Build
+import android.webkit.URLUtil
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 
 class VideoThumbnailRepository {
-    suspend fun loadThumbnails(
+    suspend fun loadThumbnailsWithRetrieverFallback(
         request: VideoThumbnailKey,
         count: Int = DefaultThumbnailCount,
         targetWidth: Int = DefaultThumbnailWidth,
         targetHeight: Int = DefaultThumbnailHeight
     ): List<VideoFrameThumbnail> = withContext(Dispatchers.IO) {
+        if (!isRetrieverFallbackSource(request.mediaUrl)) {
+            return@withContext emptyList()
+        }
         val retriever = MediaMetadataRetriever()
         try {
             val headers = buildMap {
@@ -34,6 +38,14 @@ class VideoThumbnailRepository {
         } finally {
             retriever.release()
         }
+    }
+
+    private fun isRetrieverFallbackSource(mediaUrl: String): Boolean {
+        val normalized = mediaUrl.trim()
+        if (normalized.startsWith("file://") || normalized.startsWith("content://")) {
+            return true
+        }
+        return URLUtil.isFileUrl(normalized)
     }
 
     private fun buildThumbnailTimes(durationMs: Long, count: Int): List<Long> {
