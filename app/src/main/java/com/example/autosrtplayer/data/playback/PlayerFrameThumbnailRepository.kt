@@ -7,6 +7,7 @@ import android.media.ImageReader
 import android.os.Build
 import androidx.annotation.RequiresApi
 import androidx.media3.common.MediaItem
+import androidx.media3.common.Player
 import androidx.media3.exoplayer.ExoPlayer
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.delay
@@ -19,7 +20,7 @@ class PlayerFrameThumbnailRepository(
     suspend fun loadThumbnails(
         context: Context,
         request: VideoThumbnailKey,
-        count: Int = 3,
+        count: Int = 9,
         width: Int = 320,
         height: Int = 180
     ): List<VideoFrameThumbnail> = withContext(Dispatchers.Main) {
@@ -27,20 +28,32 @@ class PlayerFrameThumbnailRepository(
         val imageReader = ImageReader.newInstance(width, height, PixelFormat.RGBA_8888, 2)
 
         try {
+            player.videoScalingMode = androidx.media3.common.C.VIDEO_SCALING_MODE_SCALE_TO_FIT
             player.setVideoSurface(imageReader.surface)
             player.setMediaItem(MediaItem.fromUri(request.mediaUrl))
+            player.playWhenReady = true
             player.prepare()
+            waitUntilReady(player)
 
             val times = buildTimes(request.durationMs, count)
             times.map { timeMs ->
                 player.seekTo(timeMs)
-                player.playWhenReady = false
-                delay(250)
+                waitUntilReady(player)
+                delay(500)
                 VideoFrameThumbnail(timeMs = timeMs, bitmap = captureBitmap(imageReader))
             }
         } finally {
+            player.playWhenReady = false
             player.release()
             imageReader.close()
+        }
+    }
+
+    private suspend fun waitUntilReady(player: ExoPlayer, timeoutMs: Long = 4_000L) {
+        var waited = 0L
+        while ((player.playbackState != Player.STATE_READY || !player.isPlaying) && waited < timeoutMs) {
+            delay(50)
+            waited += 50
         }
     }
 
