@@ -13,6 +13,7 @@ import com.example.autosrtplayer.data.playback.PlayerFactory
 import com.example.autosrtplayer.data.playback.VideoFrameThumbnail
 import com.example.autosrtplayer.data.playback.VideoThumbnailKey
 import com.example.autosrtplayer.data.playback.VideoThumbnailRepository
+import com.example.autosrtplayer.data.playback.PlayerFrameThumbnailRepository
 import com.example.autosrtplayer.data.playback.VideoThumbnailState
 import com.example.autosrtplayer.data.playlist.MissavHtmlExtractor
 import com.example.autosrtplayer.data.playlist.MissavPlaylistBuilder
@@ -45,7 +46,8 @@ class PlayerViewModel(
     private val missavHtmlExtractor: MissavHtmlExtractor = MissavHtmlExtractor(),
     private val missavPlaylistBuilder: MissavPlaylistBuilder = MissavPlaylistBuilder(),
     private val playerFactory: PlayerFactory = PlayerFactory(),
-    private val videoThumbnailRepository: VideoThumbnailRepository = VideoThumbnailRepository()
+    private val videoThumbnailRepository: VideoThumbnailRepository = VideoThumbnailRepository(),
+    private val playerFrameThumbnailRepository: PlayerFrameThumbnailRepository = PlayerFrameThumbnailRepository()
 ) : ViewModel() {
     companion object {
         private const val PrefsName = "autosrt_player_settings"
@@ -573,7 +575,16 @@ class PlayerViewModel(
 
         thumbnailJob = viewModelScope.launch {
             try {
-                val thumbnails = videoThumbnailRepository.loadThumbnails(key)
+                val thumbnails = runCatching {
+                    val context = appContext
+                    if (context != null && android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.N) {
+                        playerFrameThumbnailRepository.loadThumbnails(context, key)
+                    } else {
+                        videoThumbnailRepository.loadThumbnails(key)
+                    }
+                }.getOrElse {
+                    videoThumbnailRepository.loadThumbnails(key)
+                }
                 thumbnailCache[key] = thumbnails
                 _uiState.update { current ->
                     if (current.thumbnailState.key == key) {
