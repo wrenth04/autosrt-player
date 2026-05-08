@@ -34,6 +34,12 @@ enum class UiErrorType {
     Unknown
 }
 
+enum class ScreenOrientationMode {
+    Auto,
+    Portrait,
+    Landscape
+}
+
 data class PlayerUiState(
     val sourceId: String = "",
     val currentSourceId: String? = null,
@@ -59,6 +65,7 @@ data class PlayerUiState(
     val isSettingsVisible: Boolean = false,
     val startupDestination: StartupDestination = StartupDestination.Player,
     val isFullscreen: Boolean = true,
+    val screenOrientationMode: ScreenOrientationMode = ScreenOrientationMode.Auto,
     val errorMessage: String? = null,
     val errorType: UiErrorType = UiErrorType.None
 )
