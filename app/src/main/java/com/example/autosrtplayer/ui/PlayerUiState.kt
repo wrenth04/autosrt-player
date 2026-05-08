@@ -5,6 +5,12 @@ import com.example.autosrtplayer.data.favorites.FavoriteItem
 import com.example.autosrtplayer.data.playlist.PlaylistEntry
 import com.example.autosrtplayer.data.todayhot.TodayHotItem
 
+enum class StartupDestination {
+    Player,
+    TodayHot,
+    Favorites
+}
+
 data class SourceWebResolveRequest(
     val requestId: Long,
     val id: String,
@@ -50,7 +56,9 @@ data class PlayerUiState(
     val isTodayHotLoading: Boolean = false,
     val isTodayHotVisible: Boolean = false,
     val todayHotErrorMessage: String? = null,
-    val isFullscreen: Boolean = false,
+    val isSettingsVisible: Boolean = false,
+    val startupDestination: StartupDestination = StartupDestination.Player,
+    val isFullscreen: Boolean = true,
     val errorMessage: String? = null,
     val errorType: UiErrorType = UiErrorType.None
 )

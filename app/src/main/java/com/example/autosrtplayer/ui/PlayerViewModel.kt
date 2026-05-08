@@ -43,6 +43,7 @@ class PlayerViewModel(
         private const val PrefsName = "autosrt_player_settings"
         private const val KeySourcePrefix = "source_prefix"
         private const val KeyFavoriteItems = "favorite_items"
+        private const val KeyStartupDestination = "startup_destination"
     }
 
     private val _uiState = MutableStateFlow(PlayerUiState())
@@ -62,7 +63,21 @@ class PlayerViewModel(
             settingsPrefs = appContext?.getSharedPreferences(PrefsName, Context.MODE_PRIVATE)
             val sourcePrefix = settingsPrefs?.getString(KeySourcePrefix, "").orEmpty()
             val favoriteItems = FavoriteCodec.decode(settingsPrefs?.getString(KeyFavoriteItems, null))
-            _uiState.update { it.copy(sourcePrefix = sourcePrefix, favoriteItems = favoriteItems) }
+            val startupDestination = settingsPrefs
+                ?.getString(KeyStartupDestination, null)
+                .toStartupDestination()
+            _uiState.update {
+                it.copy(
+                    sourcePrefix = sourcePrefix,
+                    favoriteItems = favoriteItems,
+                    startupDestination = startupDestination
+                )
+            }
+            when (startupDestination) {
+                StartupDestination.TodayHot -> loadTodayHot()
+                StartupDestination.Favorites -> openFavorites()
+                StartupDestination.Player -> Unit
+            }
         }
     }
 
@@ -104,11 +119,36 @@ class PlayerViewModel(
     }
 
     fun openFavorites() {
-        _uiState.update { it.copy(isFavoritesVisible = true) }
+        _uiState.update {
+            it.copy(
+                isFavoritesVisible = true,
+                isTodayHotVisible = false,
+                isSettingsVisible = false
+            )
+        }
     }
 
     fun closeFavorites() {
         _uiState.update { it.copy(isFavoritesVisible = false) }
+    }
+
+    fun openSettings() {
+        _uiState.update {
+            it.copy(
+                isSettingsVisible = true,
+                isFavoritesVisible = false,
+                isTodayHotVisible = false
+            )
+        }
+    }
+
+    fun closeSettings() {
+        _uiState.update { it.copy(isSettingsVisible = false) }
+    }
+
+    fun setStartupDestination(destination: StartupDestination) {
+        settingsPrefs?.edit()?.putString(KeyStartupDestination, destination.name)?.apply()
+        _uiState.update { it.copy(startupDestination = destination) }
     }
 
     fun toggleCurrentFavorite() {
@@ -150,6 +190,16 @@ class PlayerViewModel(
         settingsPrefs?.edit()?.putString(KeyFavoriteItems, FavoriteCodec.encode(items))?.apply()
     }
 
+    private fun showPlayerShell() {
+        _uiState.update {
+            it.copy(
+                isFavoritesVisible = false,
+                isTodayHotVisible = false,
+                isSettingsVisible = false
+            )
+        }
+    }
+
     fun loadFromId() {
         val state = uiState.value
         val id = state.sourceId.trim()
@@ -157,6 +207,7 @@ class PlayerViewModel(
             _uiState.update { it.copy(errorMessage = "請先輸入影片 ID", errorType = UiErrorType.Validation) }
             return
         }
+        showPlayerShell()
         val prefix = state.sourcePrefix.trim()
         if (prefix.isBlank()) {
             startSourceResolve(id)
@@ -220,6 +271,7 @@ class PlayerViewModel(
     fun loadFromSharedUrl(url: String) {
         val normalized = url.trim()
         if (normalized.isBlank()) return
+        showPlayerShell()
         _uiState.update { it.copy(playlistUrl = normalized, sourceResolveRequest = null, currentSourceId = null) }
         loadFromUrl(normalized)
     }
@@ -227,6 +279,7 @@ class PlayerViewModel(
     fun loadFromExternalId(id: String) {
         val normalized = id.trim()
         if (normalized.isBlank()) return
+        showPlayerShell()
         _uiState.update { it.copy(sourceId = normalized) }
         loadFromId()
     }
@@ -237,6 +290,8 @@ class PlayerViewModel(
                 it.copy(
                     isTodayHotLoading = true,
                     isTodayHotVisible = true,
+                    isFavoritesVisible = false,
+                    isSettingsVisible = false,
                     todayHotErrorMessage = null
                 )
             }
@@ -273,7 +328,7 @@ class PlayerViewModel(
             _uiState.update { it.copy(errorMessage = "今日熱門代碼無效", errorType = UiErrorType.Validation) }
             return
         }
-        _uiState.update { it.copy(sourceId = normalized, isTodayHotVisible = false) }
+        _uiState.update { it.copy(sourceId = normalized, isTodayHotVisible = false, isSettingsVisible = false, isFavoritesVisible = false) }
         loadFromId()
     }
 
@@ -283,6 +338,7 @@ class PlayerViewModel(
             _uiState.update { it.copy(errorMessage = "請先貼上 M3U 內容", errorType = UiErrorType.Validation) }
             return
         }
+        showPlayerShell()
         _uiState.update {
             it.copy(
                 isLoading = true,
@@ -306,6 +362,7 @@ class PlayerViewModel(
             return
         }
 
+        showPlayerShell()
         viewModelScope.launch {
             _uiState.update {
                 it.copy(
@@ -605,4 +662,10 @@ class PlayerViewModel(
             )
         }
     }
+}
+
+private fun String?.toStartupDestination(): StartupDestination {
+    return runCatching {
+        StartupDestination.valueOf(this.orEmpty())
+    }.getOrDefault(StartupDestination.Player)
 }
