@@ -2,6 +2,7 @@ package com.example.autosrtplayer.ui
 
 import androidx.media3.common.MediaItem
 import com.example.autosrtplayer.data.favorites.FavoriteItem
+import com.example.autosrtplayer.data.playback.VideoThumbnailState
 import com.example.autosrtplayer.data.playlist.PlaylistEntry
 import com.example.autosrtplayer.data.todayhot.TodayHotItem
 
@@ -56,6 +57,7 @@ data class PlayerUiState(
     val loadingStage: LoadingStage = LoadingStage.Idle,
     val currentRequestLabel: String? = null,
     val sourceResolveRequest: SourceWebResolveRequest? = null,
+    val thumbnailState: VideoThumbnailState = VideoThumbnailState(),
     val favoriteItems: List<FavoriteItem> = emptyList(),
     val isFavoritesVisible: Boolean = false,
     val todayHotItems: List<TodayHotItem> = emptyList(),

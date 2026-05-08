@@ -211,6 +211,8 @@ fun PlayerScreen(
                     isLoading = uiState.isLoading,
                     loadingStage = uiState.loadingStage,
                     errorMessage = uiState.errorMessage,
+                    thumbnailState = uiState.thumbnailState,
+                    onLoadPausedThumbnails = viewModel::loadPausedThumbnailsIfNeeded,
                     onPlaybackSpeedChange = viewModel::setPlaybackSpeed,
                     onToggleScreenOrientationMode = viewModel::toggleScreenOrientationMode,
                     onToggleFavorite = viewModel::toggleCurrentFavorite,

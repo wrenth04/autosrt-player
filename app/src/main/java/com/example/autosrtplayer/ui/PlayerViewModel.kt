@@ -10,12 +10,19 @@ import com.example.autosrtplayer.data.favorites.FavoriteCodec
 import com.example.autosrtplayer.data.favorites.FavoriteItem
 import com.example.autosrtplayer.data.playback.MediaItemBuilder
 import com.example.autosrtplayer.data.playback.PlayerFactory
+import com.example.autosrtplayer.data.playback.VideoFrameThumbnail
+import com.example.autosrtplayer.data.playback.VideoThumbnailKey
+import com.example.autosrtplayer.data.playback.VideoThumbnailRepository
+import com.example.autosrtplayer.data.playback.VideoThumbnailState
 import com.example.autosrtplayer.data.playlist.MissavHtmlExtractor
 import com.example.autosrtplayer.data.playlist.MissavPlaylistBuilder
 import com.example.autosrtplayer.data.playlist.PlaylistParser
 import com.example.autosrtplayer.data.playlist.PlaylistRepository
 import com.example.autosrtplayer.data.playlist.SubtitleRepository
 import com.example.autosrtplayer.data.todayhot.TodayHotRepository
+import java.util.LinkedHashMap
+import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.Job
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
@@ -37,7 +44,8 @@ class PlayerViewModel(
     private val todayHotRepository: TodayHotRepository = TodayHotRepository(),
     private val missavHtmlExtractor: MissavHtmlExtractor = MissavHtmlExtractor(),
     private val missavPlaylistBuilder: MissavPlaylistBuilder = MissavPlaylistBuilder(),
-    private val playerFactory: PlayerFactory = PlayerFactory()
+    private val playerFactory: PlayerFactory = PlayerFactory(),
+    private val videoThumbnailRepository: VideoThumbnailRepository = VideoThumbnailRepository()
 ) : ViewModel() {
     companion object {
         private const val PrefsName = "autosrt_player_settings"
@@ -45,6 +53,7 @@ class PlayerViewModel(
         private const val KeyFavoriteItems = "favorite_items"
         private const val KeyStartupDestination = "startup_destination"
         private const val KeyScreenOrientationMode = "screen_orientation_mode"
+        private const val MaxThumbnailCacheEntries = 3
     }
 
     private val _uiState = MutableStateFlow(PlayerUiState())
@@ -57,6 +66,12 @@ class PlayerViewModel(
     private var activePlaybackConfig: PlaybackConfig? = null
     private var autoFullscreenPending: Boolean = false
     private var sourceResolveRequestCounter: Long = 0
+    private var thumbnailJob: Job? = null
+    private val thumbnailCache = object : LinkedHashMap<VideoThumbnailKey, List<VideoFrameThumbnail>>(MaxThumbnailCacheEntries, 0.75f, true) {
+        override fun removeEldestEntry(eldest: MutableMap.MutableEntry<VideoThumbnailKey, List<VideoFrameThumbnail>>): Boolean {
+            return size > MaxThumbnailCacheEntries
+        }
+    }
 
     fun initialize(context: Context) {
         appContext = context.applicationContext
@@ -206,8 +221,11 @@ class PlayerViewModel(
     }
 
     private fun showPlayerShell() {
+        thumbnailJob?.cancel()
+        thumbnailJob = null
         _uiState.update {
             it.copy(
+                thumbnailState = VideoThumbnailState(),
                 isFavoritesVisible = false,
                 isTodayHotVisible = false,
                 isSettingsVisible = false
@@ -497,8 +515,102 @@ class PlayerViewModel(
         player?.setPlaybackSpeed(speed)
     }
 
+    fun loadPausedThumbnailsIfNeeded(durationMs: Long) {
+        val state = uiState.value
+        val entry = state.parsedEntry ?: return
+        if (durationMs <= 0L) return
+
+        val mediaUrl = entry.mediaUrl.trim()
+        if (mediaUrl.isBlank()) return
+
+        val key = VideoThumbnailKey(
+            mediaUrl = mediaUrl,
+            durationMs = durationMs,
+            userAgent = entry.userAgent,
+            referrer = entry.referrer
+        )
+
+        val currentState = state.thumbnailState
+        if (currentState.key == key && (currentState.isLoading || currentState.thumbnails.isNotEmpty())) {
+            return
+        }
+
+        thumbnailCache[key]?.let { cached ->
+            _uiState.update { current ->
+                if (current.thumbnailState.key == key || current.thumbnailState.key == null) {
+                    current.copy(
+                        thumbnailState = VideoThumbnailState(
+                            key = key,
+                            isLoading = false,
+                            thumbnails = cached,
+                            errorMessage = null
+                        )
+                    )
+                } else {
+                    current
+                }
+            }
+            return
+        }
+
+        thumbnailJob?.cancel()
+        _uiState.update { current ->
+            if (current.thumbnailState.key == key && current.thumbnailState.isLoading) {
+                current
+            } else {
+                current.copy(
+                    thumbnailState = VideoThumbnailState(
+                        key = key,
+                        isLoading = true,
+                        thumbnails = emptyList(),
+                        errorMessage = null
+                    )
+                )
+            }
+        }
+
+        thumbnailJob = viewModelScope.launch {
+            try {
+                val thumbnails = videoThumbnailRepository.loadThumbnails(key)
+                thumbnailCache[key] = thumbnails
+                _uiState.update { current ->
+                    if (current.thumbnailState.key == key) {
+                        current.copy(
+                            thumbnailState = VideoThumbnailState(
+                                key = key,
+                                isLoading = false,
+                                thumbnails = thumbnails,
+                                errorMessage = null
+                            )
+                        )
+                    } else {
+                        current
+                    }
+                }
+            } catch (cancelled: CancellationException) {
+                throw cancelled
+            } catch (error: Throwable) {
+                _uiState.update { current ->
+                    if (current.thumbnailState.key == key) {
+                        current.copy(
+                            thumbnailState = VideoThumbnailState(
+                                key = key,
+                                isLoading = false,
+                                thumbnails = emptyList(),
+                                errorMessage = error.message ?: "縮圖載入失敗"
+                            )
+                        )
+                    } else {
+                        current
+                    }
+                }
+            }
+        }
+    }
+
     override fun onCleared() {
         persistPlaybackState()
+        thumbnailJob?.cancel()
         playerListener?.let { listener -> player?.removeListener(listener) }
         playerListener = null
         player?.release()

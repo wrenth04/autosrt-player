@@ -7,22 +7,31 @@ import android.media.AudioManager
 import android.view.WindowManager
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.background
+import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.gestures.detectDragGestures
 import androidx.compose.foundation.gestures.detectTapGestures
+import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.aspectRatio
 import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
+import androidx.compose.foundation.Image
 import androidx.compose.material.icons.automirrored.filled.VolumeOff
 import androidx.compose.material.icons.automirrored.filled.VolumeUp
 import androidx.compose.material.icons.filled.Bookmarks
@@ -69,7 +78,10 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.alpha
+import androidx.compose.ui.draw.clip
 import androidx.compose.ui.geometry.Offset
+import androidx.compose.ui.graphics.asImageBitmap
+import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.input.pointer.consumePositionChange
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.platform.LocalContext
@@ -82,6 +94,8 @@ import androidx.media3.common.Player
 import androidx.media3.exoplayer.ExoPlayer
 import androidx.media3.ui.CaptionStyleCompat
 import androidx.media3.ui.PlayerView
+import com.example.autosrtplayer.data.playback.VideoFrameThumbnail
+import com.example.autosrtplayer.data.playback.VideoThumbnailState
 import kotlinx.coroutines.delay
 import kotlin.math.abs
 import kotlin.math.roundToInt
@@ -200,6 +214,8 @@ internal fun FullscreenPlayer(
     isLoading: Boolean,
     loadingStage: LoadingStage,
     errorMessage: String?,
+    thumbnailState: VideoThumbnailState,
+    onLoadPausedThumbnails: (Long) -> Unit,
     onPlaybackSpeedChange: (Float) -> Unit,
     onToggleScreenOrientationMode: () -> Unit,
     onToggleFavorite: () -> Unit,
@@ -212,6 +228,7 @@ internal fun FullscreenPlayer(
     var appBrightness by rememberSaveable { mutableStateOf<Float?>(null) }
     var dimOverlayAlpha by rememberSaveable { mutableStateOf(0f) }
     val progressState = rememberPlaybackProgressState(player)
+    val isPlaying = rememberIsPlayingState(player)
     var controlsVisible by remember(player) { mutableStateOf(true) }
     var controlsInteractionTick by remember(player) { mutableLongStateOf(0L) }
     var isScrubbing by remember(player) { mutableStateOf(false) }
@@ -269,6 +286,12 @@ internal fun FullscreenPlayer(
         }
     }
 
+    LaunchedEffect(isPlaying, progressState.durationMs, player) {
+        if (!isPlaying && player != null && player.playWhenReady == false && progressState.durationMs > 0L) {
+            onLoadPausedThumbnails(progressState.durationMs)
+        }
+    }
+
     BoxWithConstraints(
         modifier = Modifier
             .fillMaxSize()
@@ -301,6 +324,33 @@ internal fun FullscreenPlayer(
                 modifier = Modifier
                     .fillMaxSize()
                     .background(androidx.compose.ui.graphics.Color.Black.copy(alpha = dimOverlayAlpha))
+            )
+        }
+
+        val currentMediaUrl = player?.currentMediaItem?.mediaId
+        val shouldShowThumbnailGrid = controlsVisible &&
+            player != null &&
+            player.playWhenReady == false &&
+            !isPlaying &&
+            !isLoading &&
+            !showSourceDialog &&
+            progressState.durationMs > 0L &&
+            thumbnailState.key?.mediaUrl == currentMediaUrl
+
+        if (shouldShowThumbnailGrid) {
+            PausedThumbnailGrid(
+                thumbnailState = thumbnailState,
+                durationMs = progressState.durationMs,
+                isPortrait = maxHeight > maxWidth,
+                onThumbnailClick = { targetMs ->
+                    val safeTarget = targetMs.coerceIn(0L, progressState.durationMs)
+                    player?.seekTo(safeTarget)
+                    player?.play()
+                    pingControls()
+                },
+                modifier = Modifier
+                    .align(Alignment.Center)
+                    .padding(horizontal = 16.dp, vertical = 72.dp)
             )
         }
 
@@ -403,7 +453,7 @@ internal fun FullscreenPlayer(
             IconButton(
                 onClick = {
                     player?.let {
-                        if (it.isPlaying) it.pause() else it.play()
+                        if (isPlaying) it.pause() else it.play()
                         pingControls()
                     }
                 },
@@ -413,7 +463,6 @@ internal fun FullscreenPlayer(
                     .size(CenterButtonSize.dp)
                     .alpha(controlsContentAlpha)
             ) {
-                val isPlaying = player?.isPlaying == true
                 Icon(
                     imageVector = if (isPlaying) Icons.Filled.Pause else Icons.Filled.PlayArrow,
                     contentDescription = if (isPlaying) "Pause" else "Play",
@@ -829,6 +878,130 @@ private fun GestureZone(
                 }
             }
     )
+}
+
+@Composable
+private fun PausedThumbnailGrid(
+    thumbnailState: VideoThumbnailState,
+    durationMs: Long,
+    isPortrait: Boolean,
+    onThumbnailClick: (Long) -> Unit,
+    modifier: Modifier = Modifier
+) {
+    val columnCount = if (isPortrait) 2 else 3
+    val cardMaxHeight = if (isPortrait) 540.dp else 400.dp
+    val byTime = remember(thumbnailState.thumbnails, durationMs) {
+        thumbnailState.thumbnails.associateBy { it.timeMs }
+    }
+    val expectedThumbnails = remember(durationMs, columnCount, byTime) {
+        List(9) { index ->
+            val timeMs = durationMs * (index + 1) / 10
+            byTime[timeMs] ?: VideoFrameThumbnail(timeMs = timeMs, bitmap = null)
+        }
+    }
+
+    Card(
+        modifier = modifier
+            .fillMaxWidth()
+            .heightIn(max = cardMaxHeight),
+        colors = CardDefaults.cardColors(containerColor = androidx.compose.ui.graphics.Color.Black.copy(alpha = 0.74f)),
+        border = BorderStroke(1.dp, androidx.compose.ui.graphics.Color.White.copy(alpha = 0.12f))
+    ) {
+        Column(
+            modifier = Modifier
+                .padding(12.dp)
+                .verticalScroll(rememberScrollState()),
+            verticalArrangement = Arrangement.spacedBy(8.dp)
+        ) {
+            if (thumbnailState.isLoading && thumbnailState.thumbnails.isEmpty()) {
+                Row(
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(8.dp)
+                ) {
+                    CircularProgressIndicator(modifier = Modifier.size(18.dp), strokeWidth = 2.dp)
+                    Text("產生預覽中…", color = androidx.compose.ui.graphics.Color.White)
+                }
+            } else if (!thumbnailState.errorMessage.isNullOrBlank() && thumbnailState.thumbnails.isEmpty()) {
+                Text(
+                    text = thumbnailState.errorMessage,
+                    color = androidx.compose.ui.graphics.Color.White.copy(alpha = 0.82f)
+                )
+            }
+
+            expectedThumbnails.chunked(columnCount).forEach { row ->
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.spacedBy(8.dp)
+                ) {
+                    row.forEach { thumbnail ->
+                        PausedThumbnailCell(
+                            thumbnail = thumbnail,
+                            isLoading = thumbnailState.isLoading && thumbnailState.thumbnails.isEmpty(),
+                            onClick = { onThumbnailClick(thumbnail.timeMs) },
+                            modifier = Modifier.weight(1f)
+                        )
+                    }
+                    if (row.size < columnCount) {
+                        repeat(columnCount - row.size) {
+                            Spacer(modifier = Modifier.weight(1f))
+                        }
+                    }
+                }
+            }
+        }
+    }
+}
+
+@Composable
+private fun PausedThumbnailCell(
+    thumbnail: VideoFrameThumbnail,
+    isLoading: Boolean,
+    onClick: () -> Unit,
+    modifier: Modifier = Modifier
+) {
+    val imageBitmap = remember(thumbnail.bitmap) { thumbnail.bitmap?.asImageBitmap() }
+    Box(
+        modifier = modifier
+            .clip(RoundedCornerShape(12.dp))
+            .background(androidx.compose.ui.graphics.Color(0xFF202020))
+            .border(1.dp, androidx.compose.ui.graphics.Color.White.copy(alpha = 0.12f), RoundedCornerShape(12.dp))
+            .clickable(onClick = onClick)
+    ) {
+        Box(modifier = Modifier.fillMaxWidth().aspectRatio(16f / 9f)) {
+            if (imageBitmap != null) {
+                Image(
+                    bitmap = imageBitmap,
+                    contentDescription = formatDuration(thumbnail.timeMs),
+                    modifier = Modifier.fillMaxSize(),
+                    contentScale = ContentScale.Crop
+                )
+            } else {
+                Box(
+                    modifier = Modifier
+                        .fillMaxSize()
+                        .background(androidx.compose.ui.graphics.Color.White.copy(alpha = 0.06f)),
+                    contentAlignment = Alignment.Center
+                ) {
+                    if (isLoading) {
+                        CircularProgressIndicator(modifier = Modifier.size(18.dp), strokeWidth = 2.dp)
+                    }
+                }
+            }
+            Box(
+                modifier = Modifier
+                    .align(Alignment.BottomStart)
+                    .padding(6.dp)
+                    .background(androidx.compose.ui.graphics.Color.Black.copy(alpha = 0.56f), RoundedCornerShape(8.dp))
+                    .padding(horizontal = 6.dp, vertical = 2.dp)
+            ) {
+                Text(
+                    text = formatDuration(thumbnail.timeMs),
+                    color = androidx.compose.ui.graphics.Color.White,
+                    style = MaterialTheme.typography.labelSmall
+                )
+            }
+        }
+    }
 }
 
 @Composable
