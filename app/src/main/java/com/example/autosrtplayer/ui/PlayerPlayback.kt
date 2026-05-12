@@ -4,6 +4,7 @@ import android.app.Activity
 import android.content.Context
 import android.graphics.Color as AndroidColor
 import android.media.AudioManager
+import android.view.TextureView
 import android.view.WindowManager
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.background
@@ -94,9 +95,15 @@ import androidx.media3.common.Player
 import androidx.media3.exoplayer.ExoPlayer
 import androidx.media3.ui.CaptionStyleCompat
 import androidx.media3.ui.PlayerView
+import com.example.autosrtplayer.data.playback.ExoPlayerThumbnailDecoder
 import com.example.autosrtplayer.data.playback.VideoFrameThumbnail
+import com.example.autosrtplayer.data.playback.VideoThumbnailKey
+import com.example.autosrtplayer.data.playback.VideoThumbnailRepository
 import com.example.autosrtplayer.data.playback.VideoThumbnailState
+import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.delay
+import kotlinx.coroutines.withContext
 import kotlin.math.abs
 import kotlin.math.roundToInt
 
@@ -216,6 +223,9 @@ internal fun FullscreenPlayer(
     errorMessage: String?,
     thumbnailState: VideoThumbnailState,
     onLoadPausedThumbnails: (Long) -> Unit,
+    onPausedThumbnailsLoaded: (VideoThumbnailKey, List<VideoFrameThumbnail>) -> Unit,
+    onPausedThumbnailsFailed: (VideoThumbnailKey, String) -> Unit,
+    onPausedThumbnailsCancelled: (VideoThumbnailKey) -> Unit,
     onPlaybackSpeedChange: (Float) -> Unit,
     onToggleScreenOrientationMode: () -> Unit,
     onToggleFavorite: () -> Unit,
@@ -328,6 +338,15 @@ internal fun FullscreenPlayer(
         }
 
         val currentMediaUrl = player?.currentMediaItem?.mediaId
+        val shouldDecodePausedThumbnails =
+            player != null &&
+                player.playWhenReady == false &&
+                !isPlaying &&
+                !isLoading &&
+                !showSourceDialog &&
+                progressState.durationMs > 0L &&
+                thumbnailState.isLoading &&
+                thumbnailState.key?.mediaUrl == currentMediaUrl
         val shouldShowThumbnailGrid = controlsVisible &&
             player != null &&
             player.playWhenReady == false &&
@@ -336,6 +355,17 @@ internal fun FullscreenPlayer(
             !showSourceDialog &&
             progressState.durationMs > 0L &&
             thumbnailState.key?.mediaUrl == currentMediaUrl
+
+        if (shouldDecodePausedThumbnails) {
+            HiddenThumbnailDecoderHost(
+                thumbnailState = thumbnailState,
+                isActive = shouldDecodePausedThumbnails,
+                onLoaded = onPausedThumbnailsLoaded,
+                onFailed = onPausedThumbnailsFailed,
+                onCancelled = onPausedThumbnailsCancelled,
+                modifier = Modifier.align(Alignment.TopStart)
+            )
+        }
 
         if (shouldShowThumbnailGrid) {
             PausedThumbnailGrid(
@@ -878,6 +908,79 @@ private fun GestureZone(
                 }
             }
     )
+}
+
+@Composable
+private fun HiddenThumbnailDecoderHost(
+    thumbnailState: VideoThumbnailState,
+    isActive: Boolean,
+    onLoaded: (VideoThumbnailKey, List<VideoFrameThumbnail>) -> Unit,
+    onFailed: (VideoThumbnailKey, String) -> Unit,
+    onCancelled: (VideoThumbnailKey) -> Unit,
+    modifier: Modifier = Modifier
+) {
+    val context = LocalContext.current
+    val decoder = remember(context) { ExoPlayerThumbnailDecoder(context) }
+    val fallbackRepository = remember { VideoThumbnailRepository() }
+    var textureView by remember { mutableStateOf<TextureView?>(null) }
+
+    AndroidView(
+        factory = { viewContext ->
+            TextureView(viewContext).apply {
+                alpha = 0.01f
+            }
+        },
+        modifier = modifier
+            .size(320.dp, 180.dp)
+            .alpha(0.01f),
+        update = {
+            textureView = it
+        }
+    )
+
+    LaunchedEffect(thumbnailState.key, textureView, isActive) {
+        val key = thumbnailState.key ?: return@LaunchedEffect
+        val view = textureView ?: return@LaunchedEffect
+        if (!isActive || !thumbnailState.isLoading) {
+            onCancelled(key)
+            return@LaunchedEffect
+        }
+
+        var finished = false
+        try {
+            val exoThumbnails = decoder.loadThumbnails(view, key)
+            if (exoThumbnails.any { it.bitmap != null }) {
+                onLoaded(key, exoThumbnails)
+                finished = true
+            } else {
+                val fallback = withContext(Dispatchers.IO) {
+                    fallbackRepository.loadThumbnails(key)
+                }
+                if (fallback.any { it.bitmap != null }) {
+                    onLoaded(key, fallback)
+                } else {
+                    onFailed(key, "無法產生預覽")
+                }
+                finished = true
+            }
+        } catch (cancelled: CancellationException) {
+            throw cancelled
+        } catch (error: Throwable) {
+            val fallback = runCatching {
+                withContext(Dispatchers.IO) { fallbackRepository.loadThumbnails(key) }
+            }.getOrNull()
+            if (fallback != null && fallback.any { it.bitmap != null }) {
+                onLoaded(key, fallback)
+            } else {
+                onFailed(key, error.message ?: "無法產生預覽")
+            }
+            finished = true
+        } finally {
+            if (!finished) {
+                onCancelled(key)
+            }
+        }
+    }
 }
 
 @Composable

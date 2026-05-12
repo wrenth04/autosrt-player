@@ -568,42 +568,53 @@ class PlayerViewModel(
                 )
             }
         }
+    }
 
-        thumbnailJob = viewModelScope.launch {
-            try {
-                val thumbnails = videoThumbnailRepository.loadThumbnails(key)
-                thumbnailCache[key] = thumbnails
-                _uiState.update { current ->
-                    if (current.thumbnailState.key == key) {
-                        current.copy(
-                            thumbnailState = VideoThumbnailState(
-                                key = key,
-                                isLoading = false,
-                                thumbnails = thumbnails,
-                                errorMessage = null
-                            )
-                        )
-                    } else {
-                        current
-                    }
-                }
-            } catch (cancelled: CancellationException) {
-                throw cancelled
-            } catch (error: Throwable) {
-                _uiState.update { current ->
-                    if (current.thumbnailState.key == key) {
-                        current.copy(
-                            thumbnailState = VideoThumbnailState(
-                                key = key,
-                                isLoading = false,
-                                thumbnails = emptyList(),
-                                errorMessage = error.message ?: "縮圖載入失敗"
-                            )
-                        )
-                    } else {
-                        current
-                    }
-                }
+    fun onPausedThumbnailsLoaded(key: VideoThumbnailKey, thumbnails: List<VideoFrameThumbnail>) {
+        if (thumbnails.any { it.bitmap != null }) {
+            thumbnailCache[key] = thumbnails
+        }
+        _uiState.update { current ->
+            if (current.thumbnailState.key == key) {
+                current.copy(
+                    thumbnailState = VideoThumbnailState(
+                        key = key,
+                        isLoading = false,
+                        thumbnails = thumbnails,
+                        errorMessage = null
+                    )
+                )
+            } else {
+                current
+            }
+        }
+    }
+
+    fun onPausedThumbnailsFailed(key: VideoThumbnailKey, message: String) {
+        _uiState.update { current ->
+            if (current.thumbnailState.key == key) {
+                current.copy(
+                    thumbnailState = VideoThumbnailState(
+                        key = key,
+                        isLoading = false,
+                        thumbnails = emptyList(),
+                        errorMessage = message
+                    )
+                )
+            } else {
+                current
+            }
+        }
+    }
+
+    fun onPausedThumbnailsCancelled(key: VideoThumbnailKey) {
+        _uiState.update { current ->
+            if (current.thumbnailState.key == key) {
+                current.copy(
+                    thumbnailState = current.thumbnailState.copy(isLoading = false)
+                )
+            } else {
+                current
             }
         }
     }
