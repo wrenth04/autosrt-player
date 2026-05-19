@@ -1,6 +1,8 @@
 package com.example.autosrtplayer.ui
 
 import android.content.Context
+import android.content.ClipData
+import android.content.ClipboardManager
 import android.content.SharedPreferences
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
@@ -21,6 +23,7 @@ import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
+import java.util.Locale
 
 private data class PlaybackConfig(
     val mediaUrl: String,
@@ -203,6 +206,54 @@ class PlayerViewModel(
 
     private fun persistFavoriteItems(items: List<FavoriteItem>) {
         settingsPrefs?.edit()?.putString(KeyFavoriteItems, FavoriteCodec.encode(items))?.apply()
+    }
+
+    fun exportFavorites() {
+        val items = _uiState.value.favoriteItems
+        if (items.isEmpty()) {
+            _uiState.update { it.copy(favoriteExportMessage = "沒有可匯出的最愛項目") }
+            return
+        }
+        val plainText = items.joinToString("\n") { it.id }
+        val context = requireNotNull(appContext)
+        val clipboard = context.getSystemService(Context.CLIPBOARD_SERVICE) as ClipboardManager
+        val clip = ClipData.newPlainText("favorites", plainText)
+        clipboard.setPrimaryClip(clip)
+        _uiState.update { it.copy(favoriteExportMessage = "已複製 ${items.size} 個項目到剪貼簿") }
+    }
+
+    fun importFavorites(text: String) {
+        if (text.isBlank()) {
+            _uiState.update { it.copy(favoriteImportMessage = "請先貼上包含 ID 的文字") }
+            return
+        }
+        val existing = _uiState.value.favoriteItems
+        val existingKeys = existing.map { it.id.lowercase(Locale.ROOT) }.toMutableSet()
+        val newItems = mutableListOf<FavoriteItem>()
+        text.lineSequence().forEach { line ->
+            val id = line.trim()
+            if (id.isBlank()) return@forEach
+            val key = id.lowercase(Locale.ROOT)
+            if (existingKeys.add(key)) {
+                newItems.add(FavoriteItem(id = id))
+            }
+        }
+        if (newItems.isEmpty()) {
+            _uiState.update { it.copy(favoriteImportMessage = "沒有新的項目可加入（全部重複）") }
+            return
+        }
+        val merged = newItems + existing
+        persistFavoriteItems(merged)
+        _uiState.update {
+            it.copy(
+                favoriteItems = merged,
+                favoriteImportMessage = "已加入 ${newItems.size} 個項目"
+            )
+        }
+    }
+
+    fun clearFavoriteMessages() {
+        _uiState.update { it.copy(favoriteImportMessage = null, favoriteExportMessage = null) }
     }
 
     private fun showPlayerShell() {
