@@ -41,8 +41,8 @@ android {
         applicationId = "com.example.autosrtplayer"
         minSdk = 24
         targetSdk = 34
-        versionCode = 12
-        versionName = "1.0.0"
+        versionCode = 13
+        versionName = "1.1.0"
 
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
     }
