@@ -165,7 +165,11 @@ fun PlayerScreen(
                     items = uiState.favoriteItems,
                     onBack = viewModel::closeFavorites,
                     onItemClick = viewModel::playFavorite,
-                    onRemoveClick = viewModel::removeFavorite
+                    onRemoveClick = viewModel::removeFavorite,
+                    onExportClick = viewModel::exportFavorites,
+                    onImportConfirmed = viewModel::importFavorites,
+                    feedbackMessage = uiState.favoriteImportMessage ?: uiState.favoriteExportMessage,
+                    onDismissFeedback = viewModel::clearFavoriteMessages
                 )
             }
             showingTodayHot -> {

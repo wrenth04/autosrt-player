@@ -67,5 +67,7 @@ data class PlayerUiState(
     val isFullscreen: Boolean = true,
     val screenOrientationMode: ScreenOrientationMode = ScreenOrientationMode.Auto,
     val errorMessage: String? = null,
-    val errorType: UiErrorType = UiErrorType.None
+    val errorType: UiErrorType = UiErrorType.None,
+    val favoriteImportMessage: String? = null,
+    val favoriteExportMessage: String? = null
 )
