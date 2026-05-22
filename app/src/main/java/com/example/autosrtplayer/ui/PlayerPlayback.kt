@@ -946,17 +946,32 @@ private fun FullscreenScrubber(
     }
 
     val progress = currentPositionMs.coerceIn(0L, durationMs).toFloat() / durationMs.toFloat()
-    Slider(
-        value = progress,
-        onValueChange = { onValueChange((it * durationMs).toLong()) },
-        onValueChangeFinished = onValueChangeFinished,
-        modifier = modifier,
-        colors = androidx.compose.material3.SliderDefaults.colors(
-            thumbColor = androidx.compose.ui.graphics.Color.White,
-            activeTrackColor = androidx.compose.ui.graphics.Color.White,
-            inactiveTrackColor = androidx.compose.ui.graphics.Color.White.copy(alpha = 0.24f)
+    Column(modifier = modifier) {
+        Slider(
+            value = progress,
+            onValueChange = { onValueChange((it * durationMs).toLong()) },
+            onValueChangeFinished = onValueChangeFinished,
+            modifier = Modifier.fillMaxWidth(),
+            colors = androidx.compose.material3.SliderDefaults.colors(
+                thumbColor = androidx.compose.ui.graphics.Color.White,
+                activeTrackColor = androidx.compose.ui.graphics.Color.White,
+                inactiveTrackColor = androidx.compose.ui.graphics.Color.White.copy(alpha = 0.24f)
+            )
         )
-    )
+        Row(
+            modifier = Modifier.fillMaxWidth(),
+            horizontalArrangement = Arrangement.SpaceBetween
+        ) {
+            Text(
+                text = formatDuration(currentPositionMs),
+                color = androidx.compose.ui.graphics.Color.White
+            )
+            Text(
+                text = formatDuration(durationMs),
+                color = androidx.compose.ui.graphics.Color.White
+            )
+        }
+    }
 }
 
 private fun mapBrightnessState(value: Float): BrightnessState {
