@@ -39,35 +39,3 @@ enum class ScreenOrientationMode {
     Portrait,
     Landscape
 }
-
-data class PlayerUiState(
-    val sourceId: String = "",
-    val currentSourceId: String? = null,
-    val sourcePrefix: String = "",
-    val playlistText: String = "",
-    val playlistUrl: String = "",
-    val parsedEntry: PlaylistEntry? = null,
-    val mediaItem: MediaItem? = null,
-    val lastPlayedMediaUrl: String? = null,
-    val playbackPositionMs: Long = 0L,
-    val playWhenReady: Boolean = true,
-    val playbackSpeed: Float = 1f,
-    val isLoading: Boolean = false,
-    val loadingStage: LoadingStage = LoadingStage.Idle,
-    val currentRequestLabel: String? = null,
-    val sourceResolveRequest: SourceWebResolveRequest? = null,
-    val favoriteItems: List<FavoriteItem> = emptyList(),
-    val isFavoritesVisible: Boolean = false,
-    val todayHotItems: List<TodayHotItem> = emptyList(),
-    val isTodayHotLoading: Boolean = false,
-    val isTodayHotVisible: Boolean = false,
-    val todayHotErrorMessage: String? = null,
-    val isSettingsVisible: Boolean = false,
-    val startupDestination: StartupDestination = StartupDestination.Player,
-    val isFullscreen: Boolean = true,
-    val screenOrientationMode: ScreenOrientationMode = ScreenOrientationMode.Auto,
-    val errorMessage: String? = null,
-    val errorType: UiErrorType = UiErrorType.None,
-    val favoriteImportMessage: String? = null,
-    val favoriteExportMessage: String? = null
-)

@@ -1,6 +1,7 @@
 package com.example.autosrtplayer.ui
 
 import android.app.Activity
+import android.content.Context
 import android.content.pm.ActivityInfo
 import android.view.WindowManager
 import androidx.activity.compose.BackHandler
@@ -49,8 +50,9 @@ import androidx.core.view.WindowCompat
 import androidx.core.view.WindowInsetsCompat
 import androidx.core.view.WindowInsetsControllerCompat
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
-import androidx.lifecycle.viewmodel.compose.viewModel
+import androidx.hilt.navigation.compose.hiltViewModel
 import androidx.media3.common.util.UnstableApi
+import com.example.autosrtplayer.ui.favorites.FavoritesUiState
 
 @UnstableApi
 @Composable
@@ -59,40 +61,71 @@ fun PlayerScreen(
     sharedSourceId: String? = null,
     onSharedM3uUrlConsumed: () -> Unit = {},
     onSharedSourceIdConsumed: () -> Unit = {},
-    viewModel: PlayerViewModel = viewModel()
+    playbackViewModel: com.example.autosrtplayer.ui.playback.PlaybackViewModel = hiltViewModel(),
+    playlistViewModel: com.example.autosrtplayer.ui.playlist.PlaylistViewModel = hiltViewModel(),
+    favoritesViewModel: com.example.autosrtplayer.ui.favorites.FavoritesViewModel = hiltViewModel()
 ) {
-    val uiState by viewModel.uiState.collectAsStateWithLifecycle()
+    val playbackUiState by playbackViewModel.uiState.collectAsStateWithLifecycle()
+    val playlistUiState by playlistViewModel.uiState.collectAsStateWithLifecycle()
+    val favoritesUiState by favoritesViewModel.uiState.collectAsStateWithLifecycle()
     val context = LocalContext.current
+
     LaunchedEffect(context) {
-        viewModel.initialize(context)
+        playbackViewModel.initialize(context)
+        playlistViewModel.initialize(context)
+        favoritesViewModel.initialize(context)
     }
+
+    fun loadFromId(id: String, sourcePrefix: String) {
+        playbackViewModel.onSourceIdChange(id)
+        playbackViewModel.openPlayer()
+        playlistViewModel.handleEvent(PlaylistEvent.LoadFromId(id, sourcePrefix))
+    }
+
+    fun loadFromUrl(url: String) {
+        playbackViewModel.openPlayer()
+        playlistViewModel.handleEvent(PlaylistEvent.LoadFromUrl(url))
+    }
+
+    fun loadFromText(content: String) {
+        playbackViewModel.openPlayer()
+        playlistViewModel.handleEvent(PlaylistEvent.LoadFromText(content))
+    }
+
     LaunchedEffect(sharedM3uUrl) {
         if (!sharedM3uUrl.isNullOrBlank()) {
-            viewModel.loadFromSharedUrl(sharedM3uUrl)
+            loadFromUrl(sharedM3uUrl)
             onSharedM3uUrlConsumed()
         }
     }
+
     LaunchedEffect(sharedSourceId) {
         if (!sharedSourceId.isNullOrBlank()) {
-            viewModel.loadFromExternalId(sharedSourceId)
+            loadFromId(sharedSourceId, playbackUiState.sourcePrefix)
             onSharedSourceIdConsumed()
         }
     }
 
     val activity = context as? Activity
-    val entry = uiState.parsedEntry
-    val currentSourceId = uiState.currentSourceId
-    val isCurrentFavorite = currentSourceId != null && uiState.favoriteItems.any { item ->
+    val currentSourceId = playlistUiState.currentSourceId
+    LaunchedEffect(currentSourceId) {
+        playbackViewModel.setCurrentSourceId(currentSourceId)
+    }
+    LaunchedEffect(playlistUiState.parsedEntry, playlistUiState.mediaItem) {
+        playbackViewModel.setPlaybackContent(playlistUiState.parsedEntry, playlistUiState.mediaItem)
+    }
+    val isCurrentFavorite = currentSourceId != null && favoritesUiState.favoriteItems.any { item ->
         item.id.equals(currentSourceId, ignoreCase = true)
     }
-    val player = remember(context, entry?.mediaUrl, entry?.userAgent, entry?.referrer) {
-        viewModel.getOrCreatePlayer(context)
+    val toggleFavorite = { favoritesViewModel.toggleCurrentFavorite(currentSourceId) }
+    val player = remember(context, playbackUiState.parsedEntry?.mediaUrl, playbackUiState.parsedEntry?.userAgent, playbackUiState.parsedEntry?.referrer) {
+        playbackViewModel.getOrCreatePlayer(context)
     }
     val isPlaying = rememberIsPlayingState(player)
-    val showingFavorites = uiState.isFavoritesVisible
-    val showingTodayHot = uiState.isTodayHotVisible
-    val showingSettings = uiState.isSettingsVisible
-    val showingPlayerShell = !showingFavorites && !showingTodayHot && !showingSettings
+    val showingFavorites = playbackUiState.activePanel == PlayerPanel.Favorites
+    val showingTodayHot = playbackUiState.activePanel == PlayerPanel.TodayHot
+    val showingSettings = playbackUiState.activePanel == PlayerPanel.Settings
+    val showingPlayerShell = playbackUiState.activePanel == PlayerPanel.Player
 
     DisposableEffect(activity, showingPlayerShell) {
         val window = activity?.window
@@ -131,10 +164,10 @@ fun PlayerScreen(
         }
     }
 
-    DisposableEffect(activity, uiState.screenOrientationMode) {
+    DisposableEffect(activity, playbackUiState.screenOrientationMode) {
         val originalOrientation = activity?.requestedOrientation
         if (activity != null) {
-            activity.requestedOrientation = when (uiState.screenOrientationMode) {
+            activity.requestedOrientation = when (playbackUiState.screenOrientationMode) {
                 ScreenOrientationMode.Auto -> ActivityInfo.SCREEN_ORIENTATION_FULL_SENSOR
                 ScreenOrientationMode.Portrait -> ActivityInfo.SCREEN_ORIENTATION_PORTRAIT
                 ScreenOrientationMode.Landscape -> ActivityInfo.SCREEN_ORIENTATION_LANDSCAPE
@@ -148,89 +181,122 @@ fun PlayerScreen(
         }
     }
 
-    BackHandler(enabled = showingFavorites) {
-        viewModel.closeFavorites()
-    }
-    BackHandler(enabled = showingTodayHot) {
-        viewModel.closeTodayHot()
-    }
-    BackHandler(enabled = showingSettings) {
-        viewModel.closeSettings()
+    BackHandler(enabled = showingFavorites || showingTodayHot || showingSettings) {
+        playbackViewModel.openPlayer()
     }
 
     Box(modifier = Modifier.fillMaxSize()) {
         when {
             showingFavorites -> {
                 FavoritesScreen(
-                    items = uiState.favoriteItems,
-                    onBack = viewModel::closeFavorites,
-                    onItemClick = viewModel::playFavorite,
-                    onRemoveClick = viewModel::removeFavorite,
-                    onExportClick = viewModel::exportFavorites,
-                    onImportConfirmed = viewModel::importFavorites,
-                    feedbackMessage = uiState.favoriteImportMessage ?: uiState.favoriteExportMessage,
-                    onDismissFeedback = viewModel::clearFavoriteMessages
+                    items = favoritesUiState.favoriteItems,
+                    onBack = { playbackViewModel.openPlayer() },
+                    onItemClick = { id ->
+                        loadFromId(id, playbackUiState.sourcePrefix)
+                    },
+                    onRemoveClick = { id ->
+                        favoritesViewModel.removeFavorite(id)
+                    },
+                    onExportClick = { favoritesViewModel.exportFavorites(context) },
+                    onImportConfirmed = { text -> favoritesViewModel.importFavorites(text) },
+                    feedbackMessage = favoritesUiState.favoriteImportMessage ?: favoritesUiState.favoriteExportMessage,
+                    onDismissFeedback = { favoritesViewModel.clearFavoriteMessages() }
                 )
             }
             showingTodayHot -> {
                 TodayHotScreen(
-                    items = uiState.todayHotItems,
-                    isLoading = uiState.isTodayHotLoading,
-                    errorMessage = uiState.todayHotErrorMessage,
-                    onBack = viewModel::closeTodayHot,
-                    onItemClick = viewModel::playTodayHotCode
+                    items = playbackUiState.todayHotItems,
+                    isLoading = playbackUiState.isTodayHotLoading,
+                    errorMessage = playbackUiState.todayHotErrorMessage,
+                    onBack = { playbackViewModel.openPlayer() },
+                    onItemClick = { code ->
+                        loadFromId(code, playbackUiState.sourcePrefix)
+                    }
                 )
             }
             showingSettings -> {
                 PlayerOptionsScreen(
-                    uiState = uiState,
+                    playbackUiState = playbackUiState,
+                    playlistUiState = playlistUiState,
+                    favoritesUiState = favoritesUiState,
                     currentSourceId = currentSourceId,
                     isCurrentFavorite = isCurrentFavorite,
-                    onSourceIdChange = viewModel::onSourceIdChange,
-                    onLoadFromId = viewModel::loadFromId,
-                    onTodayHotClick = viewModel::loadTodayHot,
-                    onFavoritesClick = viewModel::openFavorites,
-                    onPlaylistUrlChange = viewModel::onPlaylistUrlChange,
-                    onLoadFromUrl = { viewModel.loadFromUrl() },
-                    onPlaylistTextChange = viewModel::onPlaylistTextChange,
-                    onLoadFromText = viewModel::loadFromText,
-                    onSourcePrefixChange = viewModel::onSourcePrefixChange,
-                    onSaveSourcePrefix = viewModel::saveSourcePrefix,
-                    onToggleFavorite = viewModel::toggleCurrentFavorite,
-                    onBack = viewModel::closeSettings,
-                    onStartupDestinationChange = viewModel::setStartupDestination
+                    onSourceIdChange = { value ->
+                        playbackViewModel.onSourceIdChange(value)
+                    },
+                    onLoadFromId = {
+                        val sourceId = playbackUiState.sourceId
+                        if (sourceId.isNotBlank()) {
+                            loadFromId(sourceId, playbackUiState.sourcePrefix)
+                        }
+                    },
+                    onTodayHotClick = { playbackViewModel.openTodayHot() },
+                    onFavoritesClick = { playbackViewModel.openFavorites() },
+                    onPlaylistUrlChange = { value ->
+                        playlistViewModel.handleEvent(PlaylistEvent.UpdatePlaylistUrl(value))
+                    },
+                    onLoadFromUrl = {
+                        val url = playlistUiState.playlistUrl
+                        if (url.isNotBlank()) {
+                            loadFromUrl(url)
+                        }
+                    },
+                    onPlaylistTextChange = { value ->
+                        playlistViewModel.handleEvent(PlaylistEvent.UpdatePlaylistText(value))
+                    },
+                    onLoadFromText = {
+                        val content = playlistUiState.playlistText
+                        if (content.isNotBlank()) {
+                            loadFromText(content)
+                        }
+                    },
+                    onSourcePrefixChange = { value ->
+                        playbackViewModel.onSourcePrefixChange(value)
+                    },
+                    onSaveSourcePrefix = { playbackViewModel.saveSourcePrefix() },
+                    onToggleFavorite = { toggleFavorite() },
+                    onBack = { playbackViewModel.openPlayer() },
+                    onStartupDestinationChange = { playbackViewModel.setStartupDestination(it) }
                 )
             }
             else -> {
                 FullscreenPlayer(
                     activity = activity,
                     player = player,
-                    playbackSpeed = uiState.playbackSpeed,
-                    screenOrientationMode = uiState.screenOrientationMode,
+                    playbackSpeed = playbackUiState.playbackSpeed,
+                    screenOrientationMode = playbackUiState.screenOrientationMode,
                     currentSourceId = currentSourceId,
-                    currentRequestLabel = uiState.currentRequestLabel,
+                    currentRequestLabel = playlistUiState.currentRequestLabel,
                     isCurrentFavorite = isCurrentFavorite,
                     canToggleFavorite = !currentSourceId.isNullOrBlank(),
-                    favoriteCount = uiState.favoriteItems.size,
-                    isLoading = uiState.isLoading,
-                    loadingStage = uiState.loadingStage,
-                    errorMessage = uiState.errorMessage,
-                    onPlaybackSpeedChange = viewModel::setPlaybackSpeed,
-                    onToggleScreenOrientationMode = viewModel::toggleScreenOrientationMode,
-                    onToggleFavorite = viewModel::toggleCurrentFavorite,
-                    onOpenTodayHot = viewModel::loadTodayHot,
-                    onOpenFavorites = viewModel::openFavorites,
-                    onOpenSettings = viewModel::openSettings,
-                    onSubmitSourceId = viewModel::loadFromExternalId
+                    favoriteCount = favoritesUiState.favoriteItems.size,
+                    isLoading = playlistUiState.isLoading,
+                    loadingStage = playlistUiState.loadingStage,
+                    errorMessage = playlistUiState.errorMessage,
+                    onPlaybackSpeedChange = { speed ->
+                        playbackViewModel.handleEvent(PlaybackEvent.SetPlaybackSpeed(speed))
+                    },
+                    onToggleScreenOrientationMode = { playbackViewModel.toggleScreenOrientationMode() },
+                    onToggleFavorite = { toggleFavorite() },
+                    onOpenTodayHot = { playbackViewModel.openTodayHot() },
+                    onOpenFavorites = { playbackViewModel.openFavorites() },
+                    onOpenSettings = { playbackViewModel.openSettings() },
+                    onSubmitSourceId = { id ->
+                        loadFromId(id, playbackUiState.sourcePrefix)
+                    }
                 )
             }
         }
 
-        uiState.sourceResolveRequest?.let { request ->
+        playlistUiState.sourceResolveRequest?.let { request ->
             SourceResolveWebViewHost(
                 request = request,
-                onHtmlResolved = viewModel::onSourceHtmlResolved,
-                onResolveFailed = viewModel::onSourceResolveFailed
+                onHtmlResolved = { requestId, html, userAgent, finalUrl ->
+                    playlistViewModel.handleEvent(PlaylistEvent.OnSourceHtmlResolved(requestId, html, userAgent, finalUrl))
+                },
+                onResolveFailed = { requestId, message ->
+                    playlistViewModel.handleEvent(PlaylistEvent.OnSourceResolveFailed(requestId, message))
+                }
             )
         }
     }
@@ -238,7 +304,9 @@ fun PlayerScreen(
 
 @Composable
 private fun PlayerOptionsScreen(
-    uiState: PlayerUiState,
+    playbackUiState: PlaybackUiState,
+    playlistUiState: PlaylistUiState,
+    favoritesUiState: FavoritesUiState,
     currentSourceId: String?,
     isCurrentFavorite: Boolean,
     onSourceIdChange: (String) -> Unit,
@@ -288,17 +356,17 @@ private fun PlayerOptionsScreen(
                 Text("開 APP 時顯示")
                 Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                     StartupDestinationButton(
-                        selected = uiState.startupDestination == StartupDestination.Player,
+                        selected = playbackUiState.startupDestination == StartupDestination.Player,
                         text = "全畫面 Player",
                         onClick = { onStartupDestinationChange(StartupDestination.Player) }
                     )
                     StartupDestinationButton(
-                        selected = uiState.startupDestination == StartupDestination.TodayHot,
+                        selected = playbackUiState.startupDestination == StartupDestination.TodayHot,
                         text = "每日熱門",
                         onClick = { onStartupDestinationChange(StartupDestination.TodayHot) }
                     )
                     StartupDestinationButton(
-                        selected = uiState.startupDestination == StartupDestination.Favorites,
+                        selected = playbackUiState.startupDestination == StartupDestination.Favorites,
                         text = "我的最愛",
                         onClick = { onStartupDestinationChange(StartupDestination.Favorites) }
                     )
@@ -312,7 +380,7 @@ private fun PlayerOptionsScreen(
             horizontalArrangement = Arrangement.spacedBy(8.dp)
         ) {
             OutlinedTextField(
-                value = uiState.sourceId,
+                value = playbackUiState.sourceId,
                 onValueChange = onSourceIdChange,
                 modifier = Modifier.weight(1f),
                 label = { Text("輸入影片 ID") },
@@ -338,27 +406,27 @@ private fun PlayerOptionsScreen(
             Button(
                 onClick = onTodayHotClick,
                 modifier = Modifier.weight(1f),
-                enabled = !uiState.isTodayHotLoading
+                enabled = !playlistUiState.isLoading
             ) {
-                Text(if (uiState.isTodayHotLoading) "載入中…" else "熱門")
+                Text(if (playlistUiState.isLoading) "載入中…" else "熱門")
             }
 
             Button(
                 onClick = onFavoritesClick,
                 modifier = Modifier.weight(1f)
             ) {
-                Text("最愛 (${uiState.favoriteItems.size})")
+                Text("最愛 (${favoritesUiState.favoriteItems.size})")
             }
         }
 
-        if (uiState.isLoading) {
+        if (playlistUiState.isLoading) {
             Card(modifier = Modifier.fillMaxWidth()) {
                 Column(
                     modifier = Modifier.padding(12.dp),
                     verticalArrangement = Arrangement.spacedBy(6.dp)
                 ) {
                     CircularProgressIndicator()
-                    val stageLabel = when (uiState.loadingStage) {
+                    val stageLabel = when (playlistUiState.loadingStage) {
                         LoadingStage.ResolvingId -> "正在解析 ID…"
                         LoadingStage.FetchingPlaylist -> "正在取得播放清單…"
                         LoadingStage.ResolvingSource -> "解析中…"
@@ -366,12 +434,12 @@ private fun PlayerOptionsScreen(
                         LoadingStage.Idle -> "載入中…"
                     }
                     Text(stageLabel)
-                    uiState.currentRequestLabel?.let { Text("來源：$it", style = MaterialTheme.typography.bodySmall) }
+                    playlistUiState.currentRequestLabel?.let { Text("來源：$it", style = MaterialTheme.typography.bodySmall) }
                 }
             }
         }
 
-        uiState.errorMessage?.let { message ->
+        playlistUiState.errorMessage?.let { message ->
             Card(
                 modifier = Modifier.fillMaxWidth(),
                 colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.errorContainer)
@@ -381,16 +449,11 @@ private fun PlayerOptionsScreen(
                     verticalArrangement = Arrangement.spacedBy(6.dp)
                 ) {
                     Text(text = message, color = MaterialTheme.colorScheme.onErrorContainer)
-                    if (uiState.errorType == UiErrorType.PrefixMissing) {
-                        TextButton(onClick = { advancedExpanded = true }) {
-                            Text("前往進階選項設定來源")
-                        }
-                    }
                 }
             }
         }
 
-        uiState.parsedEntry?.let {
+        playlistUiState.parsedEntry?.let {
             Card(modifier = Modifier.fillMaxWidth()) {
                 Column(
                     modifier = Modifier.padding(16.dp),
@@ -437,7 +500,7 @@ private fun PlayerOptionsScreen(
                 }
                 if (advancedExpanded) {
                     OutlinedTextField(
-                        value = uiState.playlistUrl,
+                        value = playlistUiState.playlistUrl,
                         onValueChange = onPlaylistUrlChange,
                         modifier = Modifier.fillMaxWidth(),
                         label = { Text("M3U8 網址") },
@@ -452,7 +515,7 @@ private fun PlayerOptionsScreen(
                         Text("用網址播放")
                     }
                     OutlinedTextField(
-                        value = uiState.playlistText,
+                        value = playlistUiState.playlistText,
                         onValueChange = onPlaylistTextChange,
                         modifier = Modifier.fillMaxWidth(),
                         label = { Text("貼上 M3U 內容") },
@@ -466,7 +529,7 @@ private fun PlayerOptionsScreen(
                         Text("匯入 M3U")
                     }
                     OutlinedTextField(
-                        value = uiState.sourcePrefix,
+                        value = playbackUiState.sourcePrefix,
                         onValueChange = onSourcePrefixChange,
                         modifier = Modifier.fillMaxWidth(),
                         label = { Text("來源設定") },
