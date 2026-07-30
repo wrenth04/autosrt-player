@@ -105,6 +105,7 @@ private const val MinSpeedControlAlpha = 0.42f
 private const val SpeedMenuContainerAlpha = 0.94f
 private const val SpeedMenuBorderAlpha = 0.36f
 private const val SpeedMenuItemPaddingVertical = 10
+private const val VrRotationSensitivity = 0.4f
 private val PlaybackSpeedOptions = listOf(0.5f, 1f, 2f, 4f, 8f)
 
 private enum class OverlayGestureMode {
@@ -298,6 +299,16 @@ internal fun FullscreenPlayer(
                     )
                     VrSubtitleOverlay(
                         player = player,
+                        modifier = Modifier.fillMaxSize()
+                    )
+
+                    VrGestureLayer(
+                        vrViewAngles = vrViewAngles,
+                        onVrViewDrag = onVrViewDrag,
+                        onToggleControls = {
+                            controlsVisible = !controlsVisible
+                            if (controlsVisible) pingControls()
+                        },
                         modifier = Modifier.fillMaxSize()
                     )
                 }
