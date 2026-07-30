@@ -299,6 +299,7 @@ internal fun FullscreenPlayer(
                     )
                     VrSubtitleOverlay(
                         player = player,
+                        config = vrConfig,
                         modifier = Modifier.fillMaxSize()
                     )
 
