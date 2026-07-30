@@ -61,6 +61,17 @@ data class VrPlaybackConfig(
                 displayOutput = VrDisplayOutput.SingleEye
             )
         }
+
+        fun sbs180Fisheye(): VrPlaybackConfig {
+            return VrPlaybackConfig(
+                contentMode = VrContentMode.Vr,
+                fieldOfView = VrFieldOfView.Fov180,
+                sourceLayout = VrSourceLayout.SideBySide,
+                projection = VrProjection.Fisheye180,
+                displayOutput = VrDisplayOutput.SbsGlasses,
+                stereoAspectMode = VrStereoAspectMode.GlassesCompensated
+            )
+        }
     }
 }
 

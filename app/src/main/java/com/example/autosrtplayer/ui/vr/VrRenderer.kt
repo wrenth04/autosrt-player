@@ -330,9 +330,11 @@ class VrRenderer : GLSurfaceView.Renderer {
             attribute vec2 aTexCoord;
             uniform mat4 uMVPMatrix;
             varying vec2 vTexCoord;
+            varying vec3 vDirection;
             void main() {
                 gl_Position = uMVPMatrix * aPosition;
                 vTexCoord = aTexCoord;
+                vDirection = normalize(aPosition.xyz);
             }
         """
 
@@ -340,6 +342,7 @@ class VrRenderer : GLSurfaceView.Renderer {
             #extension GL_OES_EGL_image_external : require
             precision mediump float;
             varying vec2 vTexCoord;
+            varying vec3 vDirection;
             uniform samplerExternalOES uTexture;
             uniform vec4 uTexCrop;
             uniform int uProjectionType;
@@ -351,16 +354,19 @@ class VrRenderer : GLSurfaceView.Renderer {
                 return vec2(u, v);
             }
 
-            vec2 applyFisheye180(vec2 coord) {
-                vec2 centered = (coord - 0.5) * 2.0;
-                float r = length(centered);
+            vec2 applyFisheye180(vec3 dir) {
+                if (dir.z > 0.0) return vec2(-1.0, -1.0);
+
+                float theta = acos(-dir.z);
+                float r = theta / 1.5708;
+
                 if (r > 1.0) return vec2(-1.0, -1.0);
-                float theta = r * 1.5708;
-                float phi = atan(centered.y, centered.x);
-                float u = (phi / 6.28318 + 0.5);
-                float v = theta / 3.14159;
-                u = mix(uTexCrop.x, uTexCrop.y, u);
-                v = mix(uTexCrop.z, uTexCrop.w, v);
+
+                vec2 centeredUV = vec2(dir.x, dir.y) * r;
+                vec2 discUV = centeredUV * 0.5 + 0.5;
+
+                float u = mix(uTexCrop.x, uTexCrop.y, discUV.x);
+                float v = mix(uTexCrop.z, uTexCrop.w, discUV.y);
                 return vec2(u, v);
             }
 
@@ -390,7 +396,7 @@ class VrRenderer : GLSurfaceView.Renderer {
                 if (uProjectionType == 0) {
                     coord = applyEquirectangular(vTexCoord);
                 } else if (uProjectionType == 1) {
-                    coord = applyFisheye180(vTexCoord);
+                    coord = applyFisheye180(vDirection);
                 } else {
                     coord = applyFisheye360Dual(vTexCoord);
                 }

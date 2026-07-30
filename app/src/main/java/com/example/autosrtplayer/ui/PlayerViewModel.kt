@@ -231,6 +231,12 @@ class PlayerViewModel(
         _uiState.update { it.copy(vrConfig = newConfig) }
     }
 
+    fun applySbs180FisheyePreset() {
+        val newConfig = VrPlaybackConfig.sbs180Fisheye()
+        persistVrConfig(newConfig)
+        _uiState.update { it.copy(vrConfig = newConfig, vrViewAngles = VrViewAngles()) }
+    }
+
     fun updateVrViewAngles(yaw: Float, pitch: Float) {
         val clamped = VrViewAngles.clampForFov(yaw, pitch, _uiState.value.vrConfig.fieldOfView)
         _uiState.update { it.copy(vrViewAngles = clamped) }
