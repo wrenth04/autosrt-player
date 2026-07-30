@@ -2,15 +2,16 @@ package com.example.autosrtplayer.ui.vr
 
 import android.content.Context
 import android.graphics.Color
-import android.view.View
-import android.widget.FrameLayout
 import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.layout.padding
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.remember
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.unit.dp
 import androidx.compose.ui.viewinterop.AndroidView
 import androidx.media3.common.Player
 import androidx.media3.exoplayer.ExoPlayer
@@ -28,136 +29,101 @@ fun VrSubtitleOverlay(
     val context = LocalContext.current
     val isSbsMode = config.displayOutput == VrDisplayOutput.SbsGlasses
 
-    val containerView = remember(isSbsMode) {
-        if (isSbsMode) {
-            createStereoSubtitleContainer(context)
-        } else {
-            createSingleSubtitleView(context)
-        }
-    }
-
-    DisposableEffect(player, isSbsMode) {
-        val listener = object : Player.Listener {
-            override fun onCues(cueGroup: androidx.media3.common.text.CueGroup) {
-                if (isSbsMode && containerView is StereoSubtitleContainer) {
-                    containerView.setCues(cueGroup.cues)
-                } else if (containerView is SubtitleView) {
-                    containerView.setCues(cueGroup.cues)
+    if (isSbsMode) {
+        // SBS mode: render two independent subtitle overlays side by side
+        androidx.compose.foundation.layout.Row(
+            modifier = modifier
+        ) {
+            // Left eye subtitle
+            Box(
+                modifier = Modifier
+                    .weight(1f)
+                    .fillMaxHeight()
+            ) {
+                val leftView = remember {
+                    SubtitleView(context).apply {
+                        applyVrSubtitleStyle()
+                    }
                 }
+
+                DisposableEffect(player) {
+                    val listener = object : Player.Listener {
+                        override fun onCues(cueGroup: androidx.media3.common.text.CueGroup) {
+                            leftView.setCues(cueGroup.cues)
+                        }
+                    }
+                    player?.addListener(listener)
+                    onDispose {
+                        player?.removeListener(listener)
+                    }
+                }
+
+                AndroidView(
+                    factory = { leftView },
+                    modifier = Modifier
+                        .fillMaxSize()
+                        .padding(start = 24.dp) // Stereo depth offset
+                )
+            }
+
+            // Right eye subtitle
+            Box(
+                modifier = Modifier
+                    .weight(1f)
+                    .fillMaxHeight()
+            ) {
+                val rightView = remember {
+                    SubtitleView(context).apply {
+                        applyVrSubtitleStyle()
+                    }
+                }
+
+                DisposableEffect(player) {
+                    val listener = object : Player.Listener {
+                        override fun onCues(cueGroup: androidx.media3.common.text.CueGroup) {
+                            rightView.setCues(cueGroup.cues)
+                        }
+                    }
+                    player?.addListener(listener)
+                    onDispose {
+                        player?.removeListener(listener)
+                    }
+                }
+
+                AndroidView(
+                    factory = { rightView },
+                    modifier = Modifier
+                        .fillMaxSize()
+                        .padding(end = 24.dp) // Stereo depth offset
+                )
+            }
+        }
+    } else {
+        // Single eye mode: one full-screen subtitle overlay
+        val subtitleView = remember {
+            SubtitleView(context).apply {
+                applyVrSubtitleStyle()
             }
         }
 
-        player?.addListener(listener)
-
-        onDispose {
-            player?.removeListener(listener)
-        }
-    }
-
-    Box(modifier = modifier) {
-        AndroidView(
-            factory = { containerView },
-            modifier = Modifier.fillMaxSize()
-        )
-    }
-}
-
-private fun createSingleSubtitleView(context: Context): SubtitleView {
-    return SubtitleView(context).apply {
-        applyVrSubtitleStyle()
-    }
-}
-
-private fun createStereoSubtitleContainer(context: Context): StereoSubtitleContainer {
-    return StereoSubtitleContainer(context)
-}
-
-/**
- * Custom FrameLayout that automatically positions left and right subtitle views
- * based on the actual measured size from the Android view lifecycle.
- */
-private class StereoSubtitleContainer(context: Context) : FrameLayout(context) {
-    private val leftEyeContainer: FrameLayout
-    private val rightEyeContainer: FrameLayout
-    private val leftSubtitleView: SubtitleView
-    private val rightSubtitleView: SubtitleView
-
-    init {
-        // Create clipping containers for each eye
-        leftEyeContainer = FrameLayout(context).apply {
-            clipChildren = true
-            clipToPadding = true
+        DisposableEffect(player) {
+            val listener = object : Player.Listener {
+                override fun onCues(cueGroup: androidx.media3.common.text.CueGroup) {
+                    subtitleView.setCues(cueGroup.cues)
+                }
+            }
+            player?.addListener(listener)
+            onDispose {
+                player?.removeListener(listener)
+            }
         }
 
-        rightEyeContainer = FrameLayout(context).apply {
-            clipChildren = true
-            clipToPadding = true
+        Box(modifier = modifier) {
+            AndroidView(
+                factory = { subtitleView },
+                modifier = Modifier.fillMaxSize()
+            )
         }
-
-        // Create subtitle views that fill their respective eye containers
-        leftSubtitleView = SubtitleView(context).apply {
-            applyVrSubtitleStyle()
-        }
-
-        rightSubtitleView = SubtitleView(context).apply {
-            applyVrSubtitleStyle()
-        }
-
-        // Add subtitle views to their containers
-        leftEyeContainer.addView(leftSubtitleView, LayoutParams(
-            LayoutParams.MATCH_PARENT,
-            LayoutParams.MATCH_PARENT
-        ))
-
-        rightEyeContainer.addView(rightSubtitleView, LayoutParams(
-            LayoutParams.MATCH_PARENT,
-            LayoutParams.MATCH_PARENT
-        ))
-
-        // Add eye containers to this parent container
-        addView(leftEyeContainer)
-        addView(rightEyeContainer)
-    }
-
-    fun setCues(cues: List<androidx.media3.common.text.Cue>) {
-        leftSubtitleView.setCues(cues)
-        rightSubtitleView.setCues(cues)
-    }
-
-    override fun onSizeChanged(w: Int, h: Int, oldw: Int, oldh: Int) {
-        super.onSizeChanged(w, h, oldw, oldh)
-        updateEyeLayouts(w, h)
-    }
-
-    private fun updateEyeLayouts(containerWidth: Int, containerHeight: Int) {
-        if (containerWidth <= 0 || containerHeight <= 0) return
-
-        val (leftLayout, rightLayout) = VrStereoSubtitleLayout.calculateEyeLayouts(
-            containerWidth,
-            containerHeight
-        )
-
-        // Position left eye container to cover left half of screen
-        leftEyeContainer.layoutParams = LayoutParams(
-            leftLayout.viewport.width(),
-            leftLayout.viewport.height()
-        ).apply {
-            leftMargin = leftLayout.viewport.left
-            topMargin = leftLayout.viewport.top
-        }
-
-        // Position right eye container to cover right half of screen
-        rightEyeContainer.layoutParams = LayoutParams(
-            rightLayout.viewport.width(),
-            rightLayout.viewport.height()
-        ).apply {
-            leftMargin = rightLayout.viewport.left
-            topMargin = rightLayout.viewport.top
-        }
-
-        // Apply stereo depth translation to subtitle content
-        leftSubtitleView.translationX = leftLayout.contentTranslationX.toFloat()
-        rightSubtitleView.translationX = rightLayout.contentTranslationX.toFloat()
     }
 }
 
