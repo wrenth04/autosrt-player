@@ -130,8 +130,13 @@ class VrRenderer : GLSurfaceView.Renderer {
         GLES20.glViewport(x, y, width, height)
 
         val aspect = VrTextureCalculator.calculateViewportAspect(width, height, VrDisplayOutput.SingleEye)
+        val cameraFov = if (config.displayOutput == VrDisplayOutput.SingleEye) {
+            VrPlaybackConfig.NORMAL_SCREEN_CAMERA_FOV
+        } else {
+            90f
+        }
         Matrix.setIdentityM(projectionMatrix, 0)
-        Matrix.perspectiveM(projectionMatrix, 0, 90f, aspect, 0.1f, 100f)
+        Matrix.perspectiveM(projectionMatrix, 0, cameraFov, aspect, 0.1f, 100f)
 
         Matrix.setIdentityM(viewMatrix, 0)
         Matrix.rotateM(viewMatrix, 0, -viewAngles.pitchDegrees, 1f, 0f, 0f)
@@ -153,8 +158,10 @@ class VrRenderer : GLSurfaceView.Renderer {
         val textureHandle = GLES20.glGetUniformLocation(program, "uTexture")
         val cropHandle = GLES20.glGetUniformLocation(program, "uTexCrop")
         val projectionTypeHandle = GLES20.glGetUniformLocation(program, "uProjectionType")
+        val texMatrixHandle = GLES20.glGetUniformLocation(program, "uTexMatrix")
 
         GLES20.glUniformMatrix4fv(mvpHandle, 1, false, mvpMatrix, 0)
+        GLES20.glUniformMatrix4fv(texMatrixHandle, 1, false, textureMatrix, 0)
         GLES20.glUniform4f(cropHandle, crop.uMin, crop.uMax, crop.vMin, crop.vMax)
 
         val projectionType = when (config.projection) {
@@ -334,6 +341,7 @@ class VrRenderer : GLSurfaceView.Renderer {
             uniform samplerExternalOES uTexture;
             uniform vec4 uTexCrop;
             uniform int uProjectionType;
+            uniform mat4 uTexMatrix;
 
             vec2 applyEquirectangular(vec2 coord) {
                 float u = mix(uTexCrop.x, uTexCrop.y, coord.x);
@@ -386,7 +394,8 @@ class VrRenderer : GLSurfaceView.Renderer {
                 }
 
                 if (coord.x < 0.0) discard;
-                gl_FragColor = texture2D(uTexture, coord);
+                vec4 texCoord = uTexMatrix * vec4(coord, 0.0, 1.0);
+                gl_FragColor = texture2D(uTexture, texCoord.xy);
             }
         """
     }

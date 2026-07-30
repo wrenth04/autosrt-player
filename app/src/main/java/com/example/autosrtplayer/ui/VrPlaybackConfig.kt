@@ -44,6 +44,8 @@ data class VrPlaybackConfig(
     }
 
     companion object {
+        const val NORMAL_SCREEN_CAMERA_FOV = 65f
+
         fun youtube360Style(): VrPlaybackConfig {
             return VrPlaybackConfig(
                 contentMode = VrContentMode.Vr,
