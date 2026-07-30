@@ -173,6 +173,9 @@ class VrRenderer : GLSurfaceView.Renderer {
         }
         GLES20.glUniform1i(projectionTypeHandle, projectionType)
 
+        val fisheyeFovHandle = GLES20.glGetUniformLocation(program, "uFisheyeFovDegrees")
+        GLES20.glUniform1f(fisheyeFovHandle, config.fisheyeFovDegrees)
+
         GLES20.glActiveTexture(GLES20.GL_TEXTURE0)
         GLES20.glBindTexture(GLES11Ext.GL_TEXTURE_EXTERNAL_OES, textureId)
         GLES20.glUniform1i(textureHandle, 0)
@@ -347,6 +350,7 @@ class VrRenderer : GLSurfaceView.Renderer {
             uniform vec4 uTexCrop;
             uniform int uProjectionType;
             uniform mat4 uTexMatrix;
+            uniform float uFisheyeFovDegrees;
 
             vec2 applyEquirectangular(vec2 coord) {
                 float u = mix(uTexCrop.x, uTexCrop.y, coord.x);
@@ -357,10 +361,12 @@ class VrRenderer : GLSurfaceView.Renderer {
             vec2 applyFisheye180(vec3 dir) {
                 if (dir.z > 0.0) return vec2(-1.0, -1.0);
 
+                float halfFovRadians = radians(uFisheyeFovDegrees * 0.5);
                 float theta = acos(-dir.z);
-                float r = theta / 1.5708;
 
-                if (r > 1.0) return vec2(-1.0, -1.0);
+                if (theta > halfFovRadians) return vec2(-1.0, -1.0);
+
+                float r = theta / halfFovRadians;
 
                 vec2 centeredUV = vec2(dir.x, dir.y) * r;
                 vec2 discUV = centeredUV * 0.5 + 0.5;

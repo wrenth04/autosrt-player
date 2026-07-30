@@ -37,7 +37,8 @@ data class VrPlaybackConfig(
     val sourceLayout: VrSourceLayout = VrSourceLayout.Monoscopic,
     val projection: VrProjection = VrProjection.Equirectangular,
     val displayOutput: VrDisplayOutput = VrDisplayOutput.SingleEye,
-    val stereoAspectMode: VrStereoAspectMode = VrStereoAspectMode.GlassesCompensated
+    val stereoAspectMode: VrStereoAspectMode = VrStereoAspectMode.GlassesCompensated,
+    val fisheyeFovDegrees: Float = DEFAULT_FISHEYE_FOV
 ) {
     fun isValid(): Boolean {
         if (contentMode == VrContentMode.Flat) return true
@@ -49,8 +50,19 @@ data class VrPlaybackConfig(
         }
     }
 
+    fun getMaxYawDegrees(): Float {
+        return when {
+            projection == VrProjection.Fisheye180 -> fisheyeFovDegrees.coerceIn(MIN_FISHEYE_FOV, MAX_FISHEYE_FOV) / 2f
+            fieldOfView == VrFieldOfView.Fov180 -> 90f
+            else -> 180f
+        }
+    }
+
     companion object {
         const val NORMAL_SCREEN_CAMERA_FOV = 65f
+        const val DEFAULT_FISHEYE_FOV = 180f
+        const val MIN_FISHEYE_FOV = 160f
+        const val MAX_FISHEYE_FOV = 220f
 
         fun youtube360Style(): VrPlaybackConfig {
             return VrPlaybackConfig(
@@ -69,7 +81,8 @@ data class VrPlaybackConfig(
                 sourceLayout = VrSourceLayout.SideBySide,
                 projection = VrProjection.Fisheye180,
                 displayOutput = VrDisplayOutput.SbsGlasses,
-                stereoAspectMode = VrStereoAspectMode.GlassesCompensated
+                stereoAspectMode = VrStereoAspectMode.GlassesCompensated,
+                fisheyeFovDegrees = DEFAULT_FISHEYE_FOV
             )
         }
     }
@@ -80,6 +93,13 @@ data class VrViewAngles(
     val pitchDegrees: Float = 0f
 ) {
     companion object {
+        fun clampForConfig(yaw: Float, pitch: Float, config: VrPlaybackConfig): VrViewAngles {
+            val maxYaw = config.getMaxYawDegrees()
+            val clampedYaw = yaw.coerceIn(-maxYaw, maxYaw)
+            val clampedPitch = pitch.coerceIn(-89f, 89f)
+            return VrViewAngles(clampedYaw, clampedPitch)
+        }
+
         fun clampForFov(yaw: Float, pitch: Float, fov: VrFieldOfView): VrViewAngles {
             val clampedYaw = when (fov) {
                 VrFieldOfView.Fov180 -> yaw.coerceIn(-90f, 90f)

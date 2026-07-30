@@ -54,6 +54,7 @@ class PlayerViewModel(
         private const val KeyVrProjection = "vr_projection"
         private const val KeyVrDisplayOutput = "vr_display_output"
         private const val KeyVrStereoAspectMode = "vr_stereo_aspect_mode"
+        private const val KeyVrFisheyeFov = "vr_fisheye_fov"
     }
 
     private val _uiState = MutableStateFlow(PlayerUiState())
@@ -237,8 +238,20 @@ class PlayerViewModel(
         _uiState.update { it.copy(vrConfig = newConfig, vrViewAngles = VrViewAngles()) }
     }
 
+    fun setFisheyeFovDegrees(degrees: Float) {
+        val clamped = degrees.coerceIn(VrPlaybackConfig.MIN_FISHEYE_FOV, VrPlaybackConfig.MAX_FISHEYE_FOV)
+        val newConfig = _uiState.value.vrConfig.copy(fisheyeFovDegrees = clamped)
+        persistVrConfig(newConfig)
+        val clampedAngles = VrViewAngles.clampForConfig(
+            _uiState.value.vrViewAngles.yawDegrees,
+            _uiState.value.vrViewAngles.pitchDegrees,
+            newConfig
+        )
+        _uiState.update { it.copy(vrConfig = newConfig, vrViewAngles = clampedAngles) }
+    }
+
     fun updateVrViewAngles(yaw: Float, pitch: Float) {
-        val clamped = VrViewAngles.clampForFov(yaw, pitch, _uiState.value.vrConfig.fieldOfView)
+        val clamped = VrViewAngles.clampForConfig(yaw, pitch, _uiState.value.vrConfig)
         _uiState.update { it.copy(vrViewAngles = clamped) }
     }
 
@@ -253,7 +266,8 @@ class PlayerViewModel(
         val projection = prefs?.getString(KeyVrProjection, null).toVrProjection()
         val output = prefs?.getString(KeyVrDisplayOutput, null).toVrDisplayOutput()
         val aspectMode = prefs?.getString(KeyVrStereoAspectMode, null).toVrStereoAspectMode()
-        return VrPlaybackConfig(contentMode, fov, layout, projection, output, aspectMode)
+        val fisheyeFov = prefs?.getFloat(KeyVrFisheyeFov, VrPlaybackConfig.DEFAULT_FISHEYE_FOV) ?: VrPlaybackConfig.DEFAULT_FISHEYE_FOV
+        return VrPlaybackConfig(contentMode, fov, layout, projection, output, aspectMode, fisheyeFov)
     }
 
     private fun persistVrConfig(config: VrPlaybackConfig) {
@@ -264,6 +278,7 @@ class PlayerViewModel(
             putString(KeyVrProjection, config.projection.name)
             putString(KeyVrDisplayOutput, config.displayOutput.name)
             putString(KeyVrStereoAspectMode, config.stereoAspectMode.name)
+            putFloat(KeyVrFisheyeFov, config.fisheyeFovDegrees)
         }?.apply()
     }
 
