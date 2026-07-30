@@ -433,31 +433,6 @@ internal fun FullscreenPlayer(
             }
         }
 
-        if (!controlsVisible && isVrMode) {
-            Box(
-                modifier = Modifier
-                    .fillMaxSize()
-                    .pointerInput(Unit) {
-                        detectTapGestures(
-                            onTap = {
-                                controlsVisible = true
-                                pingControls()
-                            }
-                        )
-                    }
-                    .pointerInput(Unit) {
-                        detectDragGestures { change, dragAmount ->
-                            change.consume()
-                            val yawDelta = -dragAmount.x * 0.2f
-                            val pitchDelta = -dragAmount.y * 0.2f
-                            val newYaw = vrViewAngles.yawDegrees + yawDelta
-                            val newPitch = vrViewAngles.pitchDegrees + pitchDelta
-                            onVrViewDrag(newYaw, newPitch)
-                        }
-                    }
-            )
-        }
-
         if (controlsVisible) {
             IconButton(
                 onClick = {

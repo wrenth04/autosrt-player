@@ -13,10 +13,9 @@ import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.input.pointer.PointerEventPass
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.input.pointer.positionChange
+import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.platform.LocalViewConfiguration
 import androidx.compose.ui.unit.dp
-
-private const val VrRotationSensitivityLocal = 0.4f
 
 @Composable
 internal fun VrGestureLayer(
@@ -26,8 +25,11 @@ internal fun VrGestureLayer(
     modifier: Modifier = Modifier
 ) {
     val touchSlop = LocalViewConfiguration.current.touchSlop
+    val density = LocalDensity.current
     var latestYaw by remember { mutableStateOf(vrViewAngles.yawDegrees) }
     var latestPitch by remember { mutableStateOf(vrViewAngles.pitchDegrees) }
+    var screenWidth by remember { mutableStateOf(1f) }
+    var screenHeight by remember { mutableStateOf(1f) }
 
     if (vrViewAngles.yawDegrees != latestYaw || vrViewAngles.pitchDegrees != latestPitch) {
         latestYaw = vrViewAngles.yawDegrees
@@ -36,6 +38,9 @@ internal fun VrGestureLayer(
 
     Box(
         modifier = modifier.pointerInput(Unit) {
+            screenWidth = size.width.toFloat().coerceAtLeast(1f)
+            screenHeight = size.height.toFloat().coerceAtLeast(1f)
+
             awaitEachGesture {
                 val down = awaitFirstDown(requireUnconsumed = false)
                 var totalDrag = Offset.Zero
@@ -55,8 +60,8 @@ internal fun VrGestureLayer(
 
                         if (isDragging) {
                             change.consume()
-                            val yawDelta = -drag.x * VrRotationSensitivityLocal
-                            val pitchDelta = -drag.y * VrRotationSensitivityLocal
+                            val yawDelta = -(drag.x / screenWidth) * 180f
+                            val pitchDelta = -(drag.y / screenHeight) * 180f
                             latestYaw += yawDelta
                             latestPitch += pitchDelta
                             onVrViewDrag(latestYaw, latestPitch)
