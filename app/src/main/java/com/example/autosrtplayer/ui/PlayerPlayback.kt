@@ -585,46 +585,27 @@ internal fun FullscreenPlayer(
                 ScreenOrientationMode.Landscape -> "螢幕方向：橫向鎖定"
             }
 
-            Row(
+            IconButton(
+                onClick = {
+                    pingControls()
+                    if (isVrMode) {
+                        onResetVrView()
+                    } else {
+                        onToggleScreenOrientationMode()
+                    }
+                },
                 modifier = Modifier
                     .align(Alignment.BottomEnd)
                     .padding(end = 20.dp, bottom = 84.dp)
-                    .alpha(controlsContentAlpha),
-                horizontalArrangement = Arrangement.spacedBy(8.dp)
+                    .background(androidx.compose.ui.graphics.Color.Black.copy(alpha = ControlOverlayAlpha), shape = MaterialTheme.shapes.small)
+                    .size(48.dp)
+                    .alpha(controlsContentAlpha)
             ) {
-                if (isVrMode) {
-                    IconButton(
-                        onClick = {
-                            pingControls()
-                            onResetVrView()
-                        },
-                        modifier = Modifier
-                            .background(androidx.compose.ui.graphics.Color.Black.copy(alpha = ControlOverlayAlpha), shape = MaterialTheme.shapes.small)
-                            .size(48.dp)
-                    ) {
-                        Icon(
-                            imageVector = Icons.Filled.ScreenRotation,
-                            contentDescription = "重設視角",
-                            tint = androidx.compose.ui.graphics.Color.White
-                        )
-                    }
-                }
-
-                IconButton(
-                    onClick = {
-                        pingControls()
-                        onToggleScreenOrientationMode()
-                    },
-                    modifier = Modifier
-                        .background(androidx.compose.ui.graphics.Color.Black.copy(alpha = ControlOverlayAlpha), shape = MaterialTheme.shapes.small)
-                        .size(48.dp)
-                ) {
-                    Icon(
-                        imageVector = orientationIcon,
-                        contentDescription = orientationDescription,
-                        tint = androidx.compose.ui.graphics.Color.White
-                    )
-                }
+                Icon(
+                    imageVector = if (isVrMode) Icons.Filled.ScreenRotation else orientationIcon,
+                    contentDescription = if (isVrMode) "重設視角" else orientationDescription,
+                    tint = androidx.compose.ui.graphics.Color.White
+                )
             }
 
             FullscreenScrubber(
