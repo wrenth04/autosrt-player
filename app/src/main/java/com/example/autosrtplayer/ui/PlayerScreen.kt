@@ -405,12 +405,12 @@ private fun PlayerOptionsScreen(
                     Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                         VrOptionButton(
                             selected = uiState.vrConfig.sourceLayout == VrSourceLayout.Monoscopic,
-                            text = "單眼",
+                            text = "單螢幕 360°",
                             onClick = { onVrSourceLayoutChange(VrSourceLayout.Monoscopic) }
                         )
                         VrOptionButton(
                             selected = uiState.vrConfig.sourceLayout == VrSourceLayout.SideBySide,
-                            text = "左右並排",
+                            text = "立體左右並排",
                             onClick = { onVrSourceLayoutChange(VrSourceLayout.SideBySide) }
                         )
                     }

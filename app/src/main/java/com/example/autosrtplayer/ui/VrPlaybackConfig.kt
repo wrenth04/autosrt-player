@@ -29,7 +29,7 @@ enum class VrDisplayOutput {
 data class VrPlaybackConfig(
     val contentMode: VrContentMode = VrContentMode.Flat,
     val fieldOfView: VrFieldOfView = VrFieldOfView.Fov360,
-    val sourceLayout: VrSourceLayout = VrSourceLayout.SideBySide,
+    val sourceLayout: VrSourceLayout = VrSourceLayout.Monoscopic,
     val projection: VrProjection = VrProjection.Equirectangular,
     val displayOutput: VrDisplayOutput = VrDisplayOutput.SingleEye
 ) {
@@ -40,6 +40,18 @@ data class VrPlaybackConfig(
             VrProjection.Fisheye180 -> fieldOfView == VrFieldOfView.Fov180
             VrProjection.Fisheye360Dual -> fieldOfView == VrFieldOfView.Fov360
             VrProjection.Equirectangular -> true
+        }
+    }
+
+    companion object {
+        fun youtube360Style(): VrPlaybackConfig {
+            return VrPlaybackConfig(
+                contentMode = VrContentMode.Vr,
+                fieldOfView = VrFieldOfView.Fov360,
+                sourceLayout = VrSourceLayout.Monoscopic,
+                projection = VrProjection.Equirectangular,
+                displayOutput = VrDisplayOutput.SingleEye
+            )
         }
     }
 }

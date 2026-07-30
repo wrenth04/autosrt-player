@@ -177,7 +177,11 @@ class PlayerViewModel(
     }
 
     fun setVrContentMode(mode: VrContentMode) {
-        val newConfig = _uiState.value.vrConfig.copy(contentMode = mode)
+        val newConfig = if (mode == VrContentMode.Vr && _uiState.value.vrConfig.contentMode == VrContentMode.Flat) {
+            VrPlaybackConfig.youtube360Style()
+        } else {
+            _uiState.value.vrConfig.copy(contentMode = mode)
+        }
         if (!newConfig.isValid()) return
         persistVrConfig(newConfig)
         _uiState.update { it.copy(vrConfig = newConfig, vrViewAngles = VrViewAngles()) }

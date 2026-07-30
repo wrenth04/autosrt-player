@@ -118,8 +118,11 @@ class VrRenderer : GLSurfaceView.Renderer {
             renderEye(true, 0, 0, viewportWidth / 2, viewportHeight)
             renderEye(false, viewportWidth / 2, 0, viewportWidth / 2, viewportHeight)
         } else {
-            val isLeftEye = config.sourceLayout == VrSourceLayout.SideBySide
-            renderEye(isLeftEye, 0, 0, viewportWidth, viewportHeight)
+            val useLeftEye = when (config.sourceLayout) {
+                VrSourceLayout.Monoscopic -> true
+                VrSourceLayout.SideBySide -> true
+            }
+            renderEye(useLeftEye, 0, 0, viewportWidth, viewportHeight)
         }
     }
 
