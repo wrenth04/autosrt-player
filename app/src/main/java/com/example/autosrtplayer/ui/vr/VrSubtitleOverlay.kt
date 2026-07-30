@@ -77,22 +77,46 @@ private fun createStereoSubtitleContainer(context: Context): StereoSubtitleConta
  * based on the actual measured size from the Android view lifecycle.
  */
 private class StereoSubtitleContainer(context: Context) : FrameLayout(context) {
+    private val leftEyeContainer: FrameLayout
+    private val rightEyeContainer: FrameLayout
     private val leftSubtitleView: SubtitleView
     private val rightSubtitleView: SubtitleView
 
     init {
+        // Create clipping containers for each eye
+        leftEyeContainer = FrameLayout(context).apply {
+            clipChildren = true
+            clipToPadding = true
+        }
+
+        rightEyeContainer = FrameLayout(context).apply {
+            clipChildren = true
+            clipToPadding = true
+        }
+
+        // Create subtitle views that fill their respective eye containers
         leftSubtitleView = SubtitleView(context).apply {
             applyVrSubtitleStyle()
-            clipToPadding = true
         }
 
         rightSubtitleView = SubtitleView(context).apply {
             applyVrSubtitleStyle()
-            clipToPadding = true
         }
 
-        addView(leftSubtitleView)
-        addView(rightSubtitleView)
+        // Add subtitle views to their containers
+        leftEyeContainer.addView(leftSubtitleView, LayoutParams(
+            LayoutParams.MATCH_PARENT,
+            LayoutParams.MATCH_PARENT
+        ))
+
+        rightEyeContainer.addView(rightSubtitleView, LayoutParams(
+            LayoutParams.MATCH_PARENT,
+            LayoutParams.MATCH_PARENT
+        ))
+
+        // Add eye containers to this parent container
+        addView(leftEyeContainer)
+        addView(rightEyeContainer)
     }
 
     fun setCues(cues: List<androidx.media3.common.text.Cue>) {
@@ -102,32 +126,38 @@ private class StereoSubtitleContainer(context: Context) : FrameLayout(context) {
 
     override fun onSizeChanged(w: Int, h: Int, oldw: Int, oldh: Int) {
         super.onSizeChanged(w, h, oldw, oldh)
-        updateEyeBounds(w, h)
+        updateEyeLayouts(w, h)
     }
 
-    private fun updateEyeBounds(containerWidth: Int, containerHeight: Int) {
+    private fun updateEyeLayouts(containerWidth: Int, containerHeight: Int) {
         if (containerWidth <= 0 || containerHeight <= 0) return
 
-        val (leftBounds, rightBounds) = VrStereoSubtitleLayout.calculateEyeBounds(
+        val (leftLayout, rightLayout) = VrStereoSubtitleLayout.calculateEyeLayouts(
             containerWidth,
             containerHeight
         )
 
-        leftSubtitleView.layoutParams = LayoutParams(
-            leftBounds.width(),
-            leftBounds.height()
+        // Position left eye container to cover left half of screen
+        leftEyeContainer.layoutParams = LayoutParams(
+            leftLayout.viewport.width(),
+            leftLayout.viewport.height()
         ).apply {
-            leftMargin = leftBounds.left
-            topMargin = leftBounds.top
+            leftMargin = leftLayout.viewport.left
+            topMargin = leftLayout.viewport.top
         }
 
-        rightSubtitleView.layoutParams = LayoutParams(
-            rightBounds.width(),
-            rightBounds.height()
+        // Position right eye container to cover right half of screen
+        rightEyeContainer.layoutParams = LayoutParams(
+            rightLayout.viewport.width(),
+            rightLayout.viewport.height()
         ).apply {
-            leftMargin = rightBounds.left
-            topMargin = rightBounds.top
+            leftMargin = rightLayout.viewport.left
+            topMargin = rightLayout.viewport.top
         }
+
+        // Apply stereo depth translation to subtitle content
+        leftSubtitleView.translationX = leftLayout.contentTranslationX.toFloat()
+        rightSubtitleView.translationX = rightLayout.contentTranslationX.toFloat()
     }
 }
 
