@@ -2,9 +2,13 @@ package com.example.autosrtplayer.ui.vr
 
 import android.content.Context
 import android.opengl.GLSurfaceView
+import android.view.Surface
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.viewinterop.AndroidView
@@ -22,29 +26,38 @@ fun VrPlayerSurface(
     val context = LocalContext.current
     val glView = remember { createGLSurfaceView(context) }
     val renderer = remember { glView.tag as VrRenderer }
+    var videoSurface by remember { mutableStateOf<Surface?>(null) }
 
-    DisposableEffect(player, config, viewAngles) {
+    DisposableEffect(Unit) {
+        renderer.setOnSurfaceReadyListener { surface ->
+            videoSurface = surface
+        }
+        onDispose {
+            glView.queueEvent {
+                renderer.release()
+            }
+        }
+    }
+
+    DisposableEffect(player, videoSurface) {
+        val surface = videoSurface
+        if (player != null && surface != null) {
+            player.setVideoSurface(surface)
+        }
+
+        onDispose {
+            if (surface != null) {
+                player?.clearVideoSurface(surface)
+            }
+        }
+    }
+
+    DisposableEffect(config, viewAngles) {
         renderer.setConfig(config)
         renderer.setViewAngles(viewAngles)
         renderer.requestFrameUpdate()
-        glView.requestRender()
 
         onDispose { }
-    }
-
-    DisposableEffect(player) {
-        val surface = renderer.getVideoSurface()
-        player?.setVideoSurface(surface)
-
-        onDispose {
-            player?.clearVideoSurface()
-        }
-    }
-
-    DisposableEffect(Unit) {
-        onDispose {
-            renderer.release()
-        }
     }
 
     AndroidView(
@@ -57,8 +70,8 @@ private fun createGLSurfaceView(context: Context): GLSurfaceView {
     return GLSurfaceView(context).apply {
         setEGLContextClientVersion(2)
         val vrRenderer = VrRenderer()
-        vrRenderer.setOnSurfaceTextureReadyListener { surfaceTexture ->
-            // Surface texture ready
+        vrRenderer.setOnRequestRenderListener {
+            requestRender()
         }
         setRenderer(vrRenderer)
         renderMode = GLSurfaceView.RENDERMODE_WHEN_DIRTY
