@@ -1,5 +1,6 @@
 package com.example.autosrtplayer.ui.vr
 
+import android.content.Context
 import android.graphics.Color
 import android.view.View
 import android.widget.FrameLayout
@@ -38,12 +39,8 @@ fun VrSubtitleOverlay(
     DisposableEffect(player, isSbsMode) {
         val listener = object : Player.Listener {
             override fun onCues(cueGroup: androidx.media3.common.text.CueGroup) {
-                if (isSbsMode && containerView is FrameLayout) {
-                    // Update both subtitle views
-                    val leftView = containerView.getChildAt(0) as? SubtitleView
-                    val rightView = containerView.getChildAt(1) as? SubtitleView
-                    leftView?.setCues(cueGroup.cues)
-                    rightView?.setCues(cueGroup.cues)
+                if (isSbsMode && containerView is StereoSubtitleContainer) {
+                    containerView.setCues(cueGroup.cues)
                 } else if (containerView is SubtitleView) {
                     containerView.setCues(cueGroup.cues)
                 }
@@ -60,66 +57,77 @@ fun VrSubtitleOverlay(
     Box(modifier = modifier) {
         AndroidView(
             factory = { containerView },
-            modifier = Modifier.fillMaxSize(),
-            update = { view ->
-                if (isSbsMode && view is FrameLayout) {
-                    updateStereoBounds(view)
-                }
-            }
+            modifier = Modifier.fillMaxSize()
         )
     }
 }
 
-private fun createSingleSubtitleView(context: android.content.Context): SubtitleView {
+private fun createSingleSubtitleView(context: Context): SubtitleView {
     return SubtitleView(context).apply {
         applyVrSubtitleStyle()
     }
 }
 
-private fun createStereoSubtitleContainer(context: android.content.Context): FrameLayout {
-    val container = FrameLayout(context)
-
-    val leftSubtitleView = SubtitleView(context).apply {
-        applyVrSubtitleStyle()
-    }
-
-    val rightSubtitleView = SubtitleView(context).apply {
-        applyVrSubtitleStyle()
-    }
-
-    container.addView(leftSubtitleView)
-    container.addView(rightSubtitleView)
-
-    return container
+private fun createStereoSubtitleContainer(context: Context): StereoSubtitleContainer {
+    return StereoSubtitleContainer(context)
 }
 
-private fun updateStereoBounds(container: FrameLayout) {
-    val width = container.width
-    val height = container.height
+/**
+ * Custom FrameLayout that automatically positions left and right subtitle views
+ * based on the actual measured size from the Android view lifecycle.
+ */
+private class StereoSubtitleContainer(context: Context) : FrameLayout(context) {
+    private val leftSubtitleView: SubtitleView
+    private val rightSubtitleView: SubtitleView
 
-    if (width <= 0 || height <= 0) return
+    init {
+        leftSubtitleView = SubtitleView(context).apply {
+            applyVrSubtitleStyle()
+            clipToPadding = true
+        }
 
-    val (leftBounds, rightBounds) = VrStereoSubtitleLayout.calculateEyeBounds(width, height)
+        rightSubtitleView = SubtitleView(context).apply {
+            applyVrSubtitleStyle()
+            clipToPadding = true
+        }
 
-    val leftView = container.getChildAt(0)
-    val rightView = container.getChildAt(1)
-
-    leftView?.let {
-        val params = it.layoutParams as FrameLayout.LayoutParams
-        params.width = leftBounds.width()
-        params.height = leftBounds.height()
-        params.leftMargin = leftBounds.left
-        params.topMargin = leftBounds.top
-        it.layoutParams = params
+        addView(leftSubtitleView)
+        addView(rightSubtitleView)
     }
 
-    rightView?.let {
-        val params = it.layoutParams as FrameLayout.LayoutParams
-        params.width = rightBounds.width()
-        params.height = rightBounds.height()
-        params.leftMargin = rightBounds.left
-        params.topMargin = rightBounds.top
-        it.layoutParams = params
+    fun setCues(cues: List<androidx.media3.common.text.Cue>) {
+        leftSubtitleView.setCues(cues)
+        rightSubtitleView.setCues(cues)
+    }
+
+    override fun onSizeChanged(w: Int, h: Int, oldw: Int, oldh: Int) {
+        super.onSizeChanged(w, h, oldw, oldh)
+        updateEyeBounds(w, h)
+    }
+
+    private fun updateEyeBounds(containerWidth: Int, containerHeight: Int) {
+        if (containerWidth <= 0 || containerHeight <= 0) return
+
+        val (leftBounds, rightBounds) = VrStereoSubtitleLayout.calculateEyeBounds(
+            containerWidth,
+            containerHeight
+        )
+
+        leftSubtitleView.layoutParams = LayoutParams(
+            leftBounds.width(),
+            leftBounds.height()
+        ).apply {
+            leftMargin = leftBounds.left
+            topMargin = leftBounds.top
+        }
+
+        rightSubtitleView.layoutParams = LayoutParams(
+            rightBounds.width(),
+            rightBounds.height()
+        ).apply {
+            leftMargin = rightBounds.left
+            topMargin = rightBounds.top
+        }
     }
 }
 
