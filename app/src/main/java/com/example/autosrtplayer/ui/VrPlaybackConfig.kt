@@ -28,7 +28,8 @@ enum class VrDisplayOutput {
 
 enum class VrStereoAspectMode {
     Normal,
-    GlassesCompensated
+    GlassesCompensated,
+    GlassesCompensated16By9
 }
 
 enum class VrSourceOrientation {
@@ -208,9 +209,12 @@ object VrTextureCalculator {
             VrDisplayOutput.SbsGlasses -> (screenWidth / 2f)
         }
 
-        val effectiveWidth = if (displayOutput == VrDisplayOutput.SbsGlasses &&
-                                  stereoAspectMode == VrStereoAspectMode.GlassesCompensated) {
-            baseWidth * 2f
+        val effectiveWidth = if (displayOutput == VrDisplayOutput.SbsGlasses) {
+            when (stereoAspectMode) {
+                VrStereoAspectMode.Normal -> baseWidth
+                VrStereoAspectMode.GlassesCompensated -> baseWidth * 2f
+                VrStereoAspectMode.GlassesCompensated16By9 -> baseWidth * 4f
+            }
         } else {
             baseWidth
         }

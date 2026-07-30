@@ -500,6 +500,11 @@ private fun PlayerOptionsScreen(
                                 text = "補償壓扁",
                                 onClick = { onVrStereoAspectModeChange(VrStereoAspectMode.GlassesCompensated) }
                             )
+                            VrOptionButton(
+                                selected = uiState.vrConfig.stereoAspectMode == VrStereoAspectMode.GlassesCompensated16By9,
+                                text = "8:9→16:9 補償",
+                                onClick = { onVrStereoAspectModeChange(VrStereoAspectMode.GlassesCompensated16By9) }
+                            )
                         }
                     }
                 }
