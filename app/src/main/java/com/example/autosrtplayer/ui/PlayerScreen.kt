@@ -206,7 +206,8 @@ fun PlayerScreen(
                     onVrDisplayOutputChange = viewModel::setVrDisplayOutput,
                     onVrStereoAspectModeChange = viewModel::setVrStereoAspectMode,
                     onVrSourceOrientationChange = viewModel::setVrSourceOrientation,
-                    onVrForwardDirectionChange = viewModel::setVrForwardDirection
+                    onVrForwardDirectionChange = viewModel::setVrForwardDirection,
+                    onVrHeadTrackingEnabledChange = viewModel::setVrHeadTrackingEnabled
                 )
             }
             else -> {
@@ -217,6 +218,7 @@ fun PlayerScreen(
                     screenOrientationMode = uiState.screenOrientationMode,
                     vrConfig = uiState.vrConfig,
                     vrViewAngles = uiState.vrViewAngles,
+                    isVrHeadTrackingEnabled = uiState.isVrHeadTrackingEnabled,
                     currentSourceId = currentSourceId,
                     currentRequestLabel = uiState.currentRequestLabel,
                     isCurrentFavorite = isCurrentFavorite,
@@ -273,7 +275,8 @@ private fun PlayerOptionsScreen(
     onVrDisplayOutputChange: (VrDisplayOutput) -> Unit,
     onVrStereoAspectModeChange: (VrStereoAspectMode) -> Unit,
     onVrSourceOrientationChange: (VrSourceOrientation) -> Unit,
-    onVrForwardDirectionChange: (VrForwardDirection) -> Unit
+    onVrForwardDirectionChange: (VrForwardDirection) -> Unit,
+    onVrHeadTrackingEnabledChange: (Boolean) -> Unit
 ) {
     var advancedExpanded by rememberSaveable { mutableStateOf(false) }
     var techInfoExpanded by rememberSaveable { mutableStateOf(false) }
@@ -393,6 +396,25 @@ private fun PlayerOptionsScreen(
                 }
 
                 if (uiState.vrConfig.contentMode == VrContentMode.Vr) {
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.SpaceBetween,
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Column {
+                            Text("頭部追蹤（G-sensor）")
+                            Text(
+                                "依手機方向調整 VR 視角",
+                                style = MaterialTheme.typography.bodySmall,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant
+                            )
+                        }
+                        androidx.compose.material3.Switch(
+                            checked = uiState.isVrHeadTrackingEnabled,
+                            onCheckedChange = onVrHeadTrackingEnabledChange
+                        )
+                    }
+
                     Text("視野範圍")
                     Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                         VrOptionButton(

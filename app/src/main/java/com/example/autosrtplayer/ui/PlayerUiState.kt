@@ -68,6 +68,7 @@ data class PlayerUiState(
     val screenOrientationMode: ScreenOrientationMode = ScreenOrientationMode.Auto,
     val vrConfig: VrPlaybackConfig = VrPlaybackConfig(),
     val vrViewAngles: VrViewAngles = VrViewAngles(),
+    val isVrHeadTrackingEnabled: Boolean = false,
     val errorMessage: String? = null,
     val errorType: UiErrorType = UiErrorType.None,
     val favoriteImportMessage: String? = null,

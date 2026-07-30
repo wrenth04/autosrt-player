@@ -197,6 +197,7 @@ internal fun FullscreenPlayer(
     screenOrientationMode: ScreenOrientationMode,
     vrConfig: VrPlaybackConfig,
     vrViewAngles: VrViewAngles,
+    isVrHeadTrackingEnabled: Boolean,
     currentSourceId: String?,
     currentRequestLabel: String?,
     isCurrentFavorite: Boolean,
@@ -288,13 +289,28 @@ internal fun FullscreenPlayer(
 
         val isVrMode = vrConfig.contentMode == VrContentMode.Vr
 
+        val headTrackingState = if (isVrMode) {
+            com.example.autosrtplayer.ui.vr.rememberVrHeadTrackingState(
+                enabled = isVrHeadTrackingEnabled,
+                config = vrConfig
+            )
+        } else {
+            null
+        }
+
         if (player != null) {
-            if (isVrMode) {
+            if (isVrMode && headTrackingState != null) {
+                val effectiveVrViewAngles = com.example.autosrtplayer.ui.vr.combineVrAngles(
+                    manual = vrViewAngles,
+                    sensorOffset = headTrackingState.offset,
+                    config = vrConfig
+                )
+
                 Box(modifier = Modifier.fillMaxSize()) {
                     VrPlayerSurface(
                         player = player,
                         config = vrConfig,
-                        viewAngles = vrViewAngles,
+                        viewAngles = effectiveVrViewAngles,
                         modifier = Modifier.fillMaxSize()
                     )
                     VrSubtitleOverlay(
@@ -304,7 +320,7 @@ internal fun FullscreenPlayer(
                     )
 
                     VrGestureLayer(
-                        vrViewAngles = vrViewAngles,
+                        manualViewAngles = vrViewAngles,
                         onVrViewDrag = onVrViewDrag,
                         onToggleControls = {
                             if (controlsVisible) {
@@ -594,6 +610,7 @@ internal fun FullscreenPlayer(
                     pingControls()
                     if (isVrMode) {
                         onResetVrView()
+                        headTrackingState?.recenter()
                     } else {
                         onToggleScreenOrientationMode()
                     }

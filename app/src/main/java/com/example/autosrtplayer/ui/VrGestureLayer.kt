@@ -19,18 +19,18 @@ import androidx.compose.ui.unit.dp
 
 @Composable
 internal fun VrGestureLayer(
-    vrViewAngles: VrViewAngles,
+    manualViewAngles: VrViewAngles,
     onVrViewDrag: (Float, Float) -> Unit,
     onToggleControls: () -> Unit,
     modifier: Modifier = Modifier
 ) {
     val touchSlop = LocalViewConfiguration.current.touchSlop
-    var latestYaw by remember { mutableStateOf(vrViewAngles.yawDegrees) }
-    var latestPitch by remember { mutableStateOf(vrViewAngles.pitchDegrees) }
+    var latestYaw by remember { mutableStateOf(manualViewAngles.yawDegrees) }
+    var latestPitch by remember { mutableStateOf(manualViewAngles.pitchDegrees) }
 
-    if (vrViewAngles.yawDegrees != latestYaw || vrViewAngles.pitchDegrees != latestPitch) {
-        latestYaw = vrViewAngles.yawDegrees
-        latestPitch = vrViewAngles.pitchDegrees
+    if (manualViewAngles.yawDegrees != latestYaw || manualViewAngles.pitchDegrees != latestPitch) {
+        latestYaw = manualViewAngles.yawDegrees
+        latestPitch = manualViewAngles.pitchDegrees
     }
 
     Box(

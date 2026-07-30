@@ -57,6 +57,7 @@ class PlayerViewModel(
         private const val KeyVrFisheyeFov = "vr_fisheye_fov"
         private const val KeyVrSourceOrientation = "vr_source_orientation"
         private const val KeyVrForwardDirection = "vr_forward_direction"
+        private const val KeyVrHeadTrackingEnabled = "vr_head_tracking_enabled"
     }
 
     private val _uiState = MutableStateFlow(PlayerUiState())
@@ -83,13 +84,16 @@ class PlayerViewModel(
                 ?.getString(KeyScreenOrientationMode, null)
                 .toScreenOrientationMode()
             val vrConfig = loadVrConfig(settingsPrefs)
+            val isVrHeadTrackingEnabled = settingsPrefs
+                ?.getBoolean(KeyVrHeadTrackingEnabled, false) ?: false
             _uiState.update {
                 it.copy(
                     sourcePrefix = sourcePrefix,
                     favoriteItems = favoriteItems,
                     startupDestination = startupDestination,
                     screenOrientationMode = screenOrientationMode,
-                    vrConfig = vrConfig
+                    vrConfig = vrConfig,
+                    isVrHeadTrackingEnabled = isVrHeadTrackingEnabled
                 )
             }
             when (startupDestination) {
@@ -275,6 +279,11 @@ class PlayerViewModel(
     fun resetVrViewAngles() {
         val config = _uiState.value.vrConfig
         _uiState.update { it.copy(vrViewAngles = config.defaultViewAngles()) }
+    }
+
+    fun setVrHeadTrackingEnabled(enabled: Boolean) {
+        settingsPrefs?.edit()?.putBoolean(KeyVrHeadTrackingEnabled, enabled)?.apply()
+        _uiState.update { it.copy(isVrHeadTrackingEnabled = enabled) }
     }
 
     private fun loadVrConfig(prefs: SharedPreferences?): VrPlaybackConfig {
