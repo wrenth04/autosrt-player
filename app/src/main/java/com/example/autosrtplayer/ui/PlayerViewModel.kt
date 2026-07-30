@@ -55,6 +55,8 @@ class PlayerViewModel(
         private const val KeyVrDisplayOutput = "vr_display_output"
         private const val KeyVrStereoAspectMode = "vr_stereo_aspect_mode"
         private const val KeyVrFisheyeFov = "vr_fisheye_fov"
+        private const val KeyVrSourceOrientation = "vr_source_orientation"
+        private const val KeyVrForwardDirection = "vr_forward_direction"
     }
 
     private val _uiState = MutableStateFlow(PlayerUiState())
@@ -186,14 +188,14 @@ class PlayerViewModel(
         }
         if (!newConfig.isValid()) return
         persistVrConfig(newConfig)
-        _uiState.update { it.copy(vrConfig = newConfig, vrViewAngles = VrViewAngles()) }
+        _uiState.update { it.copy(vrConfig = newConfig, vrViewAngles = newConfig.defaultViewAngles()) }
     }
 
     fun setVrFieldOfView(fov: VrFieldOfView) {
         val newConfig = _uiState.value.vrConfig.copy(fieldOfView = fov)
         if (!newConfig.isValid()) return
         persistVrConfig(newConfig)
-        _uiState.update { it.copy(vrConfig = newConfig, vrViewAngles = VrViewAngles()) }
+        _uiState.update { it.copy(vrConfig = newConfig, vrViewAngles = newConfig.defaultViewAngles()) }
     }
 
     fun setVrSourceLayout(layout: VrSourceLayout) {
@@ -207,7 +209,7 @@ class PlayerViewModel(
         val newConfig = _uiState.value.vrConfig.copy(projection = projection)
         if (!newConfig.isValid()) return
         persistVrConfig(newConfig)
-        _uiState.update { it.copy(vrConfig = newConfig, vrViewAngles = VrViewAngles()) }
+        _uiState.update { it.copy(vrConfig = newConfig, vrViewAngles = newConfig.defaultViewAngles()) }
     }
 
     fun setVrDisplayOutput(output: VrDisplayOutput) {
@@ -232,10 +234,25 @@ class PlayerViewModel(
         _uiState.update { it.copy(vrConfig = newConfig) }
     }
 
+    fun setVrSourceOrientation(orientation: VrSourceOrientation) {
+        val newConfig = _uiState.value.vrConfig.copy(sourceOrientation = orientation)
+        if (!newConfig.isValid()) return
+        persistVrConfig(newConfig)
+        _uiState.update { it.copy(vrConfig = newConfig) }
+    }
+
+    fun setVrForwardDirection(direction: VrForwardDirection) {
+        val newConfig = _uiState.value.vrConfig.copy(forwardDirection = direction)
+        if (!newConfig.isValid()) return
+        persistVrConfig(newConfig)
+        val resetAngles = newConfig.defaultViewAngles()
+        _uiState.update { it.copy(vrConfig = newConfig, vrViewAngles = resetAngles) }
+    }
+
     fun applySbs180FisheyePreset() {
         val newConfig = VrPlaybackConfig.sbs180Fisheye()
         persistVrConfig(newConfig)
-        _uiState.update { it.copy(vrConfig = newConfig, vrViewAngles = VrViewAngles()) }
+        _uiState.update { it.copy(vrConfig = newConfig, vrViewAngles = newConfig.defaultViewAngles()) }
     }
 
     fun setFisheyeFovDegrees(degrees: Float) {
@@ -256,7 +273,8 @@ class PlayerViewModel(
     }
 
     fun resetVrViewAngles() {
-        _uiState.update { it.copy(vrViewAngles = VrViewAngles()) }
+        val config = _uiState.value.vrConfig
+        _uiState.update { it.copy(vrViewAngles = config.defaultViewAngles()) }
     }
 
     private fun loadVrConfig(prefs: SharedPreferences?): VrPlaybackConfig {
@@ -267,7 +285,19 @@ class PlayerViewModel(
         val output = prefs?.getString(KeyVrDisplayOutput, null).toVrDisplayOutput()
         val aspectMode = prefs?.getString(KeyVrStereoAspectMode, null).toVrStereoAspectMode()
         val fisheyeFov = prefs?.getFloat(KeyVrFisheyeFov, VrPlaybackConfig.DEFAULT_FISHEYE_FOV) ?: VrPlaybackConfig.DEFAULT_FISHEYE_FOV
-        return VrPlaybackConfig(contentMode, fov, layout, projection, output, aspectMode, fisheyeFov)
+        val sourceOrientation = prefs?.getString(KeyVrSourceOrientation, null).toVrSourceOrientation()
+        val forwardDirection = prefs?.getString(KeyVrForwardDirection, null).toVrForwardDirection()
+        return VrPlaybackConfig(
+            contentMode = contentMode,
+            fieldOfView = fov,
+            sourceLayout = layout,
+            projection = projection,
+            displayOutput = output,
+            stereoAspectMode = aspectMode,
+            fisheyeFovDegrees = fisheyeFov,
+            sourceOrientation = sourceOrientation,
+            forwardDirection = forwardDirection
+        )
     }
 
     private fun persistVrConfig(config: VrPlaybackConfig) {
@@ -279,6 +309,8 @@ class PlayerViewModel(
             putString(KeyVrDisplayOutput, config.displayOutput.name)
             putString(KeyVrStereoAspectMode, config.stereoAspectMode.name)
             putFloat(KeyVrFisheyeFov, config.fisheyeFovDegrees)
+            putString(KeyVrSourceOrientation, config.sourceOrientation.name)
+            putString(KeyVrForwardDirection, config.forwardDirection.name)
         }?.apply()
     }
 
@@ -889,4 +921,16 @@ private fun String?.toVrStereoAspectMode(): VrStereoAspectMode {
     return runCatching {
         VrStereoAspectMode.valueOf(this.orEmpty())
     }.getOrDefault(VrStereoAspectMode.GlassesCompensated)
+}
+
+private fun String?.toVrSourceOrientation(): VrSourceOrientation {
+    return runCatching {
+        VrSourceOrientation.valueOf(this.orEmpty())
+    }.getOrDefault(VrSourceOrientation.Normal)
+}
+
+private fun String?.toVrForwardDirection(): VrForwardDirection {
+    return runCatching {
+        VrForwardDirection.valueOf(this.orEmpty())
+    }.getOrDefault(VrForwardDirection.RendererDefault)
 }

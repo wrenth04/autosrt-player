@@ -53,9 +53,11 @@ fun VrPlayerSurface(
     }
 
     DisposableEffect(config, viewAngles) {
-        renderer.setConfig(config)
-        renderer.setViewAngles(viewAngles)
-        renderer.requestFrameUpdate()
+        glView.queueEvent {
+            renderer.setConfig(config)
+            renderer.setViewAngles(viewAngles)
+            renderer.requestFrameUpdate()
+        }
 
         onDispose { }
     }

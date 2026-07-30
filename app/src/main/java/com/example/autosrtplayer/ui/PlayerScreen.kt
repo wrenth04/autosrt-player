@@ -204,7 +204,9 @@ fun PlayerScreen(
                     onVrSourceLayoutChange = viewModel::setVrSourceLayout,
                     onVrProjectionChange = viewModel::setVrProjection,
                     onVrDisplayOutputChange = viewModel::setVrDisplayOutput,
-                    onVrStereoAspectModeChange = viewModel::setVrStereoAspectMode
+                    onVrStereoAspectModeChange = viewModel::setVrStereoAspectMode,
+                    onVrSourceOrientationChange = viewModel::setVrSourceOrientation,
+                    onVrForwardDirectionChange = viewModel::setVrForwardDirection
                 )
             }
             else -> {
@@ -269,7 +271,9 @@ private fun PlayerOptionsScreen(
     onVrSourceLayoutChange: (VrSourceLayout) -> Unit,
     onVrProjectionChange: (VrProjection) -> Unit,
     onVrDisplayOutputChange: (VrDisplayOutput) -> Unit,
-    onVrStereoAspectModeChange: (VrStereoAspectMode) -> Unit
+    onVrStereoAspectModeChange: (VrStereoAspectMode) -> Unit,
+    onVrSourceOrientationChange: (VrSourceOrientation) -> Unit,
+    onVrForwardDirectionChange: (VrForwardDirection) -> Unit
 ) {
     var advancedExpanded by rememberSaveable { mutableStateOf(false) }
     var techInfoExpanded by rememberSaveable { mutableStateOf(false) }
@@ -436,6 +440,37 @@ private fun PlayerOptionsScreen(
                             enabled = uiState.vrConfig.fieldOfView == VrFieldOfView.Fov360,
                             onClick = { onVrProjectionChange(VrProjection.Fisheye360Dual) }
                         )
+                    }
+
+                    Text("來源方向")
+                    Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                        VrOptionButton(
+                            selected = uiState.vrConfig.sourceOrientation == VrSourceOrientation.Normal,
+                            text = "正常",
+                            onClick = { onVrSourceOrientationChange(VrSourceOrientation.Normal) }
+                        )
+                        VrOptionButton(
+                            selected = uiState.vrConfig.sourceOrientation == VrSourceOrientation.FlippedVertically,
+                            text = "上下翻轉",
+                            onClick = { onVrSourceOrientationChange(VrSourceOrientation.FlippedVertically) }
+                        )
+                    }
+
+                    if (uiState.vrConfig.projection == VrProjection.Equirectangular &&
+                        uiState.vrConfig.fieldOfView == VrFieldOfView.Fov360) {
+                        Text("正面方向")
+                        Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                            VrOptionButton(
+                                selected = uiState.vrConfig.forwardDirection == VrForwardDirection.RendererDefault,
+                                text = "目前預設",
+                                onClick = { onVrForwardDirectionChange(VrForwardDirection.RendererDefault) }
+                            )
+                            VrOptionButton(
+                                selected = uiState.vrConfig.forwardDirection == VrForwardDirection.PanoramaCenter,
+                                text = "全景中央",
+                                onClick = { onVrForwardDirectionChange(VrForwardDirection.PanoramaCenter) }
+                            )
+                        }
                     }
 
                     Text("顯示輸出")

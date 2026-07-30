@@ -176,6 +176,9 @@ class VrRenderer : GLSurfaceView.Renderer {
         val fisheyeFovHandle = GLES20.glGetUniformLocation(program, "uFisheyeFovDegrees")
         GLES20.glUniform1f(fisheyeFovHandle, config.fisheyeFovDegrees)
 
+        val flipVerticallyHandle = GLES20.glGetUniformLocation(program, "uFlipSourceVertically")
+        GLES20.glUniform1i(flipVerticallyHandle, if (config.shouldFlipSourceVertically()) 1 else 0)
+
         GLES20.glActiveTexture(GLES20.GL_TEXTURE0)
         GLES20.glBindTexture(GLES11Ext.GL_TEXTURE_EXTERNAL_OES, textureId)
         GLES20.glUniform1i(textureHandle, 0)
@@ -351,6 +354,7 @@ class VrRenderer : GLSurfaceView.Renderer {
             uniform int uProjectionType;
             uniform mat4 uTexMatrix;
             uniform float uFisheyeFovDegrees;
+            uniform int uFlipSourceVertically;
 
             vec2 applyEquirectangular(vec2 coord) {
                 float u = mix(uTexCrop.x, uTexCrop.y, coord.x);
@@ -408,6 +412,11 @@ class VrRenderer : GLSurfaceView.Renderer {
                 }
 
                 if (coord.x < 0.0) discard;
+
+                if (uFlipSourceVertically == 1) {
+                    coord.y = 1.0 - coord.y;
+                }
+
                 vec4 texCoord = uTexMatrix * vec4(coord, 0.0, 1.0);
                 gl_FragColor = texture2D(uTexture, texCoord.xy);
             }

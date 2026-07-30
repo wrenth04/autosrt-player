@@ -31,6 +31,16 @@ enum class VrStereoAspectMode {
     GlassesCompensated
 }
 
+enum class VrSourceOrientation {
+    Normal,
+    FlippedVertically
+}
+
+enum class VrForwardDirection {
+    RendererDefault,
+    PanoramaCenter
+}
+
 data class VrPlaybackConfig(
     val contentMode: VrContentMode = VrContentMode.Flat,
     val fieldOfView: VrFieldOfView = VrFieldOfView.Fov360,
@@ -38,7 +48,9 @@ data class VrPlaybackConfig(
     val projection: VrProjection = VrProjection.Equirectangular,
     val displayOutput: VrDisplayOutput = VrDisplayOutput.SingleEye,
     val stereoAspectMode: VrStereoAspectMode = VrStereoAspectMode.GlassesCompensated,
-    val fisheyeFovDegrees: Float = DEFAULT_FISHEYE_FOV
+    val fisheyeFovDegrees: Float = DEFAULT_FISHEYE_FOV,
+    val sourceOrientation: VrSourceOrientation = VrSourceOrientation.Normal,
+    val forwardDirection: VrForwardDirection = VrForwardDirection.RendererDefault
 ) {
     fun isValid(): Boolean {
         if (contentMode == VrContentMode.Flat) return true
@@ -58,6 +70,18 @@ data class VrPlaybackConfig(
         }
     }
 
+    fun defaultViewAngles(): VrViewAngles {
+        val yaw = when (forwardDirection) {
+            VrForwardDirection.RendererDefault -> 0f
+            VrForwardDirection.PanoramaCenter -> 180f
+        }
+        return VrViewAngles.clampForConfig(yaw, 0f, this)
+    }
+
+    fun shouldFlipSourceVertically(): Boolean {
+        return sourceOrientation == VrSourceOrientation.FlippedVertically
+    }
+
     companion object {
         const val NORMAL_SCREEN_CAMERA_FOV = 65f
         const val DEFAULT_FISHEYE_FOV = 180f
@@ -70,7 +94,11 @@ data class VrPlaybackConfig(
                 fieldOfView = VrFieldOfView.Fov360,
                 sourceLayout = VrSourceLayout.Monoscopic,
                 projection = VrProjection.Equirectangular,
-                displayOutput = VrDisplayOutput.SingleEye
+                displayOutput = VrDisplayOutput.SingleEye,
+                stereoAspectMode = VrStereoAspectMode.GlassesCompensated,
+                fisheyeFovDegrees = DEFAULT_FISHEYE_FOV,
+                sourceOrientation = VrSourceOrientation.Normal,
+                forwardDirection = VrForwardDirection.RendererDefault
             )
         }
 
@@ -82,7 +110,9 @@ data class VrPlaybackConfig(
                 projection = VrProjection.Fisheye180,
                 displayOutput = VrDisplayOutput.SbsGlasses,
                 stereoAspectMode = VrStereoAspectMode.GlassesCompensated,
-                fisheyeFovDegrees = DEFAULT_FISHEYE_FOV
+                fisheyeFovDegrees = DEFAULT_FISHEYE_FOV,
+                sourceOrientation = VrSourceOrientation.Normal,
+                forwardDirection = VrForwardDirection.RendererDefault
             )
         }
     }
@@ -94,8 +124,14 @@ data class VrViewAngles(
 ) {
     companion object {
         fun clampForConfig(yaw: Float, pitch: Float, config: VrPlaybackConfig): VrViewAngles {
-            val maxYaw = config.getMaxYawDegrees()
-            val clampedYaw = yaw.coerceIn(-maxYaw, maxYaw)
+            val clampedYaw = if (config.fieldOfView == VrFieldOfView.Fov360 &&
+                                  (config.projection == VrProjection.Equirectangular ||
+                                   config.projection == VrProjection.Fisheye360Dual)) {
+                normalizeYaw(yaw)
+            } else {
+                val maxYaw = config.getMaxYawDegrees()
+                yaw.coerceIn(-maxYaw, maxYaw)
+            }
             val clampedPitch = pitch.coerceIn(-89f, 89f)
             return VrViewAngles(clampedYaw, clampedPitch)
         }
