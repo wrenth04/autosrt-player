@@ -82,6 +82,8 @@ import androidx.media3.common.Player
 import androidx.media3.exoplayer.ExoPlayer
 import androidx.media3.ui.CaptionStyleCompat
 import androidx.media3.ui.PlayerView
+import com.example.autosrtplayer.ui.vr.VrPlayerSurface
+import com.example.autosrtplayer.ui.vr.VrSubtitleOverlay
 import kotlinx.coroutines.delay
 import kotlin.math.abs
 import kotlin.math.roundToInt
@@ -192,6 +194,8 @@ internal fun FullscreenPlayer(
     player: ExoPlayer?,
     playbackSpeed: Float,
     screenOrientationMode: ScreenOrientationMode,
+    vrConfig: VrPlaybackConfig,
+    vrViewAngles: VrViewAngles,
     currentSourceId: String?,
     currentRequestLabel: String?,
     isCurrentFavorite: Boolean,
@@ -202,6 +206,8 @@ internal fun FullscreenPlayer(
     errorMessage: String?,
     onPlaybackSpeedChange: (Float) -> Unit,
     onToggleScreenOrientationMode: () -> Unit,
+    onVrViewDrag: (Float, Float) -> Unit,
+    onResetVrView: () -> Unit,
     onToggleFavorite: () -> Unit,
     onOpenTodayHot: () -> Unit,
     onOpenFavorites: () -> Unit,
@@ -279,21 +285,38 @@ internal fun FullscreenPlayer(
         val widthPx = with(density) { maxWidth.toPx() }.takeIf { it > 0f } ?: 1f
         val heightPx = with(density) { maxHeight.toPx() }.takeIf { it > 0f } ?: 1f
 
+        val isVrMode = vrConfig.contentMode == VrContentMode.Vr
+
         if (player != null) {
-            AndroidView(
-                factory = { viewContext ->
-                    PlayerView(viewContext).apply {
-                        this.player = player
-                        useController = false
-                        applySubtitleStyle()
-                    }
-                },
-                modifier = Modifier.fillMaxSize(),
-                update = {
-                    it.player = player
-                    it.applySubtitleStyle()
+            if (isVrMode) {
+                Box(modifier = Modifier.fillMaxSize()) {
+                    VrPlayerSurface(
+                        player = player,
+                        config = vrConfig,
+                        viewAngles = vrViewAngles,
+                        modifier = Modifier.fillMaxSize()
+                    )
+                    VrSubtitleOverlay(
+                        player = player,
+                        modifier = Modifier.fillMaxSize()
+                    )
                 }
-            )
+            } else {
+                AndroidView(
+                    factory = { viewContext ->
+                        PlayerView(viewContext).apply {
+                            this.player = player
+                            useController = false
+                            applySubtitleStyle()
+                        }
+                    },
+                    modifier = Modifier.fillMaxSize(),
+                    update = {
+                        it.player = player
+                        it.applySubtitleStyle()
+                    }
+                )
+            }
         }
 
         if (dimOverlayAlpha > 0f) {
@@ -304,7 +327,7 @@ internal fun FullscreenPlayer(
             )
         }
 
-        if (!controlsVisible) {
+        if (!controlsVisible && !isVrMode) {
             Row(
                 modifier = Modifier
                     .align(Alignment.Center)
@@ -397,6 +420,31 @@ internal fun FullscreenPlayer(
                     onSeekChange = handleSeekChange
                 )
             }
+        }
+
+        if (!controlsVisible && isVrMode) {
+            Box(
+                modifier = Modifier
+                    .fillMaxSize()
+                    .pointerInput(Unit) {
+                        detectTapGestures(
+                            onTap = {
+                                controlsVisible = true
+                                pingControls()
+                            }
+                        )
+                    }
+                    .pointerInput(Unit) {
+                        detectDragGestures { change, dragAmount ->
+                            change.consume()
+                            val yawDelta = -dragAmount.x * 0.2f
+                            val pitchDelta = -dragAmount.y * 0.2f
+                            val newYaw = vrViewAngles.yawDegrees + yawDelta
+                            val newPitch = vrViewAngles.pitchDegrees + pitchDelta
+                            onVrViewDrag(newYaw, newPitch)
+                        }
+                    }
+            )
         }
 
         if (controlsVisible) {
@@ -550,23 +598,46 @@ internal fun FullscreenPlayer(
                 ScreenOrientationMode.Landscape -> "螢幕方向：橫向鎖定"
             }
 
-            IconButton(
-                onClick = {
-                    pingControls()
-                    onToggleScreenOrientationMode()
-                },
+            Row(
                 modifier = Modifier
                     .align(Alignment.BottomEnd)
                     .padding(end = 20.dp, bottom = 84.dp)
-                    .alpha(controlsContentAlpha)
-                    .background(androidx.compose.ui.graphics.Color.Black.copy(alpha = ControlOverlayAlpha), shape = MaterialTheme.shapes.small)
-                    .size(48.dp)
+                    .alpha(controlsContentAlpha),
+                horizontalArrangement = Arrangement.spacedBy(8.dp)
             ) {
-                Icon(
-                    imageVector = orientationIcon,
-                    contentDescription = orientationDescription,
-                    tint = androidx.compose.ui.graphics.Color.White
-                )
+                if (isVrMode) {
+                    IconButton(
+                        onClick = {
+                            pingControls()
+                            onResetVrView()
+                        },
+                        modifier = Modifier
+                            .background(androidx.compose.ui.graphics.Color.Black.copy(alpha = ControlOverlayAlpha), shape = MaterialTheme.shapes.small)
+                            .size(48.dp)
+                    ) {
+                        Icon(
+                            imageVector = Icons.Filled.ScreenRotation,
+                            contentDescription = "重設視角",
+                            tint = androidx.compose.ui.graphics.Color.White
+                        )
+                    }
+                }
+
+                IconButton(
+                    onClick = {
+                        pingControls()
+                        onToggleScreenOrientationMode()
+                    },
+                    modifier = Modifier
+                        .background(androidx.compose.ui.graphics.Color.Black.copy(alpha = ControlOverlayAlpha), shape = MaterialTheme.shapes.small)
+                        .size(48.dp)
+                ) {
+                    Icon(
+                        imageVector = orientationIcon,
+                        contentDescription = orientationDescription,
+                        tint = androidx.compose.ui.graphics.Color.White
+                    )
+                }
             }
 
             FullscreenScrubber(

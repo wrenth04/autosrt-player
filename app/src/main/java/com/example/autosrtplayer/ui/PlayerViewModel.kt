@@ -48,6 +48,11 @@ class PlayerViewModel(
         private const val KeyFavoriteItems = "favorite_items"
         private const val KeyStartupDestination = "startup_destination"
         private const val KeyScreenOrientationMode = "screen_orientation_mode"
+        private const val KeyVrContentMode = "vr_content_mode"
+        private const val KeyVrFieldOfView = "vr_field_of_view"
+        private const val KeyVrSourceLayout = "vr_source_layout"
+        private const val KeyVrProjection = "vr_projection"
+        private const val KeyVrDisplayOutput = "vr_display_output"
     }
 
     private val _uiState = MutableStateFlow(PlayerUiState())
@@ -73,12 +78,14 @@ class PlayerViewModel(
             val screenOrientationMode = settingsPrefs
                 ?.getString(KeyScreenOrientationMode, null)
                 .toScreenOrientationMode()
+            val vrConfig = loadVrConfig(settingsPrefs)
             _uiState.update {
                 it.copy(
                     sourcePrefix = sourcePrefix,
                     favoriteItems = favoriteItems,
                     startupDestination = startupDestination,
-                    screenOrientationMode = screenOrientationMode
+                    screenOrientationMode = screenOrientationMode,
+                    vrConfig = vrConfig
                 )
             }
             when (startupDestination) {
@@ -167,6 +174,69 @@ class PlayerViewModel(
         }
         settingsPrefs?.edit()?.putString(KeyScreenOrientationMode, nextMode.name)?.apply()
         _uiState.update { it.copy(screenOrientationMode = nextMode) }
+    }
+
+    fun setVrContentMode(mode: VrContentMode) {
+        val newConfig = _uiState.value.vrConfig.copy(contentMode = mode)
+        if (!newConfig.isValid()) return
+        persistVrConfig(newConfig)
+        _uiState.update { it.copy(vrConfig = newConfig, vrViewAngles = VrViewAngles()) }
+    }
+
+    fun setVrFieldOfView(fov: VrFieldOfView) {
+        val newConfig = _uiState.value.vrConfig.copy(fieldOfView = fov)
+        if (!newConfig.isValid()) return
+        persistVrConfig(newConfig)
+        _uiState.update { it.copy(vrConfig = newConfig, vrViewAngles = VrViewAngles()) }
+    }
+
+    fun setVrSourceLayout(layout: VrSourceLayout) {
+        val newConfig = _uiState.value.vrConfig.copy(sourceLayout = layout)
+        if (!newConfig.isValid()) return
+        persistVrConfig(newConfig)
+        _uiState.update { it.copy(vrConfig = newConfig) }
+    }
+
+    fun setVrProjection(projection: VrProjection) {
+        val newConfig = _uiState.value.vrConfig.copy(projection = projection)
+        if (!newConfig.isValid()) return
+        persistVrConfig(newConfig)
+        _uiState.update { it.copy(vrConfig = newConfig, vrViewAngles = VrViewAngles()) }
+    }
+
+    fun setVrDisplayOutput(output: VrDisplayOutput) {
+        val newConfig = _uiState.value.vrConfig.copy(displayOutput = output)
+        if (!newConfig.isValid()) return
+        persistVrConfig(newConfig)
+        _uiState.update { it.copy(vrConfig = newConfig) }
+    }
+
+    fun updateVrViewAngles(yaw: Float, pitch: Float) {
+        val clamped = VrViewAngles.clampForFov(yaw, pitch, _uiState.value.vrConfig.fieldOfView)
+        _uiState.update { it.copy(vrViewAngles = clamped) }
+    }
+
+    fun resetVrViewAngles() {
+        _uiState.update { it.copy(vrViewAngles = VrViewAngles()) }
+    }
+
+    private fun loadVrConfig(prefs: SharedPreferences?): VrPlaybackConfig {
+        val contentMode = prefs?.getString(KeyVrContentMode, null).toVrContentMode()
+        val fov = prefs?.getString(KeyVrFieldOfView, null).toVrFieldOfView()
+        val layout = prefs?.getString(KeyVrSourceLayout, null).toVrSourceLayout()
+        val projection = prefs?.getString(KeyVrProjection, null).toVrProjection()
+        val output = prefs?.getString(KeyVrDisplayOutput, null).toVrDisplayOutput()
+        return VrPlaybackConfig(contentMode, fov, layout, projection, output)
+    }
+
+    private fun persistVrConfig(config: VrPlaybackConfig) {
+        settingsPrefs?.edit()?.apply {
+            putString(KeyVrContentMode, config.contentMode.name)
+            putString(KeyVrFieldOfView, config.fieldOfView.name)
+            putString(KeyVrSourceLayout, config.sourceLayout.name)
+            putString(KeyVrProjection, config.projection.name)
+            putString(KeyVrDisplayOutput, config.displayOutput.name)
+        }?.apply()
     }
 
     fun toggleCurrentFavorite() {
@@ -740,4 +810,34 @@ private fun String?.toScreenOrientationMode(): ScreenOrientationMode {
     return runCatching {
         ScreenOrientationMode.valueOf(this.orEmpty())
     }.getOrDefault(ScreenOrientationMode.Auto)
+}
+
+private fun String?.toVrContentMode(): VrContentMode {
+    return runCatching {
+        VrContentMode.valueOf(this.orEmpty())
+    }.getOrDefault(VrContentMode.Flat)
+}
+
+private fun String?.toVrFieldOfView(): VrFieldOfView {
+    return runCatching {
+        VrFieldOfView.valueOf(this.orEmpty())
+    }.getOrDefault(VrFieldOfView.Fov360)
+}
+
+private fun String?.toVrSourceLayout(): VrSourceLayout {
+    return runCatching {
+        VrSourceLayout.valueOf(this.orEmpty())
+    }.getOrDefault(VrSourceLayout.SideBySide)
+}
+
+private fun String?.toVrProjection(): VrProjection {
+    return runCatching {
+        VrProjection.valueOf(this.orEmpty())
+    }.getOrDefault(VrProjection.Equirectangular)
+}
+
+private fun String?.toVrDisplayOutput(): VrDisplayOutput {
+    return runCatching {
+        VrDisplayOutput.valueOf(this.orEmpty())
+    }.getOrDefault(VrDisplayOutput.SingleEye)
 }

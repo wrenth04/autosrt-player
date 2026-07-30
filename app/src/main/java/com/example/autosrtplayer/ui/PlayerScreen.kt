@@ -198,7 +198,12 @@ fun PlayerScreen(
                     onSaveSourcePrefix = viewModel::saveSourcePrefix,
                     onToggleFavorite = viewModel::toggleCurrentFavorite,
                     onBack = viewModel::closeSettings,
-                    onStartupDestinationChange = viewModel::setStartupDestination
+                    onStartupDestinationChange = viewModel::setStartupDestination,
+                    onVrContentModeChange = viewModel::setVrContentMode,
+                    onVrFieldOfViewChange = viewModel::setVrFieldOfView,
+                    onVrSourceLayoutChange = viewModel::setVrSourceLayout,
+                    onVrProjectionChange = viewModel::setVrProjection,
+                    onVrDisplayOutputChange = viewModel::setVrDisplayOutput
                 )
             }
             else -> {
@@ -207,6 +212,8 @@ fun PlayerScreen(
                     player = player,
                     playbackSpeed = uiState.playbackSpeed,
                     screenOrientationMode = uiState.screenOrientationMode,
+                    vrConfig = uiState.vrConfig,
+                    vrViewAngles = uiState.vrViewAngles,
                     currentSourceId = currentSourceId,
                     currentRequestLabel = uiState.currentRequestLabel,
                     isCurrentFavorite = isCurrentFavorite,
@@ -217,6 +224,8 @@ fun PlayerScreen(
                     errorMessage = uiState.errorMessage,
                     onPlaybackSpeedChange = viewModel::setPlaybackSpeed,
                     onToggleScreenOrientationMode = viewModel::toggleScreenOrientationMode,
+                    onVrViewDrag = viewModel::updateVrViewAngles,
+                    onResetVrView = viewModel::resetVrViewAngles,
                     onToggleFavorite = viewModel::toggleCurrentFavorite,
                     onOpenTodayHot = viewModel::loadTodayHot,
                     onOpenFavorites = viewModel::openFavorites,
@@ -253,7 +262,12 @@ private fun PlayerOptionsScreen(
     onSaveSourcePrefix: () -> Unit,
     onToggleFavorite: () -> Unit,
     onBack: () -> Unit,
-    onStartupDestinationChange: (StartupDestination) -> Unit
+    onStartupDestinationChange: (StartupDestination) -> Unit,
+    onVrContentModeChange: (VrContentMode) -> Unit,
+    onVrFieldOfViewChange: (VrFieldOfView) -> Unit,
+    onVrSourceLayoutChange: (VrSourceLayout) -> Unit,
+    onVrProjectionChange: (VrProjection) -> Unit,
+    onVrDisplayOutputChange: (VrDisplayOutput) -> Unit
 ) {
     var advancedExpanded by rememberSaveable { mutableStateOf(false) }
     var techInfoExpanded by rememberSaveable { mutableStateOf(false) }
@@ -348,6 +362,94 @@ private fun PlayerOptionsScreen(
                 modifier = Modifier.weight(1f)
             ) {
                 Text("最愛 (${uiState.favoriteItems.size})")
+            }
+        }
+
+        Card(modifier = Modifier.fillMaxWidth()) {
+            Column(
+                modifier = Modifier.padding(12.dp),
+                verticalArrangement = Arrangement.spacedBy(8.dp)
+            ) {
+                Text("VR 播放模式", style = MaterialTheme.typography.titleMedium)
+
+                Text("播放模式")
+                Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                    VrOptionButton(
+                        selected = uiState.vrConfig.contentMode == VrContentMode.Flat,
+                        text = "一般",
+                        onClick = { onVrContentModeChange(VrContentMode.Flat) }
+                    )
+                    VrOptionButton(
+                        selected = uiState.vrConfig.contentMode == VrContentMode.Vr,
+                        text = "VR",
+                        onClick = { onVrContentModeChange(VrContentMode.Vr) }
+                    )
+                }
+
+                if (uiState.vrConfig.contentMode == VrContentMode.Vr) {
+                    Text("視野範圍")
+                    Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                        VrOptionButton(
+                            selected = uiState.vrConfig.fieldOfView == VrFieldOfView.Fov180,
+                            text = "180°",
+                            onClick = { onVrFieldOfViewChange(VrFieldOfView.Fov180) }
+                        )
+                        VrOptionButton(
+                            selected = uiState.vrConfig.fieldOfView == VrFieldOfView.Fov360,
+                            text = "360°",
+                            onClick = { onVrFieldOfViewChange(VrFieldOfView.Fov360) }
+                        )
+                    }
+
+                    Text("來源格式")
+                    Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                        VrOptionButton(
+                            selected = uiState.vrConfig.sourceLayout == VrSourceLayout.Monoscopic,
+                            text = "單眼",
+                            onClick = { onVrSourceLayoutChange(VrSourceLayout.Monoscopic) }
+                        )
+                        VrOptionButton(
+                            selected = uiState.vrConfig.sourceLayout == VrSourceLayout.SideBySide,
+                            text = "左右並排",
+                            onClick = { onVrSourceLayoutChange(VrSourceLayout.SideBySide) }
+                        )
+                    }
+
+                    Text("投影方式")
+                    Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                        VrOptionButton(
+                            selected = uiState.vrConfig.projection == VrProjection.Equirectangular,
+                            text = "等距柱狀",
+                            onClick = { onVrProjectionChange(VrProjection.Equirectangular) }
+                        )
+                        VrOptionButton(
+                            selected = uiState.vrConfig.projection == VrProjection.Fisheye180,
+                            text = "180° 魚眼",
+                            enabled = uiState.vrConfig.fieldOfView == VrFieldOfView.Fov180,
+                            onClick = { onVrProjectionChange(VrProjection.Fisheye180) }
+                        )
+                        VrOptionButton(
+                            selected = uiState.vrConfig.projection == VrProjection.Fisheye360Dual,
+                            text = "360° 雙魚眼",
+                            enabled = uiState.vrConfig.fieldOfView == VrFieldOfView.Fov360,
+                            onClick = { onVrProjectionChange(VrProjection.Fisheye360Dual) }
+                        )
+                    }
+
+                    Text("顯示輸出")
+                    Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                        VrOptionButton(
+                            selected = uiState.vrConfig.displayOutput == VrDisplayOutput.SingleEye,
+                            text = "全螢幕單眼",
+                            onClick = { onVrDisplayOutputChange(VrDisplayOutput.SingleEye) }
+                        )
+                        VrOptionButton(
+                            selected = uiState.vrConfig.displayOutput == VrDisplayOutput.SbsGlasses,
+                            text = "左右分屏（眼鏡）",
+                            onClick = { onVrDisplayOutputChange(VrDisplayOutput.SbsGlasses) }
+                        )
+                    }
+                }
             }
         }
 
@@ -495,6 +597,33 @@ private fun StartupDestinationButton(
 ) {
     Button(
         onClick = onClick,
+        colors = ButtonDefaults.buttonColors(
+            containerColor = if (selected) {
+                MaterialTheme.colorScheme.primaryContainer
+            } else {
+                MaterialTheme.colorScheme.surfaceVariant
+            },
+            contentColor = if (selected) {
+                MaterialTheme.colorScheme.onPrimaryContainer
+            } else {
+                MaterialTheme.colorScheme.onSurfaceVariant
+            }
+        )
+    ) {
+        Text(if (selected) "✓ $text" else text)
+    }
+}
+
+@Composable
+private fun VrOptionButton(
+    selected: Boolean,
+    text: String,
+    onClick: () -> Unit,
+    enabled: Boolean = true
+) {
+    Button(
+        onClick = onClick,
+        enabled = enabled,
         colors = ButtonDefaults.buttonColors(
             containerColor = if (selected) {
                 MaterialTheme.colorScheme.primaryContainer
