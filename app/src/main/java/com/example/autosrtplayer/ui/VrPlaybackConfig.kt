@@ -26,12 +26,18 @@ enum class VrDisplayOutput {
     SbsGlasses
 }
 
+enum class VrStereoAspectMode {
+    Normal,
+    GlassesCompensated
+}
+
 data class VrPlaybackConfig(
     val contentMode: VrContentMode = VrContentMode.Flat,
     val fieldOfView: VrFieldOfView = VrFieldOfView.Fov360,
     val sourceLayout: VrSourceLayout = VrSourceLayout.Monoscopic,
     val projection: VrProjection = VrProjection.Equirectangular,
-    val displayOutput: VrDisplayOutput = VrDisplayOutput.SingleEye
+    val displayOutput: VrDisplayOutput = VrDisplayOutput.SingleEye,
+    val stereoAspectMode: VrStereoAspectMode = VrStereoAspectMode.GlassesCompensated
 ) {
     fun isValid(): Boolean {
         if (contentMode == VrContentMode.Flat) return true
@@ -119,6 +125,29 @@ object VrTextureCalculator {
             VrDisplayOutput.SingleEye -> screenWidth.toFloat()
             VrDisplayOutput.SbsGlasses -> (screenWidth / 2f)
         }
+        return effectiveWidth / screenHeight.toFloat()
+    }
+
+    fun calculateEyeProjectionAspect(
+        screenWidth: Int,
+        screenHeight: Int,
+        displayOutput: VrDisplayOutput,
+        stereoAspectMode: VrStereoAspectMode
+    ): Float {
+        if (screenWidth <= 0 || screenHeight <= 0) return 1f
+
+        val baseWidth = when (displayOutput) {
+            VrDisplayOutput.SingleEye -> screenWidth.toFloat()
+            VrDisplayOutput.SbsGlasses -> (screenWidth / 2f)
+        }
+
+        val effectiveWidth = if (displayOutput == VrDisplayOutput.SbsGlasses &&
+                                  stereoAspectMode == VrStereoAspectMode.GlassesCompensated) {
+            baseWidth * 2f
+        } else {
+            baseWidth
+        }
+
         return effectiveWidth / screenHeight.toFloat()
     }
 }

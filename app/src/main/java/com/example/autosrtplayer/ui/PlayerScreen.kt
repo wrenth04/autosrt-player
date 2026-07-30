@@ -203,7 +203,8 @@ fun PlayerScreen(
                     onVrFieldOfViewChange = viewModel::setVrFieldOfView,
                     onVrSourceLayoutChange = viewModel::setVrSourceLayout,
                     onVrProjectionChange = viewModel::setVrProjection,
-                    onVrDisplayOutputChange = viewModel::setVrDisplayOutput
+                    onVrDisplayOutputChange = viewModel::setVrDisplayOutput,
+                    onVrStereoAspectModeChange = viewModel::setVrStereoAspectMode
                 )
             }
             else -> {
@@ -267,7 +268,8 @@ private fun PlayerOptionsScreen(
     onVrFieldOfViewChange: (VrFieldOfView) -> Unit,
     onVrSourceLayoutChange: (VrSourceLayout) -> Unit,
     onVrProjectionChange: (VrProjection) -> Unit,
-    onVrDisplayOutputChange: (VrDisplayOutput) -> Unit
+    onVrDisplayOutputChange: (VrDisplayOutput) -> Unit,
+    onVrStereoAspectModeChange: (VrStereoAspectMode) -> Unit
 ) {
     var advancedExpanded by rememberSaveable { mutableStateOf(false) }
     var techInfoExpanded by rememberSaveable { mutableStateOf(false) }
@@ -448,6 +450,22 @@ private fun PlayerOptionsScreen(
                             text = "左右分屏（眼鏡）",
                             onClick = { onVrDisplayOutputChange(VrDisplayOutput.SbsGlasses) }
                         )
+                    }
+
+                    if (uiState.vrConfig.displayOutput == VrDisplayOutput.SbsGlasses) {
+                        Text("眼鏡畫面比例")
+                        Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                            VrOptionButton(
+                                selected = uiState.vrConfig.stereoAspectMode == VrStereoAspectMode.Normal,
+                                text = "一般比例",
+                                onClick = { onVrStereoAspectModeChange(VrStereoAspectMode.Normal) }
+                            )
+                            VrOptionButton(
+                                selected = uiState.vrConfig.stereoAspectMode == VrStereoAspectMode.GlassesCompensated,
+                                text = "補償壓扁",
+                                onClick = { onVrStereoAspectModeChange(VrStereoAspectMode.GlassesCompensated) }
+                            )
+                        }
                     }
                 }
             }

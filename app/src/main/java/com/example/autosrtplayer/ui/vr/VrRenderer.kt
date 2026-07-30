@@ -129,7 +129,9 @@ class VrRenderer : GLSurfaceView.Renderer {
     private fun renderEye(isLeftEye: Boolean, x: Int, y: Int, width: Int, height: Int) {
         GLES20.glViewport(x, y, width, height)
 
-        val aspect = VrTextureCalculator.calculateViewportAspect(width, height, VrDisplayOutput.SingleEye)
+        val aspect = VrTextureCalculator.calculateEyeProjectionAspect(
+            width, height, config.displayOutput, config.stereoAspectMode
+        )
         val cameraFov = if (config.displayOutput == VrDisplayOutput.SingleEye) {
             VrPlaybackConfig.NORMAL_SCREEN_CAMERA_FOV
         } else {

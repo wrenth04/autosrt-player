@@ -53,6 +53,7 @@ class PlayerViewModel(
         private const val KeyVrSourceLayout = "vr_source_layout"
         private const val KeyVrProjection = "vr_projection"
         private const val KeyVrDisplayOutput = "vr_display_output"
+        private const val KeyVrStereoAspectMode = "vr_stereo_aspect_mode"
     }
 
     private val _uiState = MutableStateFlow(PlayerUiState())
@@ -209,7 +210,22 @@ class PlayerViewModel(
     }
 
     fun setVrDisplayOutput(output: VrDisplayOutput) {
-        val newConfig = _uiState.value.vrConfig.copy(displayOutput = output)
+        val aspectMode = if (output == VrDisplayOutput.SbsGlasses) {
+            VrStereoAspectMode.GlassesCompensated
+        } else {
+            _uiState.value.vrConfig.stereoAspectMode
+        }
+        val newConfig = _uiState.value.vrConfig.copy(
+            displayOutput = output,
+            stereoAspectMode = aspectMode
+        )
+        if (!newConfig.isValid()) return
+        persistVrConfig(newConfig)
+        _uiState.update { it.copy(vrConfig = newConfig) }
+    }
+
+    fun setVrStereoAspectMode(mode: VrStereoAspectMode) {
+        val newConfig = _uiState.value.vrConfig.copy(stereoAspectMode = mode)
         if (!newConfig.isValid()) return
         persistVrConfig(newConfig)
         _uiState.update { it.copy(vrConfig = newConfig) }
@@ -230,7 +246,8 @@ class PlayerViewModel(
         val layout = prefs?.getString(KeyVrSourceLayout, null).toVrSourceLayout()
         val projection = prefs?.getString(KeyVrProjection, null).toVrProjection()
         val output = prefs?.getString(KeyVrDisplayOutput, null).toVrDisplayOutput()
-        return VrPlaybackConfig(contentMode, fov, layout, projection, output)
+        val aspectMode = prefs?.getString(KeyVrStereoAspectMode, null).toVrStereoAspectMode()
+        return VrPlaybackConfig(contentMode, fov, layout, projection, output, aspectMode)
     }
 
     private fun persistVrConfig(config: VrPlaybackConfig) {
@@ -240,6 +257,7 @@ class PlayerViewModel(
             putString(KeyVrSourceLayout, config.sourceLayout.name)
             putString(KeyVrProjection, config.projection.name)
             putString(KeyVrDisplayOutput, config.displayOutput.name)
+            putString(KeyVrStereoAspectMode, config.stereoAspectMode.name)
         }?.apply()
     }
 
@@ -844,4 +862,10 @@ private fun String?.toVrDisplayOutput(): VrDisplayOutput {
     return runCatching {
         VrDisplayOutput.valueOf(this.orEmpty())
     }.getOrDefault(VrDisplayOutput.SingleEye)
+}
+
+private fun String?.toVrStereoAspectMode(): VrStereoAspectMode {
+    return runCatching {
+        VrStereoAspectMode.valueOf(this.orEmpty())
+    }.getOrDefault(VrStereoAspectMode.GlassesCompensated)
 }
