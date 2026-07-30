@@ -307,8 +307,12 @@ internal fun FullscreenPlayer(
                         vrViewAngles = vrViewAngles,
                         onVrViewDrag = onVrViewDrag,
                         onToggleControls = {
-                            controlsVisible = !controlsVisible
-                            if (controlsVisible) pingControls()
+                            if (controlsVisible) {
+                                controlsVisible = false
+                            } else {
+                                controlsVisible = true
+                                pingControls()
+                            }
                         },
                         modifier = Modifier.fillMaxSize()
                     )

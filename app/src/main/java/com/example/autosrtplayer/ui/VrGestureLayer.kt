@@ -25,11 +25,8 @@ internal fun VrGestureLayer(
     modifier: Modifier = Modifier
 ) {
     val touchSlop = LocalViewConfiguration.current.touchSlop
-    val density = LocalDensity.current
     var latestYaw by remember { mutableStateOf(vrViewAngles.yawDegrees) }
     var latestPitch by remember { mutableStateOf(vrViewAngles.pitchDegrees) }
-    var screenWidth by remember { mutableStateOf(1f) }
-    var screenHeight by remember { mutableStateOf(1f) }
 
     if (vrViewAngles.yawDegrees != latestYaw || vrViewAngles.pitchDegrees != latestPitch) {
         latestYaw = vrViewAngles.yawDegrees
@@ -37,40 +34,51 @@ internal fun VrGestureLayer(
     }
 
     Box(
-        modifier = modifier.pointerInput(Unit) {
-            screenWidth = size.width.toFloat().coerceAtLeast(1f)
-            screenHeight = size.height.toFloat().coerceAtLeast(1f)
+        modifier = modifier.pointerInput(touchSlop) {
+            val screenWidth = size.width.toFloat().coerceAtLeast(1f)
+            val screenHeight = size.height.toFloat().coerceAtLeast(1f)
 
             awaitEachGesture {
                 val down = awaitFirstDown(requireUnconsumed = false)
+                val trackingPointerId = down.id
                 var totalDrag = Offset.Zero
                 var isDragging = false
+                var hasMultiplePointers = false
 
                 while (true) {
                     val event = awaitPointerEvent(pass = PointerEventPass.Main)
-                    val change = event.changes.firstOrNull() ?: break
 
-                    if (change.pressed) {
-                        val drag = change.positionChange()
-                        totalDrag += drag
+                    // Detect multiple pointers
+                    if (event.changes.size > 1) {
+                        hasMultiplePointers = true
+                    }
 
-                        if (!isDragging && totalDrag.getDistance() > touchSlop) {
-                            isDragging = true
-                        }
+                    // Find the change matching our tracked pointer
+                    val change = event.changes.find { it.id == trackingPointerId }
 
-                        if (isDragging) {
-                            change.consume()
-                            val yawDelta = -(drag.x / screenWidth) * 180f
-                            val pitchDelta = -(drag.y / screenHeight) * 180f
-                            latestYaw += yawDelta
-                            latestPitch += pitchDelta
-                            onVrViewDrag(latestYaw, latestPitch)
-                        }
-                    } else {
-                        if (!isDragging && totalDrag.getDistance() <= touchSlop) {
+                    // If our tracked pointer is gone or cancelled, abort gesture
+                    if (change == null || !change.pressed) {
+                        // Only toggle if this was a clean single-finger tap
+                        if (change != null && !hasMultiplePointers && !isDragging && totalDrag.getDistance() <= touchSlop) {
                             onToggleControls()
                         }
                         break
+                    }
+
+                    val drag = change.positionChange()
+                    totalDrag += drag
+
+                    if (!isDragging && totalDrag.getDistance() > touchSlop) {
+                        isDragging = true
+                    }
+
+                    if (isDragging && !hasMultiplePointers) {
+                        change.consume()
+                        val yawDelta = -(drag.x / screenWidth) * 180f
+                        val pitchDelta = -(drag.y / screenHeight) * 180f
+                        latestYaw += yawDelta
+                        latestPitch += pitchDelta
+                        onVrViewDrag(latestYaw, latestPitch)
                     }
                 }
             }
