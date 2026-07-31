@@ -208,14 +208,14 @@ fun VrPlayerSurface(
                         val now = System.currentTimeMillis()
                         val lastCapture = lastFrameCaptureTime.get()
 
-                        // Target ~10 FPS for depth inference to balance quality and performance
-                        if (now - lastCapture >= 100) {
+                        // Target ~5 FPS for depth inference to reduce jitter
+                        if (now - lastCapture >= 200) {
                             captureAndProcessFrame(glView, renderer, estimator, lastFrameCaptureTime, isCapturingFrame)
                         }
                     }
 
                     if (depthEstimator != null) {
-                        mainHandler.postDelayed(this, 50) // Check every 50ms
+                        mainHandler.postDelayed(this, 100) // Check every 100ms
                     }
                 }
             }

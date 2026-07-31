@@ -98,11 +98,14 @@ class VrRenderer : GLSurfaceView.Renderer {
      */
     fun setDepthFrame(depthFrame: DepthFrame?) {
         currentDepthFrame = depthFrame
-        if (depthFrame != null && depthTextureId == -1) {
-            depthTextureId = createDepthTexture()
-        }
-        if (depthFrame != null && depthTextureId != -1) {
-            uploadDepthTexture(depthFrame)
+        if (depthFrame != null) {
+            if (depthTextureId == -1) {
+                depthTextureId = createDepthTexture()
+            }
+            if (depthTextureId != -1) {
+                uploadDepthTexture(depthFrame)
+                android.util.Log.d(TAG, "Depth frame uploaded: ${depthFrame.width}x${depthFrame.height}, status=${depthFrame.status}, inference=${depthFrame.inferenceDurationMs}ms")
+            }
         }
     }
 
