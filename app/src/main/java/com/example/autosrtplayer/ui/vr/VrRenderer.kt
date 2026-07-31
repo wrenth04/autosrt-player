@@ -211,17 +211,18 @@ class VrRenderer : GLSurfaceView.Renderer {
             Triple(sphereVertexBuffer, sphereTexCoordBuffer, sphereVertexCount)
         }
 
-        vertexBuffer?.let { vb ->
-            vb.position(0)
-            GLES20.glEnableVertexAttribArray(positionHandle)
-            GLES20.glVertexAttribPointer(positionHandle, 3, GLES20.GL_FLOAT, false, 0, vb)
+        // Skip rendering if buffers are not initialized
+        if (vertexBuffer == null || texCoordBuffer == null || vertexCount == 0) {
+            return
         }
 
-        texCoordBuffer?.let { tb ->
-            tb.position(0)
-            GLES20.glEnableVertexAttribArray(texCoordHandle)
-            GLES20.glVertexAttribPointer(texCoordHandle, 2, GLES20.GL_FLOAT, false, 0, tb)
-        }
+        vertexBuffer.position(0)
+        GLES20.glEnableVertexAttribArray(positionHandle)
+        GLES20.glVertexAttribPointer(positionHandle, 3, GLES20.GL_FLOAT, false, 0, vertexBuffer)
+
+        texCoordBuffer.position(0)
+        GLES20.glEnableVertexAttribArray(texCoordHandle)
+        GLES20.glVertexAttribPointer(texCoordHandle, 2, GLES20.GL_FLOAT, false, 0, texCoordBuffer)
 
         GLES20.glDrawArrays(GLES20.GL_TRIANGLES, 0, vertexCount)
 

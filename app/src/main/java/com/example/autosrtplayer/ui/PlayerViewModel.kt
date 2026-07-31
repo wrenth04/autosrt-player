@@ -187,13 +187,25 @@ class PlayerViewModel(
     }
 
     fun setVrContentMode(mode: VrContentMode) {
-        val newConfig = if (mode == VrContentMode.Vr && _uiState.value.vrConfig.contentMode == VrContentMode.Flat) {
+        var newConfig = if (mode == VrContentMode.Vr && _uiState.value.vrConfig.contentMode == VrContentMode.Flat) {
             // When switching from Flat to VR, restore the last saved VR config from prefs
             loadVrConfig(settingsPrefs).copy(contentMode = VrContentMode.Vr)
         } else {
             _uiState.value.vrConfig.copy(contentMode = mode)
         }
-        if (!newConfig.isValid()) return
+
+        // Normalize invalid configurations
+        if (!newConfig.isValid()) {
+            // FlatScreen requires Monoscopic source layout
+            if (newConfig.projection == VrProjection.FlatScreen && newConfig.sourceLayout != VrSourceLayout.Monoscopic) {
+                newConfig = newConfig.copy(sourceLayout = VrSourceLayout.Monoscopic)
+            }
+            // If still invalid, fall back to a safe default
+            if (!newConfig.isValid()) {
+                newConfig = VrPlaybackConfig.youtube360Style().copy(contentMode = mode)
+            }
+        }
+
         persistVrConfig(newConfig)
         _uiState.update { it.copy(vrConfig = newConfig, vrViewAngles = newConfig.defaultViewAngles()) }
     }
