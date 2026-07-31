@@ -2,6 +2,7 @@ package com.example.autosrtplayer.ui
 
 import android.app.Activity
 import android.content.Context
+import android.content.ClipboardManager
 import android.graphics.Color as AndroidColor
 import android.media.AudioManager
 import android.view.WindowManager
@@ -708,6 +709,7 @@ internal fun FullscreenPlayer(
         }
 
         errorMessage?.let { message ->
+            val context = LocalContext.current
             Card(
                 modifier = Modifier
                     .align(Alignment.BottomCenter)
@@ -719,17 +721,35 @@ internal fun FullscreenPlayer(
                     verticalArrangement = Arrangement.spacedBy(8.dp)
                 ) {
                     Text(message, color = MaterialTheme.colorScheme.onErrorContainer)
-                    IconButton(
-                        onClick = onOpenSettings,
-                        modifier = Modifier
-                            .background(androidx.compose.ui.graphics.Color.Black.copy(alpha = 0.45f), shape = MaterialTheme.shapes.small)
-                            .size(40.dp)
+                    Row(
+                        horizontalArrangement = Arrangement.spacedBy(8.dp),
+                        verticalAlignment = Alignment.CenterVertically
                     ) {
-                        Icon(
-                            imageVector = Icons.Filled.Settings,
-                            contentDescription = "前往設定",
-                            tint = androidx.compose.ui.graphics.Color.White
-                        )
+                        Button(
+                            onClick = {
+                                val clipboard = context.getSystemService(Context.CLIPBOARD_SERVICE) as? android.content.ClipboardManager
+                                val clip = android.content.ClipData.newPlainText("錯誤訊息", message)
+                                clipboard?.setPrimaryClip(clip)
+                            },
+                            colors = ButtonDefaults.buttonColors(
+                                containerColor = MaterialTheme.colorScheme.error,
+                                contentColor = MaterialTheme.colorScheme.onError
+                            )
+                        ) {
+                            Text("複製錯誤訊息")
+                        }
+                        IconButton(
+                            onClick = onOpenSettings,
+                            modifier = Modifier
+                                .background(MaterialTheme.colorScheme.error, shape = MaterialTheme.shapes.small)
+                                .size(40.dp)
+                        ) {
+                            Icon(
+                                imageVector = Icons.Filled.Settings,
+                                contentDescription = "前往設定",
+                                tint = MaterialTheme.colorScheme.onError
+                            )
+                        }
                     }
                 }
             }

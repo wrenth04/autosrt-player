@@ -139,6 +139,7 @@ fun rememberVrHeadTrackingState(
                     lifecycle.removeObserver(lifecycleObserver)
                     sensorManager.unregisterListener(listener)
                     state.setRecenterAction(null)
+                    state.cleanup()
                 }
             } else {
                 onDispose { }
@@ -159,12 +160,19 @@ fun rememberVrHeadTrackingState(
 class VrHeadTrackingState {
     private var _offset by mutableStateOf(VrViewAngles(0f, 0f))
     private var _recenterAction: (() -> Unit)? = null
+    private val mainHandler = android.os.Handler(android.os.Looper.getMainLooper())
 
     val offset: VrViewAngles
         get() = _offset
 
     fun update(angles: VrViewAngles) {
-        _offset = angles
+        if (android.os.Looper.myLooper() == android.os.Looper.getMainLooper()) {
+            _offset = angles
+        } else {
+            mainHandler.post {
+                _offset = angles
+            }
+        }
     }
 
     fun recenter() {
@@ -173,6 +181,11 @@ class VrHeadTrackingState {
 
     internal fun setRecenterAction(action: (() -> Unit)?) {
         _recenterAction = action
+    }
+
+    internal fun cleanup() {
+        mainHandler.removeCallbacksAndMessages(null)
+        _recenterAction = null
     }
 }
 

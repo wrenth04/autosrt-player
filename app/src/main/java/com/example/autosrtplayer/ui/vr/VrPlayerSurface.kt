@@ -27,29 +27,52 @@ fun VrPlayerSurface(
     val glView = remember { createGLSurfaceView(context) }
     val renderer = remember { glView.tag as VrRenderer }
     var videoSurface by remember { mutableStateOf<Surface?>(null) }
-    var playerListenerAdded by remember { mutableStateOf(false) }
+    val lifecycle = androidx.lifecycle.compose.LocalLifecycleOwner.current.lifecycle
 
+    // Set up surface-ready callback and GL lifecycle
     DisposableEffect(Unit) {
         renderer.setOnSurfaceReadyListener { surface ->
             videoSurface = surface
+            android.util.Log.d("VrPlayerSurface", "Video surface ready: $surface")
         }
+
+        val lifecycleObserver = androidx.lifecycle.LifecycleEventObserver { _, event ->
+            when (event) {
+                androidx.lifecycle.Lifecycle.Event.ON_PAUSE -> {
+                    glView.onPause()
+                }
+                androidx.lifecycle.Lifecycle.Event.ON_RESUME -> {
+                    glView.onResume()
+                }
+                else -> {}
+            }
+        }
+        lifecycle.addObserver(lifecycleObserver)
+
         onDispose {
+            lifecycle.removeObserver(lifecycleObserver)
             glView.queueEvent {
                 renderer.release()
             }
         }
     }
 
+    // Manage video size listener per player instance
     DisposableEffect(player) {
         val currentPlayer = player
-        if (currentPlayer != null && !playerListenerAdded) {
+        if (currentPlayer != null) {
             val listener = object : androidx.media3.common.Player.Listener {
                 override fun onVideoSizeChanged(videoSize: androidx.media3.common.VideoSize) {
                     val width = videoSize.width
                     val height = videoSize.height
+                    if (width <= 0 || height <= 0) {
+                        android.util.Log.w("VrPlayerSurface", "Invalid video size: ${width}x${height}")
+                        return
+                    }
                     val pixelRatio = if (videoSize.pixelWidthHeightRatio > 0f) videoSize.pixelWidthHeightRatio else 1f
                     val effectiveWidth = width * pixelRatio
-                    val aspectRatio = if (height > 0) effectiveWidth / height else (16f / 9f)
+                    val aspectRatio = effectiveWidth / height
+                    android.util.Log.d("VrPlayerSurface", "Video size changed: ${width}x${height}, aspect=$aspectRatio")
                     glView.queueEvent {
                         renderer.setVideoAspectRatio(aspectRatio)
                         renderer.requestFrameUpdate()
@@ -57,7 +80,6 @@ fun VrPlayerSurface(
                 }
             }
             currentPlayer.addListener(listener)
-            playerListenerAdded = true
 
             // Sync initial video size if already available
             val initialVideoSize = currentPlayer.videoSize
@@ -66,7 +88,7 @@ fun VrPlayerSurface(
                 val height = initialVideoSize.height
                 val pixelRatio = if (initialVideoSize.pixelWidthHeightRatio > 0f) initialVideoSize.pixelWidthHeightRatio else 1f
                 val effectiveWidth = width * pixelRatio
-                val aspectRatio = if (height > 0) effectiveWidth / height else (16f / 9f)
+                val aspectRatio = effectiveWidth / height
                 glView.queueEvent {
                     renderer.setVideoAspectRatio(aspectRatio)
                     renderer.requestFrameUpdate()
@@ -81,19 +103,22 @@ fun VrPlayerSurface(
         }
     }
 
+    // Bind surface to player
     DisposableEffect(player, videoSurface) {
         val surface = videoSurface
-        if (player != null && surface != null) {
+        if (player != null && surface != null && surface.isValid) {
+            android.util.Log.d("VrPlayerSurface", "Binding surface to player")
             player.setVideoSurface(surface)
         }
 
         onDispose {
-            if (surface != null) {
+            if (surface != null && surface.isValid) {
                 player?.clearVideoSurface(surface)
             }
         }
     }
 
+    // Update config and view angles
     DisposableEffect(config, viewAngles) {
         glView.queueEvent {
             renderer.setConfig(config)

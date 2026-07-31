@@ -48,6 +48,8 @@ class VrRenderer : GLSurfaceView.Renderer {
     private var onRequestRender: (() -> Unit)? = null
     @Volatile
     private var frameUpdateNeeded = false
+    @Volatile
+    private var isReleased = false
 
     fun setOnSurfaceReadyListener(listener: (Surface) -> Unit) {
         onSurfaceReady = listener
@@ -76,17 +78,31 @@ class VrRenderer : GLSurfaceView.Renderer {
     }
 
     override fun onSurfaceCreated(gl: GL10?, config: EGLConfig?) {
+        if (isReleased) {
+            android.util.Log.w(TAG, "onSurfaceCreated called on released renderer")
+            return
+        }
+
         GLES20.glClearColor(0f, 0f, 0f, 1f)
         GLES20.glEnable(GLES20.GL_DEPTH_TEST)
 
         textureId = createOESTexture()
+        if (textureId == -1) {
+            android.util.Log.e(TAG, "Failed to create OES texture")
+            return
+        }
+
         program = createShaderProgram()
+        if (program == -1) {
+            android.util.Log.e(TAG, "Failed to create shader program")
+            return
+        }
 
         val linkStatus = IntArray(1)
         GLES20.glGetProgramiv(program, GLES20.GL_LINK_STATUS, linkStatus, 0)
         if (linkStatus[0] == 0) {
             val log = GLES20.glGetProgramInfoLog(program)
-            android.util.Log.e("VrRenderer", "Shader program link failed: $log")
+            android.util.Log.e(TAG, "Shader program link failed: $log")
             GLES20.glDeleteProgram(program)
             program = -1
             return
@@ -96,15 +112,22 @@ class VrRenderer : GLSurfaceView.Renderer {
         generateFlatScreenMesh()
         Matrix.setIdentityM(textureMatrix, 0)
 
-        surfaceTexture = SurfaceTexture(textureId).apply {
-            setOnFrameAvailableListener {
-                frameUpdateNeeded = true
-                onRequestRender?.invoke()
+        try {
+            surfaceTexture = SurfaceTexture(textureId).apply {
+                setOnFrameAvailableListener {
+                    if (!isReleased) {
+                        frameUpdateNeeded = true
+                        onRequestRender?.invoke()
+                    }
+                }
             }
+            videoSurface = Surface(surfaceTexture)
+            android.util.Log.d(TAG, "GL surface created, texture=$textureId")
+            onSurfaceReady?.invoke(videoSurface!!)
+        } catch (e: Exception) {
+            android.util.Log.e(TAG, "Failed to create SurfaceTexture or Surface", e)
+            cleanupGLResources()
         }
-        videoSurface = Surface(surfaceTexture)
-        android.util.Log.d("VrRenderer", "GL surface created, texture=$textureId")
-        onSurfaceReady?.invoke(videoSurface!!)
     }
 
     override fun onSurfaceChanged(gl: GL10?, width: Int, height: Int) {
@@ -113,27 +136,41 @@ class VrRenderer : GLSurfaceView.Renderer {
     }
 
     override fun onDrawFrame(gl: GL10?) {
-        surfaceTexture?.let { st ->
-            if (frameUpdateNeeded) {
-                st.updateTexImage()
-                st.getTransformMatrix(textureMatrix)
-                frameUpdateNeeded = false
+        if (isReleased || program == -1) return
+
+        try {
+            surfaceTexture?.let { st ->
+                if (frameUpdateNeeded) {
+                    st.updateTexImage()
+                    st.getTransformMatrix(textureMatrix)
+                    frameUpdateNeeded = false
+                }
             }
+        } catch (e: Exception) {
+            android.util.Log.e(TAG, "Error updating texture image", e)
+            return
         }
 
         GLES20.glClear(GLES20.GL_COLOR_BUFFER_BIT or GLES20.GL_DEPTH_BUFFER_BIT)
 
-        if (program == -1) return
+        if (viewportWidth <= 0 || viewportHeight <= 0) {
+            android.util.Log.w(TAG, "Invalid viewport dimensions: ${viewportWidth}x${viewportHeight}")
+            return
+        }
 
-        if (VrTextureCalculator.shouldRenderTwoViewports(config.displayOutput)) {
-            renderEye(true, 0, 0, viewportWidth / 2, viewportHeight)
-            renderEye(false, viewportWidth / 2, 0, viewportWidth / 2, viewportHeight)
-        } else {
-            val useLeftEye = when (config.sourceLayout) {
-                VrSourceLayout.Monoscopic -> true
-                VrSourceLayout.SideBySide -> true
+        try {
+            if (VrTextureCalculator.shouldRenderTwoViewports(config.displayOutput)) {
+                renderEye(true, 0, 0, viewportWidth / 2, viewportHeight)
+                renderEye(false, viewportWidth / 2, 0, viewportWidth / 2, viewportHeight)
+            } else {
+                val useLeftEye = when (config.sourceLayout) {
+                    VrSourceLayout.Monoscopic -> true
+                    VrSourceLayout.SideBySide -> true
+                }
+                renderEye(useLeftEye, 0, 0, viewportWidth, viewportHeight)
             }
-            renderEye(useLeftEye, 0, 0, viewportWidth, viewportHeight)
+        } catch (e: Exception) {
+            android.util.Log.e(TAG, "Error during rendering", e)
         }
     }
 
@@ -234,6 +271,10 @@ class VrRenderer : GLSurfaceView.Renderer {
         val textures = IntArray(1)
         GLES20.glGenTextures(1, textures, 0)
         val id = textures[0]
+        if (id == 0) {
+            android.util.Log.e(TAG, "Failed to generate OES texture")
+            return -1
+        }
         GLES20.glBindTexture(GLES11Ext.GL_TEXTURE_EXTERNAL_OES, id)
         GLES20.glTexParameteri(GLES11Ext.GL_TEXTURE_EXTERNAL_OES, GLES20.GL_TEXTURE_MIN_FILTER, GLES20.GL_LINEAR)
         GLES20.glTexParameteri(GLES11Ext.GL_TEXTURE_EXTERNAL_OES, GLES20.GL_TEXTURE_MAG_FILTER, GLES20.GL_LINEAR)
@@ -244,16 +285,43 @@ class VrRenderer : GLSurfaceView.Renderer {
 
     private fun createShaderProgram(): Int {
         val vertexShader = loadShader(GLES20.GL_VERTEX_SHADER, VERTEX_SHADER_CODE)
+        if (vertexShader == 0) {
+            android.util.Log.e(TAG, "Failed to load vertex shader")
+            return -1
+        }
+
         val fragmentShader = loadShader(GLES20.GL_FRAGMENT_SHADER, FRAGMENT_SHADER_CODE)
+        if (fragmentShader == 0) {
+            android.util.Log.e(TAG, "Failed to load fragment shader")
+            GLES20.glDeleteShader(vertexShader)
+            return -1
+        }
+
         val prog = GLES20.glCreateProgram()
+        if (prog == 0) {
+            android.util.Log.e(TAG, "Failed to create shader program")
+            GLES20.glDeleteShader(vertexShader)
+            GLES20.glDeleteShader(fragmentShader)
+            return -1
+        }
+
         GLES20.glAttachShader(prog, vertexShader)
         GLES20.glAttachShader(prog, fragmentShader)
         GLES20.glLinkProgram(prog)
+
+        // Clean up shaders after linking
+        GLES20.glDeleteShader(vertexShader)
+        GLES20.glDeleteShader(fragmentShader)
+
         return prog
     }
 
     private fun loadShader(type: Int, shaderCode: String): Int {
         val shader = GLES20.glCreateShader(type)
+        if (shader == 0) {
+            android.util.Log.e(TAG, "Failed to create shader of type $type")
+            return 0
+        }
         GLES20.glShaderSource(shader, shaderCode)
         GLES20.glCompileShader(shader)
 
@@ -261,7 +329,7 @@ class VrRenderer : GLSurfaceView.Renderer {
         GLES20.glGetShaderiv(shader, GLES20.GL_COMPILE_STATUS, compileStatus, 0)
         if (compileStatus[0] == 0) {
             val log = GLES20.glGetShaderInfoLog(shader)
-            android.util.Log.e("VrRenderer", "Shader compilation failed: $log")
+            android.util.Log.e(TAG, "Shader compilation failed (type=$type): $log")
             GLES20.glDeleteShader(shader)
             return 0
         }
@@ -398,10 +466,27 @@ class VrRenderer : GLSurfaceView.Renderer {
     }
 
     fun release() {
+        if (isReleased) {
+            android.util.Log.d(TAG, "release() called on already released renderer")
+            return
+        }
+        isReleased = true
+        frameUpdateNeeded = false
+        onSurfaceReady = null
+        onRequestRender = null
+
+        android.util.Log.d(TAG, "Releasing VR renderer resources")
+
+        // Release Surface and SurfaceTexture on main thread or GL thread
         videoSurface?.release()
         videoSurface = null
         surfaceTexture?.release()
         surfaceTexture = null
+
+        cleanupGLResources()
+    }
+
+    private fun cleanupGLResources() {
         if (textureId != -1) {
             GLES20.glDeleteTextures(1, intArrayOf(textureId), 0)
             textureId = -1
@@ -410,11 +495,17 @@ class VrRenderer : GLSurfaceView.Renderer {
             GLES20.glDeleteProgram(program)
             program = -1
         }
+        sphereVertexBuffer = null
+        sphereTexCoordBuffer = null
+        flatScreenVertexBuffer = null
+        flatScreenTexCoordBuffer = null
     }
 
     fun getVideoSurface(): Surface? = videoSurface
 
     companion object {
+        private const val TAG = "VrRenderer"
+
         private const val VERTEX_SHADER_CODE = """
             attribute vec4 aPosition;
             attribute vec2 aTexCoord;
