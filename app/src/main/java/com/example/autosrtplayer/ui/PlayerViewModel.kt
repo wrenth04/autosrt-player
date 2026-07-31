@@ -403,11 +403,11 @@ class PlayerViewModel(
         }
     }
 
-    fun deleteDepthModel(modelId: String) {
+    fun deleteDepthModel(model: DepthModel) {
         viewModelScope.launch {
-            depthModelRepository?.deleteModel(modelId)
+            depthModelRepository?.deleteModel(model)
             // If the deleted model was selected, clear the selection
-            if (_uiState.value.selectedDepthModelId == modelId) {
+            if (_uiState.value.selectedDepthModelId == model.id) {
                 settingsPrefs?.edit()?.remove(KeySelectedDepthModel)?.apply()
                 _uiState.update { it.copy(selectedDepthModelId = null) }
             }
@@ -419,9 +419,20 @@ class PlayerViewModel(
         return bytes / (1024f * 1024f)
     }
 
-    fun getDepthModelFilePath(modelId: String?): String? {
-        if (modelId == null) return null
-        return depthModelRepository?.getModelFile(modelId)?.absolutePath
+    /**
+     * Returns the selected depth model object, or null if no model is selected.
+     */
+    fun getSelectedDepthModel(): DepthModel? {
+        val modelId = _uiState.value.selectedDepthModelId ?: return null
+        return depthModelRepository?.getModel(modelId)
+    }
+
+    /**
+     * Returns the file for the selected depth model, or null if not downloaded/validated.
+     */
+    fun getSelectedDepthModelFile(): java.io.File? {
+        val model = getSelectedDepthModel() ?: return null
+        return depthModelRepository?.getModelFile(model)
     }
 
     private fun loadVrConfig(prefs: SharedPreferences?): VrPlaybackConfig {

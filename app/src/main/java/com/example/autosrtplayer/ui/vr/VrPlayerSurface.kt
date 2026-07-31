@@ -20,7 +20,8 @@ import androidx.media3.exoplayer.ExoPlayer
 import com.example.autosrtplayer.ui.VrPlaybackConfig
 import com.example.autosrtplayer.ui.vr.depth.DepthEstimator
 import com.example.autosrtplayer.ui.vr.depth.DepthInput
-import com.example.autosrtplayer.ui.vr.depth.TFLiteDepthEstimator
+import com.example.autosrtplayer.ui.vr.depth.DepthModel
+import com.example.autosrtplayer.ui.vr.depth.OnnxDepthEstimator
 import java.io.File
 import java.nio.ByteBuffer
 import java.nio.ByteOrder
@@ -33,8 +34,8 @@ fun VrPlayerSurface(
     player: ExoPlayer?,
     config: VrPlaybackConfig,
     viewAngles: VrViewAngles,
-    selectedDepthModelId: String?,
-    depthModelFilePath: String?,
+    selectedDepthModel: DepthModel?,
+    depthModelFile: File?,
     modifier: Modifier = Modifier
 ) {
     // Guard: Only proceed if player is valid and has media
@@ -154,22 +155,18 @@ fun VrPlayerSurface(
     }
 
     // Manage depth estimator lifecycle
-    DisposableEffect(selectedDepthModelId, depthModelFilePath, config.depthStereoEnabled) {
+    DisposableEffect(selectedDepthModel, depthModelFile, config.depthStereoEnabled) {
         if (config.depthStereoEnabled &&
             config.isDepthStereoEligible() &&
-            depthModelFilePath != null) {
-            val modelFile = File(depthModelFilePath)
-            if (modelFile.exists()) {
-                try {
-                    val estimator = TFLiteDepthEstimator(context, modelFile)
-                    depthEstimator = estimator
-                    android.util.Log.d("VrPlayerSurface", "Depth estimator initialized")
-                } catch (e: Exception) {
-                    android.util.Log.e("VrPlayerSurface", "Failed to initialize depth estimator", e)
-                    depthEstimator = null
-                }
-            } else {
-                android.util.Log.w("VrPlayerSurface", "Depth model file not found: $depthModelFilePath")
+            selectedDepthModel != null &&
+            depthModelFile != null &&
+            depthModelFile.exists()) {
+            try {
+                val estimator = OnnxDepthEstimator(selectedDepthModel, depthModelFile)
+                depthEstimator = estimator
+                android.util.Log.d("VrPlayerSurface", "ONNX depth estimator initialized for ${selectedDepthModel.name}")
+            } catch (e: Exception) {
+                android.util.Log.e("VrPlayerSurface", "Failed to initialize ONNX depth estimator", e)
                 depthEstimator = null
             }
         } else {
