@@ -186,7 +186,8 @@ class PlayerViewModel(
 
     fun setVrContentMode(mode: VrContentMode) {
         val newConfig = if (mode == VrContentMode.Vr && _uiState.value.vrConfig.contentMode == VrContentMode.Flat) {
-            VrPlaybackConfig.youtube360Style()
+            // When switching from Flat to VR, restore the last saved VR config from prefs
+            loadVrConfig(settingsPrefs).copy(contentMode = VrContentMode.Vr)
         } else {
             _uiState.value.vrConfig.copy(contentMode = mode)
         }
