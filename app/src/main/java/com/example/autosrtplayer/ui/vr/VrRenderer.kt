@@ -176,6 +176,9 @@ class VrRenderer : GLSurfaceView.Renderer {
         val fisheyeFovHandle = GLES20.glGetUniformLocation(program, "uFisheyeFovDegrees")
         GLES20.glUniform1f(fisheyeFovHandle, config.fisheyeFovDegrees)
 
+        val horizontalFovHandle = GLES20.glGetUniformLocation(program, "uHorizontalFovDegrees")
+        GLES20.glUniform1f(horizontalFovHandle, config.getEffectiveHorizontalFovDegrees())
+
         val flipVerticallyHandle = GLES20.glGetUniformLocation(program, "uFlipSourceVertically")
         GLES20.glUniform1i(flipVerticallyHandle, if (config.shouldFlipSourceVertically()) 1 else 0)
 
@@ -354,11 +357,38 @@ class VrRenderer : GLSurfaceView.Renderer {
             uniform int uProjectionType;
             uniform mat4 uTexMatrix;
             uniform float uFisheyeFovDegrees;
+            uniform float uHorizontalFovDegrees;
             uniform int uFlipSourceVertically;
 
+            const float PI = 3.14159265359;
+
             vec2 applyEquirectangular(vec2 coord) {
-                float u = mix(uTexCrop.x, uTexCrop.y, coord.x);
+                float halfFov = uHorizontalFovDegrees * 0.5;
+
+                // For full 360°, use standard equirectangular mapping
+                if (uHorizontalFovDegrees >= 359.0) {
+                    float u = mix(uTexCrop.x, uTexCrop.y, coord.x);
+                    float v = mix(uTexCrop.z, uTexCrop.w, coord.y);
+                    return vec2(u, v);
+                }
+
+                // For custom FOV < 360°, map viewing direction to horizontal angle
+                vec3 dir = normalize(vDirection);
+                float yaw = atan(dir.x, -dir.z);  // Angle relative to forward (-Z)
+                float yawDegrees = degrees(yaw);
+
+                // Discard fragments outside FOV range
+                if (abs(yawDegrees) > halfFov) {
+                    return vec2(-1.0, -1.0);
+                }
+
+                // Map yaw from [-halfFov, +halfFov] to [0, 1]
+                float u = (yawDegrees + halfFov) / uHorizontalFovDegrees;
+                u = mix(uTexCrop.x, uTexCrop.y, u);
+
+                // Keep vertical mapping standard (using vTexCoord.y from sphere)
                 float v = mix(uTexCrop.z, uTexCrop.w, coord.y);
+
                 return vec2(u, v);
             }
 

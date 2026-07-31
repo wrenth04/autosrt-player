@@ -7,7 +7,8 @@ enum class VrContentMode {
 
 enum class VrFieldOfView {
     Fov180,
-    Fov360
+    Fov360,
+    FovCustom
 }
 
 enum class VrSourceLayout {
@@ -51,8 +52,17 @@ data class VrPlaybackConfig(
     val stereoAspectMode: VrStereoAspectMode = VrStereoAspectMode.GlassesCompensated,
     val fisheyeFovDegrees: Float = DEFAULT_FISHEYE_FOV,
     val sourceOrientation: VrSourceOrientation = VrSourceOrientation.Normal,
-    val forwardDirection: VrForwardDirection = VrForwardDirection.RendererDefault
+    val forwardDirection: VrForwardDirection = VrForwardDirection.RendererDefault,
+    val customHorizontalFovDegrees: Float = 180f
 ) {
+    fun getEffectiveHorizontalFovDegrees(): Float {
+        return when (fieldOfView) {
+            VrFieldOfView.Fov180 -> 180f
+            VrFieldOfView.Fov360 -> 360f
+            VrFieldOfView.FovCustom -> customHorizontalFovDegrees.coerceIn(MIN_CUSTOM_FOV, MAX_CUSTOM_FOV)
+        }
+    }
+
     fun isValid(): Boolean {
         if (contentMode == VrContentMode.Flat) return true
 
@@ -66,8 +76,7 @@ data class VrPlaybackConfig(
     fun getMaxYawDegrees(): Float {
         return when {
             projection == VrProjection.Fisheye180 -> fisheyeFovDegrees.coerceIn(MIN_FISHEYE_FOV, MAX_FISHEYE_FOV) / 2f
-            fieldOfView == VrFieldOfView.Fov180 -> 90f
-            else -> 180f
+            else -> getEffectiveHorizontalFovDegrees() / 2f
         }
     }
 
@@ -88,6 +97,8 @@ data class VrPlaybackConfig(
         const val DEFAULT_FISHEYE_FOV = 180f
         const val MIN_FISHEYE_FOV = 160f
         const val MAX_FISHEYE_FOV = 220f
+        const val MIN_CUSTOM_FOV = 180f
+        const val MAX_CUSTOM_FOV = 360f
 
         fun youtube360Style(): VrPlaybackConfig {
             return VrPlaybackConfig(
@@ -125,7 +136,8 @@ data class VrViewAngles(
 ) {
     companion object {
         fun clampForConfig(yaw: Float, pitch: Float, config: VrPlaybackConfig): VrViewAngles {
-            val clampedYaw = if (config.fieldOfView == VrFieldOfView.Fov360 &&
+            val effectiveFov = config.getEffectiveHorizontalFovDegrees()
+            val clampedYaw = if (effectiveFov >= 360f &&
                                   (config.projection == VrProjection.Equirectangular ||
                                    config.projection == VrProjection.Fisheye360Dual)) {
                 normalizeYaw(yaw)
@@ -141,6 +153,7 @@ data class VrViewAngles(
             val clampedYaw = when (fov) {
                 VrFieldOfView.Fov180 -> yaw.coerceIn(-90f, 90f)
                 VrFieldOfView.Fov360 -> normalizeYaw(yaw)
+                VrFieldOfView.FovCustom -> normalizeYaw(yaw)
             }
             val clampedPitch = pitch.coerceIn(-89f, 89f)
             return VrViewAngles(clampedYaw, clampedPitch)

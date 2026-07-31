@@ -31,6 +31,7 @@ import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedTextField
+import androidx.compose.material3.Slider
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
@@ -239,7 +240,8 @@ fun PlayerScreen(
                     onVrStereoAspectModeChange = viewModel::setVrStereoAspectMode,
                     onVrSourceOrientationChange = viewModel::setVrSourceOrientation,
                     onVrForwardDirectionChange = viewModel::setVrForwardDirection,
-                    onVrHeadTrackingEnabledChange = viewModel::setVrHeadTrackingEnabled
+                    onVrHeadTrackingEnabledChange = viewModel::setVrHeadTrackingEnabled,
+                    onVrCustomHorizontalFovChange = viewModel::setVrCustomHorizontalFovDegrees
                 )
             }
             else -> {
@@ -308,7 +310,8 @@ private fun PlayerOptionsScreen(
     onVrStereoAspectModeChange: (VrStereoAspectMode) -> Unit,
     onVrSourceOrientationChange: (VrSourceOrientation) -> Unit,
     onVrForwardDirectionChange: (VrForwardDirection) -> Unit,
-    onVrHeadTrackingEnabledChange: (Boolean) -> Unit
+    onVrHeadTrackingEnabledChange: (Boolean) -> Unit,
+    onVrCustomHorizontalFovChange: (Float) -> Unit
 ) {
     var advancedExpanded by rememberSaveable { mutableStateOf(false) }
     var techInfoExpanded by rememberSaveable { mutableStateOf(false) }
@@ -459,6 +462,48 @@ private fun PlayerOptionsScreen(
                             text = "360°",
                             onClick = { onVrFieldOfViewChange(VrFieldOfView.Fov360) }
                         )
+                        VrOptionButton(
+                            selected = uiState.vrConfig.fieldOfView == VrFieldOfView.FovCustom,
+                            text = "自由",
+                            onClick = { onVrFieldOfViewChange(VrFieldOfView.FovCustom) }
+                        )
+                    }
+
+                    if (uiState.vrConfig.fieldOfView == VrFieldOfView.FovCustom) {
+                        var customFovDraft by rememberSaveable { mutableStateOf(uiState.vrConfig.customHorizontalFovDegrees.toInt().toString()) }
+                        Text("內容水平範圍")
+                        Row(
+                            modifier = Modifier.fillMaxWidth(),
+                            horizontalArrangement = Arrangement.spacedBy(8.dp),
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            Slider(
+                                value = uiState.vrConfig.customHorizontalFovDegrees,
+                                onValueChange = onVrCustomHorizontalFovChange,
+                                valueRange = VrPlaybackConfig.MIN_CUSTOM_FOV..VrPlaybackConfig.MAX_CUSTOM_FOV,
+                                modifier = Modifier.weight(1f)
+                            )
+                            OutlinedTextField(
+                                value = customFovDraft,
+                                onValueChange = { customFovDraft = it },
+                                modifier = Modifier.width(80.dp),
+                                singleLine = true,
+                                keyboardOptions = KeyboardOptions(keyboardType = androidx.compose.ui.text.input.KeyboardType.Number),
+                                keyboardActions = KeyboardActions(
+                                    onDone = {
+                                        val parsed = customFovDraft.toFloatOrNull()
+                                        if (parsed != null) {
+                                            onVrCustomHorizontalFovChange(parsed)
+                                        }
+                                        customFovDraft = uiState.vrConfig.customHorizontalFovDegrees.toInt().toString()
+                                    }
+                                ),
+                                suffix = { Text("°") }
+                            )
+                        }
+                        LaunchedEffect(uiState.vrConfig.customHorizontalFovDegrees) {
+                            customFovDraft = uiState.vrConfig.customHorizontalFovDegrees.toInt().toString()
+                        }
                     }
 
                     Text("來源格式")

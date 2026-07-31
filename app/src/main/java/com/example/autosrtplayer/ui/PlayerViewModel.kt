@@ -58,6 +58,7 @@ class PlayerViewModel(
         private const val KeyVrSourceOrientation = "vr_source_orientation"
         private const val KeyVrForwardDirection = "vr_forward_direction"
         private const val KeyVrHeadTrackingEnabled = "vr_head_tracking_enabled"
+        private const val KeyVrCustomHorizontalFov = "vr_custom_horizontal_fov"
     }
 
     private val _uiState = MutableStateFlow(PlayerUiState())
@@ -287,6 +288,18 @@ class PlayerViewModel(
         _uiState.update { it.copy(isVrHeadTrackingEnabled = enabled) }
     }
 
+    fun setVrCustomHorizontalFovDegrees(degrees: Float) {
+        val clamped = degrees.coerceIn(VrPlaybackConfig.MIN_CUSTOM_FOV, VrPlaybackConfig.MAX_CUSTOM_FOV)
+        val newConfig = _uiState.value.vrConfig.copy(customHorizontalFovDegrees = clamped)
+        persistVrConfig(newConfig)
+        val clampedAngles = VrViewAngles.clampForConfig(
+            _uiState.value.vrViewAngles.yawDegrees,
+            _uiState.value.vrViewAngles.pitchDegrees,
+            newConfig
+        )
+        _uiState.update { it.copy(vrConfig = newConfig, vrViewAngles = clampedAngles) }
+    }
+
     private fun loadVrConfig(prefs: SharedPreferences?): VrPlaybackConfig {
         val contentMode = prefs?.getString(KeyVrContentMode, null).toVrContentMode()
         val fov = prefs?.getString(KeyVrFieldOfView, null).toVrFieldOfView()
@@ -297,6 +310,7 @@ class PlayerViewModel(
         val fisheyeFov = prefs?.getFloat(KeyVrFisheyeFov, VrPlaybackConfig.DEFAULT_FISHEYE_FOV) ?: VrPlaybackConfig.DEFAULT_FISHEYE_FOV
         val sourceOrientation = prefs?.getString(KeyVrSourceOrientation, null).toVrSourceOrientation()
         val forwardDirection = prefs?.getString(KeyVrForwardDirection, null).toVrForwardDirection()
+        val customHorizontalFov = prefs?.getFloat(KeyVrCustomHorizontalFov, 180f) ?: 180f
         return VrPlaybackConfig(
             contentMode = contentMode,
             fieldOfView = fov,
@@ -306,7 +320,8 @@ class PlayerViewModel(
             stereoAspectMode = aspectMode,
             fisheyeFovDegrees = fisheyeFov,
             sourceOrientation = sourceOrientation,
-            forwardDirection = forwardDirection
+            forwardDirection = forwardDirection,
+            customHorizontalFovDegrees = customHorizontalFov
         )
     }
 
@@ -321,6 +336,7 @@ class PlayerViewModel(
             putFloat(KeyVrFisheyeFov, config.fisheyeFovDegrees)
             putString(KeyVrSourceOrientation, config.sourceOrientation.name)
             putString(KeyVrForwardDirection, config.forwardDirection.name)
+            putFloat(KeyVrCustomHorizontalFov, config.customHorizontalFovDegrees)
         }?.apply()
     }
 
