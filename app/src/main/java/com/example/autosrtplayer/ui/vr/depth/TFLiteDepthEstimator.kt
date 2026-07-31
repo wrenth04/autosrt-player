@@ -41,7 +41,7 @@ class TFLiteDepthEstimator(
 
     // Temporal smoothing
     private var previousDepth: ByteArray? = null
-    private val smoothingAlpha = 0.85f // Higher = more responsive, lower = smoother
+    private val smoothingAlpha = 0.92f // Very high smoothing to reduce jitter
 
     // Performance tracking
     private val recentInferenceTimes = mutableListOf<Long>()
