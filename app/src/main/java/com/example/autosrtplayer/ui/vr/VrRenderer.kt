@@ -491,34 +491,44 @@ class VrRenderer : GLSurfaceView.Renderer {
              halfWidth, -halfHeight, z   // bottom-right
         )
 
-        // UV coordinates for the flat screen
-        val texCoords = floatArrayOf(
-            // First triangle
-            0f, 1f,  // bottom-left
-            0f, 0f,  // top-left
-            1f, 0f,  // top-right
-            // Second triangle
-            0f, 1f,  // bottom-left
-            1f, 0f,  // top-right
-            1f, 1f   // bottom-right
-        )
-
         flatScreenVertexCount = vertices.size / 3
-        flatScreenVertexBuffer = ByteBuffer.allocateDirect(vertices.size * 4)
-            .order(ByteOrder.nativeOrder())
-            .asFloatBuffer()
-            .apply {
-                put(vertices)
-                position(0)
-            }
 
-        flatScreenTexCoordBuffer = ByteBuffer.allocateDirect(texCoords.size * 4)
-            .order(ByteOrder.nativeOrder())
-            .asFloatBuffer()
-            .apply {
-                put(texCoords)
-                position(0)
-            }
+        // Allocate vertex buffer once, then reuse it by rewriting vertices
+        val vertexBuf = flatScreenVertexBuffer
+        if (vertexBuf == null || vertexBuf.capacity() < vertices.size) {
+            flatScreenVertexBuffer = ByteBuffer.allocateDirect(vertices.size * 4)
+                .order(ByteOrder.nativeOrder())
+                .asFloatBuffer()
+                .apply {
+                    put(vertices)
+                    position(0)
+                }
+        } else {
+            vertexBuf.clear()
+            vertexBuf.put(vertices)
+            vertexBuf.position(0)
+        }
+
+        // Texture coordinates are invariant; allocate once and reuse
+        if (flatScreenTexCoordBuffer == null) {
+            val texCoords = floatArrayOf(
+                // First triangle
+                0f, 1f,  // bottom-left
+                0f, 0f,  // top-left
+                1f, 0f,  // top-right
+                // Second triangle
+                0f, 1f,  // bottom-left
+                1f, 0f,  // top-right
+                1f, 1f   // bottom-right
+            )
+            flatScreenTexCoordBuffer = ByteBuffer.allocateDirect(texCoords.size * 4)
+                .order(ByteOrder.nativeOrder())
+                .asFloatBuffer()
+                .apply {
+                    put(texCoords)
+                    position(0)
+                }
+        }
     }
 
     fun release() {

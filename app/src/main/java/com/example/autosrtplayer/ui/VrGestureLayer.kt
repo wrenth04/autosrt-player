@@ -7,6 +7,7 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.geometry.Offset
@@ -15,13 +16,46 @@ import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.input.pointer.positionChange
 import androidx.compose.ui.platform.LocalViewConfiguration
 
+/**
+ * Calculate new FlatScreen size percent from a pinch distance delta.
+ * Returns the clamped result within valid range.
+ */
+internal fun calculateFlatScreenSizeFromPinchDelta(
+    currentSizePercent: Float,
+    pinchDistanceDelta: Float
+): Float {
+    val sizeChange = (pinchDistanceDelta / 100f) * 10f
+    return (currentSizePercent + sizeChange).coerceIn(
+        VrPlaybackConfig.MIN_FLAT_SCREEN_SIZE_PERCENT,
+        VrPlaybackConfig.MAX_FLAT_SCREEN_SIZE_PERCENT
+    )
+}
+
+/**
+ * Calculate new camera FOV degrees from a pinch distance delta.
+ * Returns the clamped result within valid range.
+ * Note: pinch-out (positive delta) reduces FOV for zoom-in effect.
+ */
+internal fun calculateCameraFovFromPinchDelta(
+    currentFovDegrees: Float,
+    pinchDistanceDelta: Float
+): Float {
+    val fovChange = (pinchDistanceDelta / 100f) * 5f
+    return (currentFovDegrees - fovChange).coerceIn(
+        VrPlaybackConfig.MIN_VR_CAMERA_FOV,
+        VrPlaybackConfig.MAX_VR_CAMERA_FOV
+    )
+}
+
 @Composable
 internal fun VrGestureLayer(
     manualViewAngles: VrViewAngles,
     vrConfig: VrPlaybackConfig,
     onVrViewDrag: (Float, Float) -> Unit,
     onVrFlatScreenSizeChange: (Float) -> Unit,
+    onVrFlatScreenSizeChangeFinished: (Float) -> Unit,
     onVrCameraFovChange: (Float) -> Unit,
+    onVrCameraFovChangeFinished: (Float) -> Unit,
     onToggleControls: () -> Unit,
     modifier: Modifier = Modifier
 ) {
@@ -29,6 +63,16 @@ internal fun VrGestureLayer(
     var latestYaw by remember { mutableStateOf(manualViewAngles.yawDegrees) }
     var latestPitch by remember { mutableStateOf(manualViewAngles.pitchDegrees) }
     val isFlatScreen = vrConfig.projection == VrProjection.FlatScreen
+
+    // Use rememberUpdatedState so the pointer coroutine always sees the current
+    // configuration and callbacks without restarting on every config update
+    val currentConfig by rememberUpdatedState(vrConfig)
+    val currentViewDrag by rememberUpdatedState(onVrViewDrag)
+    val currentFlatSizeChange by rememberUpdatedState(onVrFlatScreenSizeChange)
+    val currentFlatSizeFinished by rememberUpdatedState(onVrFlatScreenSizeChangeFinished)
+    val currentCameraFovChange by rememberUpdatedState(onVrCameraFovChange)
+    val currentCameraFovFinished by rememberUpdatedState(onVrCameraFovChangeFinished)
+    val currentToggleControls by rememberUpdatedState(onToggleControls)
 
     if (manualViewAngles.yawDegrees != latestYaw || manualViewAngles.pitchDegrees != latestPitch) {
         latestYaw = manualViewAngles.yawDegrees
@@ -47,7 +91,23 @@ internal fun VrGestureLayer(
                 var isDragging = false
                 var hasMultiplePointers = false
                 var lastPinchDistance: Float? = null
+                var pinchValue: Float? = null
                 var isPinching = false
+
+                fun finishPinch() {
+                    val finalValue = pinchValue
+                    if (finalValue != null) {
+                        // Commit the final gesture value only if a real pinch occurred
+                        if (currentConfig.projection == VrProjection.FlatScreen) {
+                            currentFlatSizeFinished(finalValue)
+                        } else {
+                            currentCameraFovFinished(finalValue)
+                        }
+                    }
+                    isPinching = false
+                    lastPinchDistance = null
+                    pinchValue = null
+                }
 
                 while (true) {
                     val event = awaitPointerEvent(pass = PointerEventPass.Main)
@@ -60,49 +120,65 @@ internal fun VrGestureLayer(
                             val currentDistance = (first.position - second.position).getDistance()
 
                             if (!isPinching) {
+                                // Initialize pinch with current configuration value
                                 isPinching = true
                                 lastPinchDistance = currentDistance
+                                pinchValue = if (currentConfig.projection == VrProjection.FlatScreen) {
+                                    currentConfig.flatScreenSizePercent
+                                } else {
+                                    currentConfig.vrCameraFovDegrees
+                                }
                             } else {
                                 val previousDistance = lastPinchDistance ?: currentDistance
                                 val distanceChange = currentDistance - previousDistance
-
-                                if (isFlatScreen) {
-                                    val sizeChange = (distanceChange / 100f) * 10f
-                                    val newSize = (vrConfig.flatScreenSizePercent + sizeChange).coerceIn(
-                                        VrPlaybackConfig.MIN_FLAT_SCREEN_SIZE_PERCENT,
-                                        VrPlaybackConfig.MAX_FLAT_SCREEN_SIZE_PERCENT
-                                    )
-                                    onVrFlatScreenSizeChange(newSize)
-                                } else {
-                                    val fovChange = (distanceChange / 100f) * 5f
-                                    val newFov = (vrConfig.vrCameraFovDegrees - fovChange).coerceIn(
-                                        VrPlaybackConfig.MIN_VR_CAMERA_FOV,
-                                        VrPlaybackConfig.MAX_VR_CAMERA_FOV
-                                    )
-                                    onVrCameraFovChange(newFov)
+                                val currentPinchValue = pinchValue ?: run {
+                                    // Fallback if pinchValue wasn't initialized
+                                    if (currentConfig.projection == VrProjection.FlatScreen) {
+                                        currentConfig.flatScreenSizePercent
+                                    } else {
+                                        currentConfig.vrCameraFovDegrees
+                                    }
                                 }
+
+                                val newValue = if (currentConfig.projection == VrProjection.FlatScreen) {
+                                    calculateFlatScreenSizeFromPinchDelta(currentPinchValue, distanceChange)
+                                } else {
+                                    calculateCameraFovFromPinchDelta(currentPinchValue, distanceChange)
+                                }
+
+                                pinchValue = newValue
                                 lastPinchDistance = currentDistance
+
+                                // Send transient update
+                                if (currentConfig.projection == VrProjection.FlatScreen) {
+                                    currentFlatSizeChange(newValue)
+                                } else {
+                                    currentCameraFovChange(newValue)
+                                }
+
                                 first.consume()
                                 second.consume()
                             }
                         }
                     } else {
-                        // Finger count changed away from two — reset pinch state so the next
-                        // two-finger gesture starts from a clean baseline instead of jumping.
+                        // Finger count changed away from two
                         if (isPinching) {
-                            isPinching = false
-                            lastPinchDistance = null
+                            finishPinch()
                         }
                     }
 
                     // Find the change matching our tracked pointer
                     val change = event.changes.find { it.id == trackingPointerId }
 
-                    // If our tracked pointer is gone or cancelled, abort gesture
+                    // If our tracked pointer is gone or cancelled, end gesture
                     if (change == null || !change.pressed) {
+                        // Commit any active pinch first
+                        if (isPinching) {
+                            finishPinch()
+                        }
                         // Only toggle if this was a clean single-finger tap (no pinching, no dragging, no multi-touch)
-                        if (change != null && !hasMultiplePointers && !isDragging && !isPinching && totalDrag.getDistance() <= touchSlop) {
-                            onToggleControls()
+                        if (change != null && !hasMultiplePointers && !isDragging && totalDrag.getDistance() <= touchSlop) {
+                            currentToggleControls()
                         }
                         break
                     }
@@ -121,7 +197,7 @@ internal fun VrGestureLayer(
                         val pitchDelta = -(drag.y / screenHeight) * 180f
                         latestYaw += yawDelta
                         latestPitch += pitchDelta
-                        onVrViewDrag(latestYaw, latestPitch)
+                        currentViewDrag(latestYaw, latestPitch)
                     }
                 }
             }
