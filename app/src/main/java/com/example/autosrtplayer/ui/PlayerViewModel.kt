@@ -337,12 +337,13 @@ class PlayerViewModel(
         val projection = prefs?.getString(KeyVrProjection, null).toVrProjection()
         val output = prefs?.getString(KeyVrDisplayOutput, null).toVrDisplayOutput()
         val aspectMode = prefs?.getString(KeyVrStereoAspectMode, null).toVrStereoAspectMode()
-        val fisheyeFov = prefs?.getFloat(KeyVrFisheyeFov, VrPlaybackConfig.DEFAULT_FISHEYE_FOV) ?: VrPlaybackConfig.DEFAULT_FISHEYE_FOV
+        val fisheyeFov = prefs?.getFloat(KeyVrFisheyeFov, VrPlaybackConfig.DEFAULT_FISHEYE_FOV)?.takeIf { it.isFinite() } ?: VrPlaybackConfig.DEFAULT_FISHEYE_FOV
         val sourceOrientation = prefs?.getString(KeyVrSourceOrientation, null).toVrSourceOrientation()
         val forwardDirection = prefs?.getString(KeyVrForwardDirection, null).toVrForwardDirection()
-        val customHorizontalFov = prefs?.getFloat(KeyVrCustomHorizontalFov, 180f) ?: 180f
-        val stereoParallaxPercent = prefs?.getFloat(KeyVrStereoParallaxPercent, VrPlaybackConfig.DEFAULT_STEREO_PARALLAX_PERCENT) ?: VrPlaybackConfig.DEFAULT_STEREO_PARALLAX_PERCENT
-        return VrPlaybackConfig(
+        val customHorizontalFov = prefs?.getFloat(KeyVrCustomHorizontalFov, 180f)?.takeIf { it.isFinite() } ?: 180f
+        val stereoParallaxPercent = prefs?.getFloat(KeyVrStereoParallaxPercent, VrPlaybackConfig.DEFAULT_STEREO_PARALLAX_PERCENT)?.takeIf { it.isFinite() } ?: VrPlaybackConfig.DEFAULT_STEREO_PARALLAX_PERCENT
+
+        var config = VrPlaybackConfig(
             contentMode = contentMode,
             fieldOfView = fov,
             sourceLayout = layout,
@@ -355,6 +356,25 @@ class PlayerViewModel(
             customHorizontalFovDegrees = customHorizontalFov,
             stereoParallaxPercent = stereoParallaxPercent
         )
+
+        // Normalize invalid config: FlatScreen requires Monoscopic
+        if (!config.isValid()) {
+            android.util.Log.w("PlayerViewModel", "Invalid VR config loaded, attempting normalization")
+            if (config.projection == VrProjection.FlatScreen && config.sourceLayout != VrSourceLayout.Monoscopic) {
+                config = config.copy(sourceLayout = VrSourceLayout.Monoscopic)
+                android.util.Log.i("PlayerViewModel", "Normalized FlatScreen to Monoscopic layout")
+            }
+
+            // If still invalid, reset to safe default
+            if (!config.isValid()) {
+                android.util.Log.w("PlayerViewModel", "Config still invalid after normalization, resetting to default")
+                config = VrPlaybackConfig()
+                // Persist corrected config to prevent future load failures
+                persistVrConfig(config)
+            }
+        }
+
+        return config
     }
 
     private fun persistVrConfig(config: VrPlaybackConfig) {

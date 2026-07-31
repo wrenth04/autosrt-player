@@ -27,30 +27,20 @@ fun VrPlayerSurface(
     val glView = remember { createGLSurfaceView(context) }
     val renderer = remember { glView.tag as VrRenderer }
     var videoSurface by remember { mutableStateOf<Surface?>(null) }
-    val lifecycle = androidx.lifecycle.compose.LocalLifecycleOwner.current.lifecycle
+    val mainHandler = remember { android.os.Handler(android.os.Looper.getMainLooper()) }
 
-    // Set up surface-ready callback and GL lifecycle
+    // Set up surface-ready callback
     DisposableEffect(Unit) {
         renderer.setOnSurfaceReadyListener { surface ->
-            videoSurface = surface
-            android.util.Log.d("VrPlayerSurface", "Video surface ready: $surface")
-        }
-
-        val lifecycleObserver = androidx.lifecycle.LifecycleEventObserver { _, event ->
-            when (event) {
-                androidx.lifecycle.Lifecycle.Event.ON_PAUSE -> {
-                    glView.onPause()
-                }
-                androidx.lifecycle.Lifecycle.Event.ON_RESUME -> {
-                    glView.onResume()
-                }
-                else -> {}
+            // Post to main thread to update Compose state safely
+            mainHandler.post {
+                videoSurface = surface
+                android.util.Log.d("VrPlayerSurface", "Video surface ready: $surface")
             }
         }
-        lifecycle.addObserver(lifecycleObserver)
 
         onDispose {
-            lifecycle.removeObserver(lifecycleObserver)
+            mainHandler.removeCallbacksAndMessages(null)
             glView.queueEvent {
                 renderer.release()
             }
