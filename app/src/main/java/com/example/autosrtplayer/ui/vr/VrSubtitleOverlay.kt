@@ -19,6 +19,8 @@ import androidx.media3.ui.CaptionStyleCompat
 import androidx.media3.ui.SubtitleView
 import com.example.autosrtplayer.ui.VrDisplayOutput
 import com.example.autosrtplayer.ui.VrPlaybackConfig
+import com.example.autosrtplayer.ui.VrProjection
+import com.example.autosrtplayer.ui.VrTextureCalculator
 
 @Composable
 fun VrSubtitleOverlay(
@@ -28,8 +30,22 @@ fun VrSubtitleOverlay(
 ) {
     val context = LocalContext.current
     val isSbsMode = config.displayOutput == VrDisplayOutput.SbsGlasses
+    val isFlatScreen = config.projection == VrProjection.FlatScreen
 
     if (isSbsMode) {
+        // Calculate subtitle offset based on projection type
+        val (leftPaddingDp, rightPaddingDp) = if (isFlatScreen) {
+            // FlatScreen: use parallax-based offset
+            val parallaxOffset = VrTextureCalculator.calculateParallaxOffset(config.stereoParallaxPercent, isLeftEye = true)
+            // Convert UV offset (fraction of width) to approximate dp offset
+            // This is viewer-locked, so it's a rough mapping for visual consistency
+            val offsetDp = (parallaxOffset * 200f).dp  // Scale factor for readability
+            Pair(offsetDp, -offsetDp)
+        } else {
+            // Panoramic VR: use fixed stereo depth offset
+            Pair(24.dp, 24.dp)
+        }
+
         // SBS mode: render two independent subtitle overlays side by side
         androidx.compose.foundation.layout.Row(
             modifier = modifier
@@ -62,7 +78,7 @@ fun VrSubtitleOverlay(
                     factory = { leftView },
                     modifier = Modifier
                         .fillMaxSize()
-                        .padding(start = 24.dp) // Stereo depth offset
+                        .padding(start = leftPaddingDp)
                 )
             }
 
@@ -94,7 +110,7 @@ fun VrSubtitleOverlay(
                     factory = { rightView },
                     modifier = Modifier
                         .fillMaxSize()
-                        .padding(end = 24.dp) // Stereo depth offset
+                        .padding(end = rightPaddingDp)
                 )
             }
         }

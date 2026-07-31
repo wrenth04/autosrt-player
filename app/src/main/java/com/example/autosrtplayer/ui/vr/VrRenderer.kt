@@ -28,6 +28,11 @@ class VrRenderer : GLSurfaceView.Renderer {
     private var sphereTexCoordBuffer: FloatBuffer? = null
     private var sphereVertexCount: Int = 0
 
+    private var flatScreenVertexBuffer: FloatBuffer? = null
+    private var flatScreenTexCoordBuffer: FloatBuffer? = null
+    private var flatScreenVertexCount: Int = 0
+    private var videoAspectRatio: Float = 16f / 9f
+
     private var config: VrPlaybackConfig = VrPlaybackConfig()
     private var viewAngles: VrViewAngles = VrViewAngles()
     private var viewportWidth: Int = 1
@@ -60,6 +65,11 @@ class VrRenderer : GLSurfaceView.Renderer {
         viewAngles = angles
     }
 
+    fun setVideoAspectRatio(aspectRatio: Float) {
+        videoAspectRatio = aspectRatio.coerceAtLeast(0.1f)
+        generateFlatScreenMesh()
+    }
+
     fun requestFrameUpdate() {
         frameUpdateNeeded = true
         onRequestRender?.invoke()
@@ -83,6 +93,7 @@ class VrRenderer : GLSurfaceView.Renderer {
         }
 
         generateSphereMesh()
+        generateFlatScreenMesh()
         Matrix.setIdentityM(textureMatrix, 0)
 
         surfaceTexture = SurfaceTexture(textureId).apply {
@@ -150,7 +161,13 @@ class VrRenderer : GLSurfaceView.Renderer {
         Matrix.multiplyMM(temp, 0, viewMatrix, 0, modelMatrix, 0)
         Matrix.multiplyMM(mvpMatrix, 0, projectionMatrix, 0, temp, 0)
 
-        val crop = VrTextureCalculator.calculateEyeCrop(config.sourceLayout, isLeftEye)
+        val baseCrop = VrTextureCalculator.calculateEyeCrop(config.sourceLayout, isLeftEye)
+        val crop = if (config.projection == VrProjection.FlatScreen) {
+            val parallaxOffset = VrTextureCalculator.calculateParallaxOffset(config.stereoParallaxPercent, isLeftEye)
+            VrTextureCalculator.applyParallaxToCrop(baseCrop, parallaxOffset)
+        } else {
+            baseCrop
+        }
 
         GLES20.glUseProgram(program)
 
@@ -170,6 +187,7 @@ class VrRenderer : GLSurfaceView.Renderer {
             VrProjection.Equirectangular -> 0
             VrProjection.Fisheye180 -> 1
             VrProjection.Fisheye360Dual -> 2
+            VrProjection.FlatScreen -> 3
         }
         GLES20.glUniform1i(projectionTypeHandle, projectionType)
 
@@ -186,19 +204,26 @@ class VrRenderer : GLSurfaceView.Renderer {
         GLES20.glBindTexture(GLES11Ext.GL_TEXTURE_EXTERNAL_OES, textureId)
         GLES20.glUniform1i(textureHandle, 0)
 
-        sphereVertexBuffer?.let { vb ->
+        // Use flat screen mesh for FlatScreen projection, sphere mesh otherwise
+        val (vertexBuffer, texCoordBuffer, vertexCount) = if (config.projection == VrProjection.FlatScreen) {
+            Triple(flatScreenVertexBuffer, flatScreenTexCoordBuffer, flatScreenVertexCount)
+        } else {
+            Triple(sphereVertexBuffer, sphereTexCoordBuffer, sphereVertexCount)
+        }
+
+        vertexBuffer?.let { vb ->
             vb.position(0)
             GLES20.glEnableVertexAttribArray(positionHandle)
             GLES20.glVertexAttribPointer(positionHandle, 3, GLES20.GL_FLOAT, false, 0, vb)
         }
 
-        sphereTexCoordBuffer?.let { tb ->
+        texCoordBuffer?.let { tb ->
             tb.position(0)
             GLES20.glEnableVertexAttribArray(texCoordHandle)
             GLES20.glVertexAttribPointer(texCoordHandle, 2, GLES20.GL_FLOAT, false, 0, tb)
         }
 
-        GLES20.glDrawArrays(GLES20.GL_TRIANGLES, 0, sphereVertexCount)
+        GLES20.glDrawArrays(GLES20.GL_TRIANGLES, 0, vertexCount)
 
         GLES20.glDisableVertexAttribArray(positionHandle)
         GLES20.glDisableVertexAttribArray(texCoordHandle)
@@ -314,6 +339,61 @@ class VrRenderer : GLSurfaceView.Renderer {
         val u = phi / (2f * Math.PI.toFloat())
         val v = theta / Math.PI.toFloat()
         return floatArrayOf(u, v)
+    }
+
+    private fun generateFlatScreenMesh() {
+        // Create a flat screen mesh positioned in front of the camera
+        // The screen is placed at z = -3.0, with height = 2.0
+        // Width is calculated based on video aspect ratio
+        val screenDistance = 3f
+        val screenHeight = 2f
+        val screenWidth = screenHeight * videoAspectRatio
+
+        val halfWidth = screenWidth / 2f
+        val halfHeight = screenHeight / 2f
+        val z = -screenDistance
+
+        // Two triangles forming a rectangle, facing the camera (+Z direction)
+        // Vertices in counter-clockwise order when viewed from camera
+        val vertices = floatArrayOf(
+            // First triangle
+            -halfWidth, -halfHeight, z,  // bottom-left
+            -halfWidth,  halfHeight, z,  // top-left
+             halfWidth,  halfHeight, z,  // top-right
+            // Second triangle
+            -halfWidth, -halfHeight, z,  // bottom-left
+             halfWidth,  halfHeight, z,  // top-right
+             halfWidth, -halfHeight, z   // bottom-right
+        )
+
+        // UV coordinates for the flat screen
+        val texCoords = floatArrayOf(
+            // First triangle
+            0f, 1f,  // bottom-left
+            0f, 0f,  // top-left
+            1f, 0f,  // top-right
+            // Second triangle
+            0f, 1f,  // bottom-left
+            1f, 0f,  // top-right
+            1f, 1f   // bottom-right
+        )
+
+        flatScreenVertexCount = vertices.size / 3
+        flatScreenVertexBuffer = ByteBuffer.allocateDirect(vertices.size * 4)
+            .order(ByteOrder.nativeOrder())
+            .asFloatBuffer()
+            .apply {
+                put(vertices)
+                position(0)
+            }
+
+        flatScreenTexCoordBuffer = ByteBuffer.allocateDirect(texCoords.size * 4)
+            .order(ByteOrder.nativeOrder())
+            .asFloatBuffer()
+            .apply {
+                put(texCoords)
+                position(0)
+            }
     }
 
     fun release() {
@@ -437,8 +517,13 @@ class VrRenderer : GLSurfaceView.Renderer {
                     coord = applyEquirectangular(vTexCoord);
                 } else if (uProjectionType == 1) {
                     coord = applyFisheye180(vDirection);
-                } else {
+                } else if (uProjectionType == 2) {
                     coord = applyFisheye360Dual(vTexCoord);
+                } else {
+                    // uProjectionType == 3: FlatScreen - direct UV mapping
+                    float u = mix(uTexCrop.x, uTexCrop.y, vTexCoord.x);
+                    float v = mix(uTexCrop.z, uTexCrop.w, vTexCoord.y);
+                    coord = vec2(u, v);
                 }
 
                 if (coord.x < 0.0) discard;

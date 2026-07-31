@@ -19,7 +19,8 @@ enum class VrSourceLayout {
 enum class VrProjection {
     Equirectangular,
     Fisheye180,
-    Fisheye360Dual
+    Fisheye360Dual,
+    FlatScreen
 }
 
 enum class VrDisplayOutput {
@@ -53,7 +54,8 @@ data class VrPlaybackConfig(
     val fisheyeFovDegrees: Float = DEFAULT_FISHEYE_FOV,
     val sourceOrientation: VrSourceOrientation = VrSourceOrientation.Normal,
     val forwardDirection: VrForwardDirection = VrForwardDirection.RendererDefault,
-    val customHorizontalFovDegrees: Float = 180f
+    val customHorizontalFovDegrees: Float = 180f,
+    val stereoParallaxPercent: Float = DEFAULT_STEREO_PARALLAX_PERCENT
 ) {
     fun getEffectiveHorizontalFovDegrees(): Float {
         return when (fieldOfView) {
@@ -70,13 +72,22 @@ data class VrPlaybackConfig(
             VrProjection.Fisheye180 -> fieldOfView == VrFieldOfView.Fov180
             VrProjection.Fisheye360Dual -> fieldOfView == VrFieldOfView.Fov360
             VrProjection.Equirectangular -> true
+            VrProjection.FlatScreen -> sourceLayout == VrSourceLayout.Monoscopic
         }
     }
 
     fun getMaxYawDegrees(): Float {
         return when {
+            projection == VrProjection.FlatScreen -> FLAT_SCREEN_MAX_YAW
             projection == VrProjection.Fisheye180 -> fisheyeFovDegrees.coerceIn(MIN_FISHEYE_FOV, MAX_FISHEYE_FOV) / 2f
             else -> getEffectiveHorizontalFovDegrees() / 2f
+        }
+    }
+
+    fun getMaxPitchDegrees(): Float {
+        return when (projection) {
+            VrProjection.FlatScreen -> FLAT_SCREEN_MAX_PITCH
+            else -> 89f
         }
     }
 
@@ -99,6 +110,13 @@ data class VrPlaybackConfig(
         const val MAX_FISHEYE_FOV = 220f
         const val MIN_CUSTOM_FOV = 180f
         const val MAX_CUSTOM_FOV = 360f
+
+        const val MIN_STEREO_PARALLAX_PERCENT = 0f
+        const val DEFAULT_STEREO_PARALLAX_PERCENT = 1.5f
+        const val MAX_STEREO_PARALLAX_PERCENT = 5f
+
+        const val FLAT_SCREEN_MAX_YAW = 100f
+        const val FLAT_SCREEN_MAX_PITCH = 75f
 
         fun youtube360Style(): VrPlaybackConfig {
             return VrPlaybackConfig(
@@ -127,6 +145,22 @@ data class VrPlaybackConfig(
                 forwardDirection = VrForwardDirection.RendererDefault
             )
         }
+
+        fun pseudoVrSbs(): VrPlaybackConfig {
+            return VrPlaybackConfig(
+                contentMode = VrContentMode.Vr,
+                fieldOfView = VrFieldOfView.Fov360,
+                sourceLayout = VrSourceLayout.Monoscopic,
+                projection = VrProjection.FlatScreen,
+                displayOutput = VrDisplayOutput.SbsGlasses,
+                stereoAspectMode = VrStereoAspectMode.GlassesCompensated,
+                fisheyeFovDegrees = DEFAULT_FISHEYE_FOV,
+                sourceOrientation = VrSourceOrientation.Normal,
+                forwardDirection = VrForwardDirection.RendererDefault,
+                customHorizontalFovDegrees = 180f,
+                stereoParallaxPercent = DEFAULT_STEREO_PARALLAX_PERCENT
+            )
+        }
     }
 }
 
@@ -145,7 +179,8 @@ data class VrViewAngles(
                 val maxYaw = config.getMaxYawDegrees()
                 yaw.coerceIn(-maxYaw, maxYaw)
             }
-            val clampedPitch = pitch.coerceIn(-89f, 89f)
+            val maxPitch = config.getMaxPitchDegrees()
+            val clampedPitch = pitch.coerceIn(-maxPitch, maxPitch)
             return VrViewAngles(clampedYaw, clampedPitch)
         }
 
@@ -190,6 +225,32 @@ object VrTextureCalculator {
                 }
             }
         }
+    }
+
+    /**
+     * Calculate parallax offset for pseudo-VR stereo effect.
+     * Returns horizontal UV offset; left eye gets negative, right eye gets positive.
+     * The offset is clamped to prevent sampling outside [0, 1] range.
+     */
+    fun calculateParallaxOffset(
+        stereoParallaxPercent: Float,
+        isLeftEye: Boolean
+    ): Float {
+        val clampedPercent = stereoParallaxPercent.coerceIn(
+            VrPlaybackConfig.MIN_STEREO_PARALLAX_PERCENT,
+            VrPlaybackConfig.MAX_STEREO_PARALLAX_PERCENT
+        )
+        val halfOffset = (clampedPercent / 100f) / 2f
+        return if (isLeftEye) -halfOffset else halfOffset
+    }
+
+    /**
+     * Apply parallax offset to a base crop, ensuring result stays within [0, 1].
+     */
+    fun applyParallaxToCrop(baseCrop: TextureCrop, parallaxOffset: Float): TextureCrop {
+        val newUMin = (baseCrop.uMin + parallaxOffset).coerceIn(0f, 1f)
+        val newUMax = (baseCrop.uMax + parallaxOffset).coerceIn(0f, 1f)
+        return TextureCrop(newUMin, newUMax, baseCrop.vMin, baseCrop.vMax)
     }
 
     fun shouldRenderTwoViewports(displayOutput: VrDisplayOutput): Boolean {

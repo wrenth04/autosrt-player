@@ -59,6 +59,7 @@ class PlayerViewModel(
         private const val KeyVrForwardDirection = "vr_forward_direction"
         private const val KeyVrHeadTrackingEnabled = "vr_head_tracking_enabled"
         private const val KeyVrCustomHorizontalFov = "vr_custom_horizontal_fov"
+        private const val KeyVrStereoParallaxPercent = "vr_stereo_parallax_percent"
     }
 
     private val _uiState = MutableStateFlow(PlayerUiState())
@@ -212,7 +213,11 @@ class PlayerViewModel(
     }
 
     fun setVrProjection(projection: VrProjection) {
-        val newConfig = _uiState.value.vrConfig.copy(projection = projection)
+        var newConfig = _uiState.value.vrConfig.copy(projection = projection)
+        // FlatScreen requires Monoscopic source layout
+        if (projection == VrProjection.FlatScreen && newConfig.sourceLayout != VrSourceLayout.Monoscopic) {
+            newConfig = newConfig.copy(sourceLayout = VrSourceLayout.Monoscopic)
+        }
         if (!newConfig.isValid()) return
         persistVrConfig(newConfig)
         _uiState.update { it.copy(vrConfig = newConfig, vrViewAngles = newConfig.defaultViewAngles()) }
@@ -259,6 +264,19 @@ class PlayerViewModel(
         val newConfig = VrPlaybackConfig.sbs180Fisheye()
         persistVrConfig(newConfig)
         _uiState.update { it.copy(vrConfig = newConfig, vrViewAngles = newConfig.defaultViewAngles()) }
+    }
+
+    fun applyPseudoVrSbsPreset() {
+        val newConfig = VrPlaybackConfig.pseudoVrSbs()
+        persistVrConfig(newConfig)
+        _uiState.update { it.copy(vrConfig = newConfig, vrViewAngles = newConfig.defaultViewAngles()) }
+    }
+
+    fun setVrStereoParallaxPercent(percent: Float) {
+        val clamped = percent.coerceIn(VrPlaybackConfig.MIN_STEREO_PARALLAX_PERCENT, VrPlaybackConfig.MAX_STEREO_PARALLAX_PERCENT)
+        val newConfig = _uiState.value.vrConfig.copy(stereoParallaxPercent = clamped)
+        persistVrConfig(newConfig)
+        _uiState.update { it.copy(vrConfig = newConfig) }
     }
 
     fun setFisheyeFovDegrees(degrees: Float) {
@@ -311,6 +329,7 @@ class PlayerViewModel(
         val sourceOrientation = prefs?.getString(KeyVrSourceOrientation, null).toVrSourceOrientation()
         val forwardDirection = prefs?.getString(KeyVrForwardDirection, null).toVrForwardDirection()
         val customHorizontalFov = prefs?.getFloat(KeyVrCustomHorizontalFov, 180f) ?: 180f
+        val stereoParallaxPercent = prefs?.getFloat(KeyVrStereoParallaxPercent, VrPlaybackConfig.DEFAULT_STEREO_PARALLAX_PERCENT) ?: VrPlaybackConfig.DEFAULT_STEREO_PARALLAX_PERCENT
         return VrPlaybackConfig(
             contentMode = contentMode,
             fieldOfView = fov,
@@ -321,7 +340,8 @@ class PlayerViewModel(
             fisheyeFovDegrees = fisheyeFov,
             sourceOrientation = sourceOrientation,
             forwardDirection = forwardDirection,
-            customHorizontalFovDegrees = customHorizontalFov
+            customHorizontalFovDegrees = customHorizontalFov,
+            stereoParallaxPercent = stereoParallaxPercent
         )
     }
 
@@ -337,6 +357,7 @@ class PlayerViewModel(
             putString(KeyVrSourceOrientation, config.sourceOrientation.name)
             putString(KeyVrForwardDirection, config.forwardDirection.name)
             putFloat(KeyVrCustomHorizontalFov, config.customHorizontalFovDegrees)
+            putFloat(KeyVrStereoParallaxPercent, config.stereoParallaxPercent)
         }?.apply()
     }
 
@@ -928,7 +949,7 @@ private fun String?.toVrFieldOfView(): VrFieldOfView {
 private fun String?.toVrSourceLayout(): VrSourceLayout {
     return runCatching {
         VrSourceLayout.valueOf(this.orEmpty())
-    }.getOrDefault(VrSourceLayout.SideBySide)
+    }.getOrDefault(VrSourceLayout.Monoscopic)
 }
 
 private fun String?.toVrProjection(): VrProjection {

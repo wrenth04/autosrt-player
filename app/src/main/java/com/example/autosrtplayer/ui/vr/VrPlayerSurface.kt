@@ -27,6 +27,7 @@ fun VrPlayerSurface(
     val glView = remember { createGLSurfaceView(context) }
     val renderer = remember { glView.tag as VrRenderer }
     var videoSurface by remember { mutableStateOf<Surface?>(null) }
+    var playerListenerAdded by remember { mutableStateOf(false) }
 
     DisposableEffect(Unit) {
         renderer.setOnSurfaceReadyListener { surface ->
@@ -36,6 +37,47 @@ fun VrPlayerSurface(
             glView.queueEvent {
                 renderer.release()
             }
+        }
+    }
+
+    DisposableEffect(player) {
+        val currentPlayer = player
+        if (currentPlayer != null && !playerListenerAdded) {
+            val listener = object : androidx.media3.common.Player.Listener {
+                override fun onVideoSizeChanged(videoSize: androidx.media3.common.VideoSize) {
+                    val width = videoSize.width
+                    val height = videoSize.height
+                    val pixelRatio = if (videoSize.pixelWidthHeightRatio > 0f) videoSize.pixelWidthHeightRatio else 1f
+                    val effectiveWidth = width * pixelRatio
+                    val aspectRatio = if (height > 0) effectiveWidth / height else (16f / 9f)
+                    glView.queueEvent {
+                        renderer.setVideoAspectRatio(aspectRatio)
+                        renderer.requestFrameUpdate()
+                    }
+                }
+            }
+            currentPlayer.addListener(listener)
+            playerListenerAdded = true
+
+            // Sync initial video size if already available
+            val initialVideoSize = currentPlayer.videoSize
+            if (initialVideoSize.width > 0 && initialVideoSize.height > 0) {
+                val width = initialVideoSize.width
+                val height = initialVideoSize.height
+                val pixelRatio = if (initialVideoSize.pixelWidthHeightRatio > 0f) initialVideoSize.pixelWidthHeightRatio else 1f
+                val effectiveWidth = width * pixelRatio
+                val aspectRatio = if (height > 0) effectiveWidth / height else (16f / 9f)
+                glView.queueEvent {
+                    renderer.setVideoAspectRatio(aspectRatio)
+                    renderer.requestFrameUpdate()
+                }
+            }
+
+            onDispose {
+                currentPlayer.removeListener(listener)
+            }
+        } else {
+            onDispose { }
         }
     }
 
