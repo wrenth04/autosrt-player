@@ -14,6 +14,7 @@ import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.viewinterop.AndroidView
 import androidx.media3.exoplayer.ExoPlayer
 import com.example.autosrtplayer.ui.VrPlaybackConfig
+import java.util.concurrent.atomic.AtomicBoolean
 import com.example.autosrtplayer.ui.VrViewAngles
 
 @Composable
@@ -35,72 +36,74 @@ fun VrPlayerSurface(
     var videoSurface by remember { mutableStateOf<Surface?>(null) }
     val mainHandler = remember { android.os.Handler(android.os.Looper.getMainLooper()) }
 
-    // Set up surface-ready callback
-    DisposableEffect(Unit) {
+    // GLSurfaceView owns an EGL thread. Keep its resume/pause and renderer release in
+    // one effect so the release work is queued before that thread is paused.
+    DisposableEffect(glView, renderer) {
+        glView.onResume()
+        onDispose {
+            renderer.setOnSurfaceReadyListener(null)
+            mainHandler.removeCallbacksAndMessages(null)
+            glView.queueEvent(renderer::release)
+            glView.onPause()
+        }
+    }
+
+    // A surface callback is delivered from the GL thread and may arrive after Compose
+    // starts disposing this view. Ignore late callbacks instead of binding a stale surface.
+    DisposableEffect(renderer) {
+        val isActive = AtomicBoolean(true)
         renderer.setOnSurfaceReadyListener { surface ->
-            // Post to main thread to update Compose state safely
             mainHandler.post {
-                if (surface.isValid) {
+                if (isActive.get() && surface.isValid) {
                     videoSurface = surface
                     android.util.Log.d("VrPlayerSurface", "Video surface ready: $surface")
                 } else {
-                    android.util.Log.w("VrPlayerSurface", "Received invalid surface, skipping")
+                    android.util.Log.w("VrPlayerSurface", "Ignoring invalid or late video surface")
                 }
             }
         }
 
         onDispose {
-            mainHandler.removeCallbacksAndMessages(null)
+            isActive.set(false)
+            renderer.setOnSurfaceReadyListener(null)
             videoSurface = null
-            glView.queueEvent {
-                renderer.release()
-            }
         }
     }
 
-    // Manage video size listener per player instance
+    // Manage video size listener per player instance.
     DisposableEffect(player) {
         val currentPlayer = player
-        if (currentPlayer != null) {
-            val listener = object : androidx.media3.common.Player.Listener {
-                override fun onVideoSizeChanged(videoSize: androidx.media3.common.VideoSize) {
-                    val width = videoSize.width
-                    val height = videoSize.height
-                    if (width <= 0 || height <= 0) {
-                        android.util.Log.w("VrPlayerSurface", "Invalid video size: ${width}x${height}")
-                        return
-                    }
-                    val pixelRatio = if (videoSize.pixelWidthHeightRatio > 0f) videoSize.pixelWidthHeightRatio else 1f
-                    val effectiveWidth = width * pixelRatio
-                    val aspectRatio = effectiveWidth / height
-                    android.util.Log.d("VrPlayerSurface", "Video size changed: ${width}x${height}, aspect=$aspectRatio")
-                    glView.queueEvent {
-                        renderer.setVideoAspectRatio(aspectRatio)
-                        renderer.requestFrameUpdate()
-                    }
+        val listener = object : androidx.media3.common.Player.Listener {
+            override fun onVideoSizeChanged(videoSize: androidx.media3.common.VideoSize) {
+                val width = videoSize.width
+                val height = videoSize.height
+                if (width <= 0 || height <= 0) {
+                    android.util.Log.w("VrPlayerSurface", "Invalid video size: ${width}x${height}")
+                    return
                 }
-            }
-            currentPlayer.addListener(listener)
-
-            // Sync initial video size if already available
-            val initialVideoSize = currentPlayer.videoSize
-            if (initialVideoSize.width > 0 && initialVideoSize.height > 0) {
-                val width = initialVideoSize.width
-                val height = initialVideoSize.height
-                val pixelRatio = if (initialVideoSize.pixelWidthHeightRatio > 0f) initialVideoSize.pixelWidthHeightRatio else 1f
-                val effectiveWidth = width * pixelRatio
-                val aspectRatio = effectiveWidth / height
+                val pixelRatio = videoSize.pixelWidthHeightRatio.takeIf { it > 0f } ?: 1f
+                val aspectRatio = width * pixelRatio / height
                 glView.queueEvent {
                     renderer.setVideoAspectRatio(aspectRatio)
                     renderer.requestFrameUpdate()
                 }
             }
+        }
+        currentPlayer.addListener(listener)
 
-            onDispose {
-                currentPlayer.removeListener(listener)
+        currentPlayer.videoSize.let { initialVideoSize ->
+            if (initialVideoSize.width > 0 && initialVideoSize.height > 0) {
+                val pixelRatio = initialVideoSize.pixelWidthHeightRatio.takeIf { it > 0f } ?: 1f
+                val aspectRatio = initialVideoSize.width * pixelRatio / initialVideoSize.height
+                glView.queueEvent {
+                    renderer.setVideoAspectRatio(aspectRatio)
+                    renderer.requestFrameUpdate()
+                }
             }
-        } else {
-            onDispose { }
+        }
+
+        onDispose {
+            currentPlayer.removeListener(listener)
         }
     }
 
@@ -109,7 +112,7 @@ fun VrPlayerSurface(
         val surface = videoSurface
         val currentPlayer = player
 
-        if (currentPlayer != null && surface != null && surface.isValid) {
+        if (surface != null && surface.isValid) {
             try {
                 android.util.Log.d("VrPlayerSurface", "Binding surface to player")
                 currentPlayer.setVideoSurface(surface)
@@ -117,11 +120,11 @@ fun VrPlayerSurface(
                 android.util.Log.e("VrPlayerSurface", "Failed to bind surface to player", e)
             }
         } else {
-            android.util.Log.w("VrPlayerSurface", "Skipping surface bind: player=${currentPlayer != null}, surface=${surface != null}, valid=${surface?.isValid}")
+            android.util.Log.w("VrPlayerSurface", "Skipping surface bind: surface=${surface != null}, valid=${surface?.isValid}")
         }
 
         onDispose {
-            if (currentPlayer != null && surface != null && surface.isValid) {
+            if (surface != null && surface.isValid) {
                 try {
                     currentPlayer.clearVideoSurface(surface)
                     android.util.Log.d("VrPlayerSurface", "Cleared surface from player")

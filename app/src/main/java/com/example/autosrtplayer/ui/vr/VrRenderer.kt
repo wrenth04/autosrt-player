@@ -51,7 +51,7 @@ class VrRenderer : GLSurfaceView.Renderer {
     @Volatile
     private var isReleased = false
 
-    fun setOnSurfaceReadyListener(listener: (Surface) -> Unit) {
+    fun setOnSurfaceReadyListener(listener: ((Surface) -> Unit)?) {
         onSurfaceReady = listener
     }
 

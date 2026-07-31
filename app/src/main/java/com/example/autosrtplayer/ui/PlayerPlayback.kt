@@ -290,22 +290,19 @@ internal fun FullscreenPlayer(
         val heightPx = with(density) { maxHeight.toPx() }.takeIf { it > 0f } ?: 1f
 
         val isVrMode = vrConfig.contentMode == VrContentMode.Vr
-
-        // Only initialize VR components when we have actual media to play and valid config
         val hasMedia = player != null && player.currentMediaItem != null
         val canInitializeVr = isVrMode && hasMedia && vrConfig.isValid()
 
-        val headTrackingState = if (canInitializeVr) {
-            com.example.autosrtplayer.ui.vr.rememberVrHeadTrackingState(
-                enabled = isVrHeadTrackingEnabled,
-                config = vrConfig
-            )
-        } else {
-            null
-        }
+        // Keep this stateful composable at a stable composition position. Playback changes
+        // currentMediaItem asynchronously, so conditionally creating the sensor effect here
+        // can race the GL surface and player surface handoff.
+        val headTrackingState = com.example.autosrtplayer.ui.vr.rememberVrHeadTrackingState(
+            enabled = canInitializeVr && isVrHeadTrackingEnabled,
+            config = vrConfig
+        )
 
         if (player != null) {
-            if (canInitializeVr && headTrackingState != null) {
+            if (canInitializeVr) {
                 val effectiveVrViewAngles = com.example.autosrtplayer.ui.vr.combineVrAngles(
                     manual = vrViewAngles,
                     sensorOffset = headTrackingState.offset,
@@ -617,7 +614,7 @@ internal fun FullscreenPlayer(
                     pingControls()
                     if (isVrMode) {
                         onResetVrView()
-                        headTrackingState?.recenter()
+                        headTrackingState.recenter()
                     } else {
                         onToggleScreenOrientationMode()
                     }
