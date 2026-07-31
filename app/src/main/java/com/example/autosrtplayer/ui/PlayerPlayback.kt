@@ -291,7 +291,10 @@ internal fun FullscreenPlayer(
 
         val isVrMode = vrConfig.contentMode == VrContentMode.Vr
 
-        val headTrackingState = if (isVrMode) {
+        // Only initialize VR components when we have actual media to play
+        val hasMedia = player != null && player.currentMediaItem != null
+
+        val headTrackingState = if (isVrMode && hasMedia) {
             com.example.autosrtplayer.ui.vr.rememberVrHeadTrackingState(
                 enabled = isVrHeadTrackingEnabled,
                 config = vrConfig
@@ -301,9 +304,6 @@ internal fun FullscreenPlayer(
         }
 
         if (player != null) {
-            // Only initialize VR renderer when we have actual media to play
-            val hasMedia = player.currentMediaItem != null || isLoading
-
             if (isVrMode && hasMedia && headTrackingState != null) {
                 val effectiveVrViewAngles = com.example.autosrtplayer.ui.vr.combineVrAngles(
                     manual = vrViewAngles,

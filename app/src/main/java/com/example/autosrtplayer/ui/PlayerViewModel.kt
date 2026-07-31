@@ -187,9 +187,14 @@ class PlayerViewModel(
     }
 
     fun setVrContentMode(mode: VrContentMode) {
+        val savedConfig = loadVrConfig(settingsPrefs)
         var newConfig = if (mode == VrContentMode.Vr && _uiState.value.vrConfig.contentMode == VrContentMode.Flat) {
-            // When switching from Flat to VR, restore the last saved VR config from prefs
-            loadVrConfig(settingsPrefs).copy(contentMode = VrContentMode.Vr)
+            // Do not reactivate a FlatScreen renderer saved by an older crashing build.
+            if (savedConfig.projection == VrProjection.FlatScreen) {
+                VrPlaybackConfig.youtube360Style()
+            } else {
+                savedConfig.copy(contentMode = VrContentMode.Vr)
+            }
         } else {
             _uiState.value.vrConfig.copy(contentMode = mode)
         }
@@ -279,9 +284,18 @@ class PlayerViewModel(
     }
 
     fun applyPseudoVrSbsPreset() {
-        val newConfig = VrPlaybackConfig.pseudoVrSbs()
-        persistVrConfig(newConfig)
-        _uiState.update { it.copy(vrConfig = newConfig, vrViewAngles = newConfig.defaultViewAngles()) }
+        // FlatScreen is currently unstable on some devices. Keep the display values but do
+        // not activate its GL renderer, otherwise the persisted setting can brick startup.
+        val savedConfig = VrPlaybackConfig.pseudoVrSbs().copy(contentMode = VrContentMode.Flat)
+        persistVrConfig(savedConfig)
+        _uiState.update {
+            it.copy(
+                vrConfig = savedConfig,
+                vrViewAngles = savedConfig.defaultViewAngles(),
+                errorMessage = "一般影片 VR 眼鏡暫時已停用，已切回一般播放以避免 App 閃退。",
+                errorType = UiErrorType.Unknown
+            )
+        }
     }
 
     fun setVrStereoParallaxPercent(percent: Float) {
@@ -331,47 +345,43 @@ class PlayerViewModel(
     }
 
     private fun loadVrConfig(prefs: SharedPreferences?): VrPlaybackConfig {
-        val contentMode = prefs?.getString(KeyVrContentMode, null).toVrContentMode()
-        val fov = prefs?.getString(KeyVrFieldOfView, null).toVrFieldOfView()
-        val layout = prefs?.getString(KeyVrSourceLayout, null).toVrSourceLayout()
-        val projection = prefs?.getString(KeyVrProjection, null).toVrProjection()
-        val output = prefs?.getString(KeyVrDisplayOutput, null).toVrDisplayOutput()
-        val aspectMode = prefs?.getString(KeyVrStereoAspectMode, null).toVrStereoAspectMode()
-        val fisheyeFov = prefs?.getFloat(KeyVrFisheyeFov, VrPlaybackConfig.DEFAULT_FISHEYE_FOV)?.takeIf { it.isFinite() } ?: VrPlaybackConfig.DEFAULT_FISHEYE_FOV
-        val sourceOrientation = prefs?.getString(KeyVrSourceOrientation, null).toVrSourceOrientation()
-        val forwardDirection = prefs?.getString(KeyVrForwardDirection, null).toVrForwardDirection()
-        val customHorizontalFov = prefs?.getFloat(KeyVrCustomHorizontalFov, 180f)?.takeIf { it.isFinite() } ?: 180f
-        val stereoParallaxPercent = prefs?.getFloat(KeyVrStereoParallaxPercent, VrPlaybackConfig.DEFAULT_STEREO_PARALLAX_PERCENT)?.takeIf { it.isFinite() } ?: VrPlaybackConfig.DEFAULT_STEREO_PARALLAX_PERCENT
+        fun stringPreference(key: String): String? = runCatching {
+            prefs?.getString(key, null)
+        }.getOrNull()
+
+        fun floatPreference(key: String, default: Float): Float = runCatching {
+            prefs?.getFloat(key, default) ?: default
+        }.getOrDefault(default).takeIf { it.isFinite() } ?: default
 
         var config = VrPlaybackConfig(
-            contentMode = contentMode,
-            fieldOfView = fov,
-            sourceLayout = layout,
-            projection = projection,
-            displayOutput = output,
-            stereoAspectMode = aspectMode,
-            fisheyeFovDegrees = fisheyeFov,
-            sourceOrientation = sourceOrientation,
-            forwardDirection = forwardDirection,
-            customHorizontalFovDegrees = customHorizontalFov,
-            stereoParallaxPercent = stereoParallaxPercent
+            contentMode = stringPreference(KeyVrContentMode).toVrContentMode(),
+            fieldOfView = stringPreference(KeyVrFieldOfView).toVrFieldOfView(),
+            sourceLayout = stringPreference(KeyVrSourceLayout).toVrSourceLayout(),
+            projection = stringPreference(KeyVrProjection).toVrProjection(),
+            displayOutput = stringPreference(KeyVrDisplayOutput).toVrDisplayOutput(),
+            stereoAspectMode = stringPreference(KeyVrStereoAspectMode).toVrStereoAspectMode(),
+            fisheyeFovDegrees = floatPreference(KeyVrFisheyeFov, VrPlaybackConfig.DEFAULT_FISHEYE_FOV),
+            sourceOrientation = stringPreference(KeyVrSourceOrientation).toVrSourceOrientation(),
+            forwardDirection = stringPreference(KeyVrForwardDirection).toVrForwardDirection(),
+            customHorizontalFovDegrees = floatPreference(KeyVrCustomHorizontalFov, 180f),
+            stereoParallaxPercent = floatPreference(
+                KeyVrStereoParallaxPercent,
+                VrPlaybackConfig.DEFAULT_STEREO_PARALLAX_PERCENT
+            )
         )
 
-        // Normalize invalid config: FlatScreen requires Monoscopic
-        if (!config.isValid()) {
-            android.util.Log.w("PlayerViewModel", "Invalid VR config loaded, attempting normalization")
-            if (config.projection == VrProjection.FlatScreen && config.sourceLayout != VrSourceLayout.Monoscopic) {
-                config = config.copy(sourceLayout = VrSourceLayout.Monoscopic)
-                android.util.Log.i("PlayerViewModel", "Normalized FlatScreen to Monoscopic layout")
-            }
+        if (config.projection == VrProjection.FlatScreen) {
+            // A FlatScreen setting may have been persisted by a previously crashing build.
+            // Recover into ordinary playback before composing any VR surface.
+            config = config.copy(contentMode = VrContentMode.Flat, sourceLayout = VrSourceLayout.Monoscopic)
+            persistVrConfig(config)
+            return config
+        }
 
-            // If still invalid, reset to safe default
-            if (!config.isValid()) {
-                android.util.Log.w("PlayerViewModel", "Config still invalid after normalization, resetting to default")
-                config = VrPlaybackConfig()
-                // Persist corrected config to prevent future load failures
-                persistVrConfig(config)
-            }
+        if (!config.isValid()) {
+            android.util.Log.w("PlayerViewModel", "Invalid VR config loaded; resetting to ordinary playback")
+            config = VrPlaybackConfig()
+            persistVrConfig(config)
         }
 
         return config
