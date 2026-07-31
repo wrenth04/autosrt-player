@@ -118,7 +118,7 @@ data class VrPlaybackConfig(
         const val DEFAULT_FISHEYE_FOV = 180f
         const val MIN_FISHEYE_FOV = 160f
         const val MAX_FISHEYE_FOV = 220f
-        const val MIN_CUSTOM_FOV = 180f
+        const val MIN_CUSTOM_FOV = 45f
         const val MAX_CUSTOM_FOV = 360f
 
         const val MIN_STEREO_PARALLAX_PERCENT = 0f
