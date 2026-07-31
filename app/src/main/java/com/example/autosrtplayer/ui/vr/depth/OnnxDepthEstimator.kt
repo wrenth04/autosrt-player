@@ -106,7 +106,6 @@ class OnnxDepthEstimator(
                 val inputTensor = preprocessInput(input)
 
                 // Run inference
-                val env = environment ?: throw IllegalStateException("Environment is null")
                 val outputs = session!!.run(mapOf(model.inputTensorName to inputTensor))
 
                 // Extract output tensor
@@ -221,9 +220,9 @@ class OnnxDepthEstimator(
         return normalized
     }
 
-    private fun convertToNCHW(data: FloatArray, width: Int, height: Int): FloatArray {
+    private fun convertToNCHW(data: FloatArray, @Suppress("UNUSED_PARAMETER") width: Int, @Suppress("UNUSED_PARAMETER") height: Int): FloatArray {
         val nchw = FloatArray(data.size)
-        val pixelCount = width * height
+        val pixelCount = data.size / 3
 
         for (i in 0 until pixelCount) {
             val srcIndex = i * 3
@@ -235,7 +234,7 @@ class OnnxDepthEstimator(
         return nchw
     }
 
-    private fun convertToNHWC(data: FloatArray, width: Int, height: Int): FloatArray {
+    private fun convertToNHWC(data: FloatArray, @Suppress("UNUSED_PARAMETER") width: Int, @Suppress("UNUSED_PARAMETER") height: Int): FloatArray {
         // Data is already in HWC format from resizeAndConvertToRGB
         return data
     }
