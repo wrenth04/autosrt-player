@@ -37,6 +37,8 @@ class VrRenderer : GLSurfaceView.Renderer {
     private var viewAngles: VrViewAngles = VrViewAngles()
     private var viewportWidth: Int = 1
     private var viewportHeight: Int = 1
+    private var lastFlatScreenSizePercent: Float = VrPlaybackConfig.DEFAULT_FLAT_SCREEN_SIZE_PERCENT
+    private var lastVrCameraFov: Float = VrPlaybackConfig.DEFAULT_VR_CAMERA_FOV
 
     private val mvpMatrix = FloatArray(16)
     private val viewMatrix = FloatArray(16)
@@ -60,7 +62,16 @@ class VrRenderer : GLSurfaceView.Renderer {
     }
 
     fun setConfig(newConfig: VrPlaybackConfig) {
+        val sizeChanged = newConfig.flatScreenSizePercent != lastFlatScreenSizePercent
+        val fovChanged = newConfig.vrCameraFovDegrees != lastVrCameraFov
         config = newConfig
+        if (sizeChanged && newConfig.projection == VrProjection.FlatScreen) {
+            lastFlatScreenSizePercent = newConfig.flatScreenSizePercent
+            generateFlatScreenMesh()
+        }
+        if (fovChanged) {
+            lastVrCameraFov = newConfig.vrCameraFovDegrees
+        }
     }
 
     fun setViewAngles(angles: VrViewAngles) {
@@ -216,9 +227,17 @@ class VrRenderer : GLSurfaceView.Renderer {
             width, height, config.displayOutput, config.stereoAspectMode
         )
         val cameraFov = if (config.displayOutput == VrDisplayOutput.SingleEye) {
-            VrPlaybackConfig.NORMAL_SCREEN_CAMERA_FOV
+            if (config.projection == VrProjection.FlatScreen) {
+                VrPlaybackConfig.NORMAL_SCREEN_CAMERA_FOV
+            } else {
+                config.getEffectiveVrCameraFovDegrees()
+            }
         } else {
-            90f
+            if (config.projection == VrProjection.FlatScreen) {
+                VrPlaybackConfig.NORMAL_SCREEN_CAMERA_FOV
+            } else {
+                config.getEffectiveVrCameraFovDegrees()
+            }
         }
         Matrix.setIdentityM(projectionMatrix, 0)
         Matrix.perspectiveM(projectionMatrix, 0, cameraFov, aspect, 0.1f, 100f)
@@ -447,10 +466,12 @@ class VrRenderer : GLSurfaceView.Renderer {
 
     private fun generateFlatScreenMesh() {
         // Create a flat screen mesh positioned in front of the camera
-        // The screen is placed at z = -3.0, with height = 2.0
+        // The screen is placed at z = -3.0, with base height = 2.0 scaled by size setting
         // Width is calculated based on video aspect ratio
         val screenDistance = 3f
-        val screenHeight = 2f
+        val sizeScale = config.getEffectiveFlatScreenSizePercent() / 100f
+        val baseHeight = 2f
+        val screenHeight = baseHeight * sizeScale
         val screenWidth = screenHeight * videoAspectRatio
 
         val halfWidth = screenWidth / 2f

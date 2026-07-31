@@ -243,6 +243,7 @@ fun PlayerScreen(
                     onVrHeadTrackingEnabledChange = viewModel::setVrHeadTrackingEnabled,
                     onVrCustomHorizontalFovChange = viewModel::setVrCustomHorizontalFovDegrees,
                     onVrStereoParallaxPercentChange = viewModel::setVrStereoParallaxPercent,
+                    onVrFlatScreenSizePercentChange = viewModel::setVrFlatScreenSizePercent,
                     onApplyPseudoVrSbsPreset = viewModel::applyPseudoVrSbsPreset
                 )
             }
@@ -266,6 +267,8 @@ fun PlayerScreen(
                     onPlaybackSpeedChange = viewModel::setPlaybackSpeed,
                     onToggleScreenOrientationMode = viewModel::toggleScreenOrientationMode,
                     onVrViewDrag = viewModel::updateVrViewAngles,
+                    onVrFlatScreenSizeChange = viewModel::setVrFlatScreenSizePercent,
+                    onVrCameraFovChange = viewModel::setVrCameraFovDegrees,
                     onResetVrView = viewModel::resetVrViewAngles,
                     onToggleFavorite = viewModel::toggleCurrentFavorite,
                     onOpenTodayHot = viewModel::loadTodayHot,
@@ -315,6 +318,7 @@ private fun PlayerOptionsScreen(
     onVrHeadTrackingEnabledChange: (Boolean) -> Unit,
     onVrCustomHorizontalFovChange: (Float) -> Unit,
     onVrStereoParallaxPercentChange: (Float) -> Unit,
+    onVrFlatScreenSizePercentChange: (Float) -> Unit,
     onApplyPseudoVrSbsPreset: () -> Unit
 ) {
     var advancedExpanded by rememberSaveable { mutableStateOf(false) }
@@ -571,6 +575,46 @@ private fun PlayerOptionsScreen(
                             style = MaterialTheme.typography.bodySmall,
                             color = MaterialTheme.colorScheme.onSurfaceVariant
                         )
+
+                        var sizePercentDraft by rememberSaveable { mutableStateOf(uiState.vrConfig.flatScreenSizePercent.toInt().toString()) }
+                        Text("虛擬螢幕大小")
+                        Text(
+                            "調整虛擬螢幕的視覺尺寸。100% 為預設大小，可縮小至 50% 或放大至 300%。",
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant
+                        )
+                        Row(
+                            modifier = Modifier.fillMaxWidth(),
+                            horizontalArrangement = Arrangement.spacedBy(8.dp),
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            Slider(
+                                value = uiState.vrConfig.flatScreenSizePercent,
+                                onValueChange = onVrFlatScreenSizePercentChange,
+                                valueRange = VrPlaybackConfig.MIN_FLAT_SCREEN_SIZE_PERCENT..VrPlaybackConfig.MAX_FLAT_SCREEN_SIZE_PERCENT,
+                                modifier = Modifier.weight(1f)
+                            )
+                            OutlinedTextField(
+                                value = sizePercentDraft,
+                                onValueChange = { sizePercentDraft = it },
+                                modifier = Modifier.width(80.dp),
+                                singleLine = true,
+                                keyboardOptions = KeyboardOptions(keyboardType = androidx.compose.ui.text.input.KeyboardType.Number),
+                                keyboardActions = KeyboardActions(
+                                    onDone = {
+                                        val parsed = sizePercentDraft.toFloatOrNull()
+                                        if (parsed != null) {
+                                            onVrFlatScreenSizePercentChange(parsed)
+                                        }
+                                        sizePercentDraft = uiState.vrConfig.flatScreenSizePercent.toInt().toString()
+                                    }
+                                ),
+                                suffix = { Text("%") }
+                            )
+                        }
+                        LaunchedEffect(uiState.vrConfig.flatScreenSizePercent) {
+                            sizePercentDraft = uiState.vrConfig.flatScreenSizePercent.toInt().toString()
+                        }
                     }
 
                     Text("來源方向")

@@ -60,6 +60,8 @@ class PlayerViewModel(
         private const val KeyVrHeadTrackingEnabled = "vr_head_tracking_enabled"
         private const val KeyVrCustomHorizontalFov = "vr_custom_horizontal_fov"
         private const val KeyVrStereoParallaxPercent = "vr_stereo_parallax_percent"
+        private const val KeyVrFlatScreenSizePercent = "vr_flat_screen_size_percent"
+        private const val KeyVrCameraFov = "vr_camera_fov"
     }
 
     private val _uiState = MutableStateFlow(PlayerUiState())
@@ -284,23 +286,28 @@ class PlayerViewModel(
     }
 
     fun applyPseudoVrSbsPreset() {
-        // FlatScreen is currently unstable on some devices. Keep the display values but do
-        // not activate its GL renderer, otherwise the persisted setting can brick startup.
-        val savedConfig = VrPlaybackConfig.pseudoVrSbs().copy(contentMode = VrContentMode.Flat)
-        persistVrConfig(savedConfig)
-        _uiState.update {
-            it.copy(
-                vrConfig = savedConfig,
-                vrViewAngles = savedConfig.defaultViewAngles(),
-                errorMessage = "一般影片 VR 眼鏡暫時已停用，已切回一般播放以避免 App 閃退。",
-                errorType = UiErrorType.Unknown
-            )
-        }
+        val newConfig = VrPlaybackConfig.pseudoVrSbs()
+        persistVrConfig(newConfig)
+        _uiState.update { it.copy(vrConfig = newConfig, vrViewAngles = newConfig.defaultViewAngles()) }
     }
 
     fun setVrStereoParallaxPercent(percent: Float) {
         val clamped = percent.coerceIn(VrPlaybackConfig.MIN_STEREO_PARALLAX_PERCENT, VrPlaybackConfig.MAX_STEREO_PARALLAX_PERCENT)
         val newConfig = _uiState.value.vrConfig.copy(stereoParallaxPercent = clamped)
+        persistVrConfig(newConfig)
+        _uiState.update { it.copy(vrConfig = newConfig) }
+    }
+
+    fun setVrFlatScreenSizePercent(percent: Float) {
+        val clamped = percent.coerceIn(VrPlaybackConfig.MIN_FLAT_SCREEN_SIZE_PERCENT, VrPlaybackConfig.MAX_FLAT_SCREEN_SIZE_PERCENT)
+        val newConfig = _uiState.value.vrConfig.copy(flatScreenSizePercent = clamped)
+        persistVrConfig(newConfig)
+        _uiState.update { it.copy(vrConfig = newConfig) }
+    }
+
+    fun setVrCameraFovDegrees(degrees: Float) {
+        val clamped = degrees.coerceIn(VrPlaybackConfig.MIN_VR_CAMERA_FOV, VrPlaybackConfig.MAX_VR_CAMERA_FOV)
+        val newConfig = _uiState.value.vrConfig.copy(vrCameraFovDegrees = clamped)
         persistVrConfig(newConfig)
         _uiState.update { it.copy(vrConfig = newConfig) }
     }
@@ -367,16 +374,16 @@ class PlayerViewModel(
             stereoParallaxPercent = floatPreference(
                 KeyVrStereoParallaxPercent,
                 VrPlaybackConfig.DEFAULT_STEREO_PARALLAX_PERCENT
+            ),
+            flatScreenSizePercent = floatPreference(
+                KeyVrFlatScreenSizePercent,
+                VrPlaybackConfig.DEFAULT_FLAT_SCREEN_SIZE_PERCENT
+            ),
+            vrCameraFovDegrees = floatPreference(
+                KeyVrCameraFov,
+                VrPlaybackConfig.DEFAULT_VR_CAMERA_FOV
             )
         )
-
-        if (config.projection == VrProjection.FlatScreen) {
-            // A FlatScreen setting may have been persisted by a previously crashing build.
-            // Recover into ordinary playback before composing any VR surface.
-            config = config.copy(contentMode = VrContentMode.Flat, sourceLayout = VrSourceLayout.Monoscopic)
-            persistVrConfig(config)
-            return config
-        }
 
         if (!config.isValid()) {
             android.util.Log.w("PlayerViewModel", "Invalid VR config loaded; resetting to ordinary playback")
@@ -400,6 +407,8 @@ class PlayerViewModel(
             putString(KeyVrForwardDirection, config.forwardDirection.name)
             putFloat(KeyVrCustomHorizontalFov, config.customHorizontalFovDegrees)
             putFloat(KeyVrStereoParallaxPercent, config.stereoParallaxPercent)
+            putFloat(KeyVrFlatScreenSizePercent, config.flatScreenSizePercent)
+            putFloat(KeyVrCameraFov, config.vrCameraFovDegrees)
         }?.apply()
     }
 

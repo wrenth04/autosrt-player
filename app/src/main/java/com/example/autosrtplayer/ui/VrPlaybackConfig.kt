@@ -55,7 +55,9 @@ data class VrPlaybackConfig(
     val sourceOrientation: VrSourceOrientation = VrSourceOrientation.Normal,
     val forwardDirection: VrForwardDirection = VrForwardDirection.RendererDefault,
     val customHorizontalFovDegrees: Float = 180f,
-    val stereoParallaxPercent: Float = DEFAULT_STEREO_PARALLAX_PERCENT
+    val stereoParallaxPercent: Float = DEFAULT_STEREO_PARALLAX_PERCENT,
+    val flatScreenSizePercent: Float = DEFAULT_FLAT_SCREEN_SIZE_PERCENT,
+    val vrCameraFovDegrees: Float = DEFAULT_VR_CAMERA_FOV
 ) {
     fun getEffectiveHorizontalFovDegrees(): Float {
         return when (fieldOfView) {
@@ -91,6 +93,14 @@ data class VrPlaybackConfig(
         }
     }
 
+    fun getEffectiveFlatScreenSizePercent(): Float {
+        return flatScreenSizePercent.coerceIn(MIN_FLAT_SCREEN_SIZE_PERCENT, MAX_FLAT_SCREEN_SIZE_PERCENT)
+    }
+
+    fun getEffectiveVrCameraFovDegrees(): Float {
+        return vrCameraFovDegrees.coerceIn(MIN_VR_CAMERA_FOV, MAX_VR_CAMERA_FOV)
+    }
+
     fun defaultViewAngles(): VrViewAngles {
         val yaw = when (forwardDirection) {
             VrForwardDirection.RendererDefault -> 0f
@@ -114,6 +124,14 @@ data class VrPlaybackConfig(
         const val MIN_STEREO_PARALLAX_PERCENT = 0f
         const val DEFAULT_STEREO_PARALLAX_PERCENT = 1.5f
         const val MAX_STEREO_PARALLAX_PERCENT = 5f
+
+        const val MIN_FLAT_SCREEN_SIZE_PERCENT = 50f
+        const val DEFAULT_FLAT_SCREEN_SIZE_PERCENT = 100f
+        const val MAX_FLAT_SCREEN_SIZE_PERCENT = 300f
+
+        const val MIN_VR_CAMERA_FOV = 30f
+        const val DEFAULT_VR_CAMERA_FOV = 90f
+        const val MAX_VR_CAMERA_FOV = 120f
 
         const val FLAT_SCREEN_MAX_YAW = 100f
         const val FLAT_SCREEN_MAX_PITCH = 75f
@@ -158,7 +176,8 @@ data class VrPlaybackConfig(
                 sourceOrientation = VrSourceOrientation.Normal,
                 forwardDirection = VrForwardDirection.RendererDefault,
                 customHorizontalFovDegrees = 180f,
-                stereoParallaxPercent = DEFAULT_STEREO_PARALLAX_PERCENT
+                stereoParallaxPercent = DEFAULT_STEREO_PARALLAX_PERCENT,
+                flatScreenSizePercent = DEFAULT_FLAT_SCREEN_SIZE_PERCENT
             )
         }
     }

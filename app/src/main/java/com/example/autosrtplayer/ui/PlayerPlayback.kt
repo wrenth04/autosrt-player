@@ -211,6 +211,8 @@ internal fun FullscreenPlayer(
     onPlaybackSpeedChange: (Float) -> Unit,
     onToggleScreenOrientationMode: () -> Unit,
     onVrViewDrag: (Float, Float) -> Unit,
+    onVrFlatScreenSizeChange: (Float) -> Unit,
+    onVrCameraFovChange: (Float) -> Unit,
     onResetVrView: () -> Unit,
     onToggleFavorite: () -> Unit,
     onOpenTodayHot: () -> Unit,
@@ -324,7 +326,10 @@ internal fun FullscreenPlayer(
 
                     VrGestureLayer(
                         manualViewAngles = vrViewAngles,
+                        vrConfig = vrConfig,
                         onVrViewDrag = onVrViewDrag,
+                        onVrFlatScreenSizeChange = onVrFlatScreenSizeChange,
+                        onVrCameraFovChange = onVrCameraFovChange,
                         onToggleControls = {
                             if (controlsVisible) {
                                 controlsVisible = false
