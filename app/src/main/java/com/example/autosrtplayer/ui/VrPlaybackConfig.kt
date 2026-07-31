@@ -57,7 +57,8 @@ data class VrPlaybackConfig(
     val customHorizontalFovDegrees: Float = 180f,
     val stereoParallaxPercent: Float = DEFAULT_STEREO_PARALLAX_PERCENT,
     val flatScreenSizePercent: Float = DEFAULT_FLAT_SCREEN_SIZE_PERCENT,
-    val vrCameraFovDegrees: Float = DEFAULT_VR_CAMERA_FOV
+    val vrCameraFovDegrees: Float = DEFAULT_VR_CAMERA_FOV,
+    val depthStereoEnabled: Boolean = false
 ) {
     fun getEffectiveHorizontalFovDegrees(): Float {
         return when (fieldOfView) {
@@ -101,6 +102,33 @@ data class VrPlaybackConfig(
         return vrCameraFovDegrees.coerceIn(MIN_VR_CAMERA_FOV, MAX_VR_CAMERA_FOV)
     }
 
+    /**
+     * Returns whether the current configuration is eligible for depth-based stereo rendering.
+     * Depth stereo requires VR mode, FlatScreen projection, monoscopic source, and SBS glasses output.
+     */
+    fun isDepthStereoEligible(): Boolean {
+        return contentMode == VrContentMode.Vr &&
+               projection == VrProjection.FlatScreen &&
+               sourceLayout == VrSourceLayout.Monoscopic &&
+               displayOutput == VrDisplayOutput.SbsGlasses
+    }
+
+    /**
+     * Returns the effective strength for depth stereo effect.
+     * When depth stereo is enabled and eligible, caps to a conservative comfort limit (2%).
+     * Otherwise returns 0 to disable the effect.
+     */
+    fun getEffectiveDepthStereoStrength(): Float {
+        if (!depthStereoEnabled || !isDepthStereoEligible()) {
+            return 0f
+        }
+        val clamped = stereoParallaxPercent.coerceIn(
+            MIN_STEREO_PARALLAX_PERCENT,
+            MAX_STEREO_PARALLAX_PERCENT
+        )
+        return clamped.coerceAtMost(MAX_DEPTH_STEREO_PARALLAX_PERCENT)
+    }
+
     fun defaultViewAngles(): VrViewAngles {
         val yaw = when (forwardDirection) {
             VrForwardDirection.RendererDefault -> 0f
@@ -124,6 +152,7 @@ data class VrPlaybackConfig(
         const val MIN_STEREO_PARALLAX_PERCENT = 0f
         const val DEFAULT_STEREO_PARALLAX_PERCENT = 1.5f
         const val MAX_STEREO_PARALLAX_PERCENT = 5f
+        const val MAX_DEPTH_STEREO_PARALLAX_PERCENT = 2f
 
         const val MIN_FLAT_SCREEN_SIZE_PERCENT = 50f
         const val DEFAULT_FLAT_SCREEN_SIZE_PERCENT = 100f

@@ -4,6 +4,8 @@ import androidx.media3.common.MediaItem
 import com.example.autosrtplayer.data.favorites.FavoriteItem
 import com.example.autosrtplayer.data.playlist.PlaylistEntry
 import com.example.autosrtplayer.data.todayhot.TodayHotItem
+import com.example.autosrtplayer.ui.vr.depth.DepthModel
+import com.example.autosrtplayer.ui.vr.depth.ModelStatus
 
 enum class StartupDestination {
     Player,
@@ -69,6 +71,9 @@ data class PlayerUiState(
     val vrConfig: VrPlaybackConfig = VrPlaybackConfig(),
     val vrViewAngles: VrViewAngles = VrViewAngles(),
     val isVrHeadTrackingEnabled: Boolean = false,
+    val selectedDepthModelId: String? = null,
+    val depthModelStatuses: Map<String, ModelStatus> = emptyMap(),
+    val availableDepthModels: List<DepthModel> = emptyList(),
     val errorMessage: String? = null,
     val errorType: UiErrorType = UiErrorType.None,
     val favoriteImportMessage: String? = null,

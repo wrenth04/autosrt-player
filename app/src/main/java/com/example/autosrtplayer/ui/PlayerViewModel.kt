@@ -18,6 +18,8 @@ import com.example.autosrtplayer.data.playlist.PlaylistParser
 import com.example.autosrtplayer.data.playlist.PlaylistRepository
 import com.example.autosrtplayer.data.playlist.SubtitleRepository
 import com.example.autosrtplayer.data.todayhot.TodayHotRepository
+import com.example.autosrtplayer.ui.vr.depth.DepthModel
+import com.example.autosrtplayer.ui.vr.depth.DepthModelRepository
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
@@ -62,6 +64,8 @@ class PlayerViewModel(
         private const val KeyVrStereoParallaxPercent = "vr_stereo_parallax_percent"
         private const val KeyVrFlatScreenSizePercent = "vr_flat_screen_size_percent"
         private const val KeyVrCameraFov = "vr_camera_fov"
+        private const val KeyVrDepthStereoEnabled = "vr_depth_stereo_enabled"
+        private const val KeySelectedDepthModel = "selected_depth_model"
     }
 
     private val _uiState = MutableStateFlow(PlayerUiState())
@@ -74,6 +78,7 @@ class PlayerViewModel(
     private var activePlaybackConfig: PlaybackConfig? = null
     private var autoFullscreenPending: Boolean = false
     private var sourceResolveRequestCounter: Long = 0
+    private var depthModelRepository: DepthModelRepository? = null
 
     fun initialize(context: Context) {
         appContext = context.applicationContext
@@ -90,6 +95,14 @@ class PlayerViewModel(
             val vrConfig = loadVrConfig(settingsPrefs)
             val isVrHeadTrackingEnabled = settingsPrefs
                 ?.getBoolean(KeyVrHeadTrackingEnabled, false) ?: false
+            val selectedDepthModelId = settingsPrefs
+                ?.getString(KeySelectedDepthModel, null)
+
+            // Initialize depth model repository
+            if (depthModelRepository == null) {
+                depthModelRepository = DepthModelRepository(context)
+            }
+
             _uiState.update {
                 it.copy(
                     sourcePrefix = sourcePrefix,
@@ -97,9 +110,19 @@ class PlayerViewModel(
                     startupDestination = startupDestination,
                     screenOrientationMode = screenOrientationMode,
                     vrConfig = vrConfig,
-                    isVrHeadTrackingEnabled = isVrHeadTrackingEnabled
+                    isVrHeadTrackingEnabled = isVrHeadTrackingEnabled,
+                    selectedDepthModelId = selectedDepthModelId,
+                    availableDepthModels = DepthModel.availableModels()
                 )
             }
+
+            // Observe model statuses
+            viewModelScope.launch {
+                depthModelRepository?.modelStatuses?.collect { statuses ->
+                    _uiState.update { it.copy(depthModelStatuses = statuses) }
+                }
+            }
+
             when (startupDestination) {
                 StartupDestination.TodayHot -> loadTodayHot()
                 StartupDestination.Favorites -> openFavorites()
@@ -363,6 +386,39 @@ class PlayerViewModel(
         _uiState.update { it.copy(vrConfig = newConfig, vrViewAngles = clampedAngles) }
     }
 
+    fun setVrDepthStereoEnabled(enabled: Boolean) {
+        val newConfig = _uiState.value.vrConfig.copy(depthStereoEnabled = enabled)
+        persistVrConfig(newConfig)
+        _uiState.update { it.copy(vrConfig = newConfig) }
+    }
+
+    fun selectDepthModel(modelId: String) {
+        settingsPrefs?.edit()?.putString(KeySelectedDepthModel, modelId)?.apply()
+        _uiState.update { it.copy(selectedDepthModelId = modelId) }
+    }
+
+    fun downloadDepthModel(model: DepthModel) {
+        viewModelScope.launch {
+            depthModelRepository?.downloadModel(model)
+        }
+    }
+
+    fun deleteDepthModel(modelId: String) {
+        viewModelScope.launch {
+            depthModelRepository?.deleteModel(modelId)
+            // If the deleted model was selected, clear the selection
+            if (_uiState.value.selectedDepthModelId == modelId) {
+                settingsPrefs?.edit()?.remove(KeySelectedDepthModel)?.apply()
+                _uiState.update { it.copy(selectedDepthModelId = null) }
+            }
+        }
+    }
+
+    fun getTotalModelSizeMB(): Float {
+        val bytes = depthModelRepository?.getTotalModelSize() ?: 0L
+        return bytes / (1024f * 1024f)
+    }
+
     private fun loadVrConfig(prefs: SharedPreferences?): VrPlaybackConfig {
         fun stringPreference(key: String): String? = runCatching {
             prefs?.getString(key, null)
@@ -394,7 +450,10 @@ class PlayerViewModel(
             vrCameraFovDegrees = floatPreference(
                 KeyVrCameraFov,
                 VrPlaybackConfig.DEFAULT_VR_CAMERA_FOV
-            )
+            ),
+            depthStereoEnabled = runCatching {
+                prefs?.getBoolean(KeyVrDepthStereoEnabled, false) ?: false
+            }.getOrDefault(false)
         )
 
         if (!config.isValid()) {
@@ -421,6 +480,7 @@ class PlayerViewModel(
             putFloat(KeyVrStereoParallaxPercent, config.stereoParallaxPercent)
             putFloat(KeyVrFlatScreenSizePercent, config.flatScreenSizePercent)
             putFloat(KeyVrCameraFov, config.vrCameraFovDegrees)
+            putBoolean(KeyVrDepthStereoEnabled, config.depthStereoEnabled)
         }?.apply()
     }
 

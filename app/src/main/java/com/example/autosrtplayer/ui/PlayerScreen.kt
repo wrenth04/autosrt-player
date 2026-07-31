@@ -244,6 +244,11 @@ fun PlayerScreen(
                     onVrCustomHorizontalFovChange = viewModel::setVrCustomHorizontalFovDegrees,
                     onVrStereoParallaxPercentChange = viewModel::setVrStereoParallaxPercent,
                     onVrFlatScreenSizePercentChange = viewModel::setVrFlatScreenSizePercent,
+                    onVrDepthStereoEnabledChange = viewModel::setVrDepthStereoEnabled,
+                    onSelectDepthModel = viewModel::selectDepthModel,
+                    onDownloadDepthModel = viewModel::downloadDepthModel,
+                    onDeleteDepthModel = viewModel::deleteDepthModel,
+                    onGetTotalModelSizeMB = viewModel::getTotalModelSizeMB,
                     onApplyPseudoVrSbsPreset = viewModel::applyPseudoVrSbsPreset
                 )
             }
@@ -321,6 +326,11 @@ private fun PlayerOptionsScreen(
     onVrCustomHorizontalFovChange: (Float) -> Unit,
     onVrStereoParallaxPercentChange: (Float) -> Unit,
     onVrFlatScreenSizePercentChange: (Float) -> Unit,
+    onVrDepthStereoEnabledChange: (Boolean) -> Unit,
+    onSelectDepthModel: (String) -> Unit,
+    onDownloadDepthModel: (com.example.autosrtplayer.ui.vr.depth.DepthModel) -> Unit,
+    onDeleteDepthModel: (String) -> Unit,
+    onGetTotalModelSizeMB: () -> Float,
     onApplyPseudoVrSbsPreset: () -> Unit
 ) {
     var advancedExpanded by rememberSaveable { mutableStateOf(false) }
@@ -687,8 +697,80 @@ private fun PlayerOptionsScreen(
                     }
 
                     if (isFlatScreen && uiState.vrConfig.displayOutput == VrDisplayOutput.SbsGlasses) {
+                        val isDepthStereoEligible = uiState.vrConfig.isDepthStereoEligible()
+
+                        var showModelDialog by rememberSaveable { mutableStateOf(false) }
+
+                        Row(
+                            modifier = Modifier.fillMaxWidth(),
+                            horizontalArrangement = Arrangement.SpaceBetween,
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            Column(modifier = Modifier.weight(1f)) {
+                                Text("AI 3D 景深（實驗性）")
+                                Text(
+                                    if (isDepthStereoEligible) {
+                                        "即時分析影片深度，產生立體效果。會增加耗電與發熱。"
+                                    } else {
+                                        "需要：一般影片／虛擬巨幕 + 左右分屏（眼鏡）+ 單畫面來源"
+                                    },
+                                    style = MaterialTheme.typography.bodySmall,
+                                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                                )
+                            }
+                            androidx.compose.material3.Switch(
+                                checked = uiState.vrConfig.depthStereoEnabled,
+                                onCheckedChange = onVrDepthStereoEnabledChange,
+                                enabled = isDepthStereoEligible
+                            )
+                        }
+
+                        if (uiState.vrConfig.depthStereoEnabled) {
+                            val selectedModel = uiState.availableDepthModels.find { it.id == uiState.selectedDepthModelId }
+                            val modelStatus = uiState.selectedDepthModelId?.let { uiState.depthModelStatuses[it] }
+
+                            Button(
+                                onClick = { showModelDialog = true },
+                                modifier = Modifier.fillMaxWidth()
+                            ) {
+                                Text(
+                                    if (selectedModel != null) {
+                                        "深度模型：${selectedModel.name}"
+                                    } else {
+                                        "選擇深度模型"
+                                    }
+                                )
+                            }
+
+                            if (modelStatus is com.example.autosrtplayer.ui.vr.depth.ModelStatus.NotDownloaded) {
+                                Text(
+                                    "請先下載模型才能啟用深度效果",
+                                    style = MaterialTheme.typography.bodySmall,
+                                    color = MaterialTheme.colorScheme.error
+                                )
+                            }
+                        }
+
+                        if (showModelDialog) {
+                            DepthModelManagementDialog(
+                                availableModels = uiState.availableDepthModels,
+                                modelStatuses = uiState.depthModelStatuses,
+                                selectedModelId = uiState.selectedDepthModelId,
+                                totalModelSizeMB = onGetTotalModelSizeMB(),
+                                onSelectModel = onSelectDepthModel,
+                                onDownloadModel = onDownloadDepthModel,
+                                onDeleteModel = onDeleteDepthModel,
+                                onDismiss = { showModelDialog = false }
+                            )
+                        }
+
                         var parallaxDraft by rememberSaveable { mutableStateOf(uiState.vrConfig.stereoParallaxPercent.toString()) }
-                        Text("假立體強度")
+                        val strengthLabel = if (uiState.vrConfig.depthStereoEnabled && isDepthStereoEligible) {
+                            "3D 景深強度"
+                        } else {
+                            "假立體強度"
+                        }
+                        Text(strengthLabel)
                         Text(
                             "0 = 無偏移（舒適），值越大左右眼水平偏移越明顯。過大可能造成不適。",
                             style = MaterialTheme.typography.bodySmall,

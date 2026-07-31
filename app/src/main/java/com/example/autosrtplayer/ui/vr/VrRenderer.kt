@@ -12,6 +12,7 @@ import com.example.autosrtplayer.ui.VrProjection
 import com.example.autosrtplayer.ui.VrSourceLayout
 import com.example.autosrtplayer.ui.VrTextureCalculator
 import com.example.autosrtplayer.ui.VrViewAngles
+import com.example.autosrtplayer.ui.vr.depth.DepthFrame
 import java.nio.ByteBuffer
 import java.nio.ByteOrder
 import java.nio.FloatBuffer
@@ -39,6 +40,11 @@ class VrRenderer : GLSurfaceView.Renderer {
     private var viewportHeight: Int = 1
     private var lastFlatScreenSizePercent: Float = VrPlaybackConfig.DEFAULT_FLAT_SCREEN_SIZE_PERCENT
     private var lastVrCameraFov: Float = VrPlaybackConfig.DEFAULT_VR_CAMERA_FOV
+
+    // Depth stereo support
+    private var depthTextureId: Int = -1
+    private var currentDepthFrame: DepthFrame? = null
+    private val depthMaxAgeMs = 250L
 
     private val mvpMatrix = FloatArray(16)
     private val viewMatrix = FloatArray(16)
@@ -86,6 +92,51 @@ class VrRenderer : GLSurfaceView.Renderer {
     fun requestFrameUpdate() {
         frameUpdateNeeded = true
         onRequestRender?.invoke()
+    }
+
+    /**
+     * Update the current depth frame for depth-aware stereo rendering.
+     */
+    fun setDepthFrame(depthFrame: DepthFrame?) {
+        currentDepthFrame = depthFrame
+        if (depthFrame != null && depthTextureId == -1) {
+            depthTextureId = createDepthTexture()
+        }
+        if (depthFrame != null && depthTextureId != -1) {
+            uploadDepthTexture(depthFrame)
+        }
+    }
+
+    private fun createDepthTexture(): Int {
+        val textures = IntArray(1)
+        GLES20.glGenTextures(1, textures, 0)
+        val id = textures[0]
+        if (id == 0) {
+            android.util.Log.e(TAG, "Failed to generate depth texture")
+            return -1
+        }
+        GLES20.glBindTexture(GLES20.GL_TEXTURE_2D, id)
+        GLES20.glTexParameteri(GLES20.GL_TEXTURE_2D, GLES20.GL_TEXTURE_MIN_FILTER, GLES20.GL_LINEAR)
+        GLES20.glTexParameteri(GLES20.GL_TEXTURE_2D, GLES20.GL_TEXTURE_MAG_FILTER, GLES20.GL_LINEAR)
+        GLES20.glTexParameteri(GLES20.GL_TEXTURE_2D, GLES20.GL_TEXTURE_WRAP_S, GLES20.GL_CLAMP_TO_EDGE)
+        GLES20.glTexParameteri(GLES20.GL_TEXTURE_2D, GLES20.GL_TEXTURE_WRAP_T, GLES20.GL_CLAMP_TO_EDGE)
+        return id
+    }
+
+    private fun uploadDepthTexture(depthFrame: DepthFrame) {
+        GLES20.glBindTexture(GLES20.GL_TEXTURE_2D, depthTextureId)
+        val buffer = ByteBuffer.wrap(depthFrame.depthData)
+        GLES20.glTexImage2D(
+            GLES20.GL_TEXTURE_2D,
+            0,
+            GLES20.GL_LUMINANCE,
+            depthFrame.width,
+            depthFrame.height,
+            0,
+            GLES20.GL_LUMINANCE,
+            GLES20.GL_UNSIGNED_BYTE,
+            buffer
+        )
     }
 
     override fun onSurfaceCreated(gl: GL10?, config: EGLConfig?) {
@@ -290,6 +341,25 @@ class VrRenderer : GLSurfaceView.Renderer {
 
         val flipVerticallyHandle = GLES20.glGetUniformLocation(program, "uFlipSourceVertically")
         GLES20.glUniform1i(flipVerticallyHandle, if (config.shouldFlipSourceVertically()) 1 else 0)
+
+        // Depth stereo uniforms
+        val depthStereoEnabledHandle = GLES20.glGetUniformLocation(program, "uDepthStereoEnabled")
+        val depthStereoStrengthHandle = GLES20.glGetUniformLocation(program, "uDepthStereoStrength")
+        val eyeDirectionHandle = GLES20.glGetUniformLocation(program, "uEyeDirection")
+        val depthTextureHandle = GLES20.glGetUniformLocation(program, "uDepthTexture")
+
+        val effectiveStrength = config.getEffectiveDepthStereoStrength()
+        val depthEnabled = effectiveStrength > 0f && currentDepthFrame != null && depthTextureId != -1
+
+        GLES20.glUniform1i(depthStereoEnabledHandle, if (depthEnabled) 1 else 0)
+        GLES20.glUniform1f(depthStereoStrengthHandle, effectiveStrength)
+        GLES20.glUniform1f(eyeDirectionHandle, if (isLeftEye) -1f else 1f)
+
+        if (depthEnabled) {
+            GLES20.glActiveTexture(GLES20.GL_TEXTURE1)
+            GLES20.glBindTexture(GLES20.GL_TEXTURE_2D, depthTextureId)
+            GLES20.glUniform1i(depthTextureHandle, 1)
+        }
 
         GLES20.glActiveTexture(GLES20.GL_TEXTURE0)
         GLES20.glBindTexture(GLES11Ext.GL_TEXTURE_EXTERNAL_OES, textureId)
@@ -568,6 +638,10 @@ class VrRenderer : GLSurfaceView.Renderer {
             GLES20.glDeleteTextures(1, intArrayOf(textureId), 0)
             textureId = -1
         }
+        if (depthTextureId != -1) {
+            GLES20.glDeleteTextures(1, intArrayOf(depthTextureId), 0)
+            depthTextureId = -1
+        }
         if (program != -1) {
             GLES20.glDeleteProgram(program)
             program = -1
@@ -576,6 +650,7 @@ class VrRenderer : GLSurfaceView.Renderer {
         sphereTexCoordBuffer = null
         flatScreenVertexBuffer = null
         flatScreenTexCoordBuffer = null
+        currentDepthFrame = null
     }
 
     fun getVideoSurface(): Surface? = videoSurface
@@ -602,12 +677,16 @@ class VrRenderer : GLSurfaceView.Renderer {
             varying vec2 vTexCoord;
             varying vec3 vDirection;
             uniform samplerExternalOES uTexture;
+            uniform sampler2D uDepthTexture;
             uniform vec4 uTexCrop;
             uniform int uProjectionType;
             uniform mat4 uTexMatrix;
             uniform float uFisheyeFovDegrees;
             uniform float uHorizontalFovDegrees;
             uniform int uFlipSourceVertically;
+            uniform int uDepthStereoEnabled;
+            uniform float uDepthStereoStrength;
+            uniform float uEyeDirection;
 
             const float PI = 3.14159265359;
 
@@ -689,9 +768,30 @@ class VrRenderer : GLSurfaceView.Renderer {
                 } else if (uProjectionType == 2) {
                     coord = applyFisheye360Dual(vTexCoord);
                 } else {
-                    // uProjectionType == 3: FlatScreen - direct UV mapping
+                    // uProjectionType == 3: FlatScreen - direct UV mapping with optional depth warp
                     float u = mix(uTexCrop.x, uTexCrop.y, vTexCoord.x);
                     float v = mix(uTexCrop.z, uTexCrop.w, vTexCoord.y);
+
+                    // Apply depth-aware stereo if enabled
+                    if (uDepthStereoEnabled == 1 && uDepthStereoStrength > 0.0) {
+                        // Sample depth at base UV
+                        float depth = texture2D(uDepthTexture, vTexCoord).r;
+
+                        // Convert depth (0-255) to normalized [0, 1]
+                        float normalizedDepth = depth;
+
+                        // Calculate horizontal disparity based on depth
+                        // Closer objects (higher depth) = more disparity
+                        float maxDisparity = uDepthStereoStrength / 100.0;
+                        float disparity = normalizedDepth * maxDisparity;
+
+                        // Apply eye-dependent horizontal shift
+                        u += uEyeDirection * disparity;
+
+                        // Clamp to valid range
+                        u = clamp(u, uTexCrop.x, uTexCrop.y);
+                    }
+
                     coord = vec2(u, v);
                 }
 

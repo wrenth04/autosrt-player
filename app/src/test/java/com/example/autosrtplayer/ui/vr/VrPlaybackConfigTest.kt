@@ -478,21 +478,21 @@ class VrTextureCalculatorTest {
     fun `custom FOV is clamped to valid range`() {
         val belowMin = VrPlaybackConfig(
             fieldOfView = VrFieldOfView.FovCustom,
-            customHorizontalFovDegrees = 100f
+            customHorizontalFovDegrees = 10f
         )
-        assertEquals(180f, belowMin.getEffectiveHorizontalFovDegrees(), 0.01f)
+        assertEquals(VrPlaybackConfig.MIN_CUSTOM_FOV, belowMin.getEffectiveHorizontalFovDegrees(), 0.01f)
 
         val aboveMax = VrPlaybackConfig(
             fieldOfView = VrFieldOfView.FovCustom,
             customHorizontalFovDegrees = 500f
         )
-        assertEquals(360f, aboveMax.getEffectiveHorizontalFovDegrees(), 0.01f)
+        assertEquals(VrPlaybackConfig.MAX_CUSTOM_FOV, aboveMax.getEffectiveHorizontalFovDegrees(), 0.01f)
 
         val withinRange = VrPlaybackConfig(
             fieldOfView = VrFieldOfView.FovCustom,
-            customHorizontalFovDegrees = 270f
+            customHorizontalFovDegrees = 200f
         )
-        assertEquals(270f, withinRange.getEffectiveHorizontalFovDegrees(), 0.01f)
+        assertEquals(200f, withinRange.getEffectiveHorizontalFovDegrees(), 0.01f)
     }
 
     @Test
@@ -610,6 +610,153 @@ class VrTextureCalculatorTest {
 
         assertEquals(leftCrop.uMin, rightCrop.uMin, 0.001f)
         assertEquals(leftCrop.uMax, rightCrop.uMax, 0.001f)
+    }
+
+    @Test
+    fun `depthStereoEnabled defaults to false`() {
+        val config = VrPlaybackConfig()
+        assertFalse(config.depthStereoEnabled)
+    }
+
+    @Test
+    fun `depth stereo is not eligible in flat mode`() {
+        val config = VrPlaybackConfig(
+            contentMode = VrContentMode.Flat,
+            depthStereoEnabled = true
+        )
+        assertFalse(config.isDepthStereoEligible())
+    }
+
+    @Test
+    fun `depth stereo requires FlatScreen projection`() {
+        val equirect = VrPlaybackConfig(
+            contentMode = VrContentMode.Vr,
+            projection = VrProjection.Equirectangular,
+            sourceLayout = VrSourceLayout.Monoscopic,
+            displayOutput = VrDisplayOutput.SbsGlasses,
+            depthStereoEnabled = true
+        )
+        assertFalse(equirect.isDepthStereoEligible())
+
+        val flatScreen = VrPlaybackConfig(
+            contentMode = VrContentMode.Vr,
+            projection = VrProjection.FlatScreen,
+            sourceLayout = VrSourceLayout.Monoscopic,
+            displayOutput = VrDisplayOutput.SbsGlasses,
+            depthStereoEnabled = true
+        )
+        assertTrue(flatScreen.isDepthStereoEligible())
+    }
+
+    @Test
+    fun `depth stereo requires monoscopic source`() {
+        val sbs = VrPlaybackConfig(
+            contentMode = VrContentMode.Vr,
+            projection = VrProjection.FlatScreen,
+            sourceLayout = VrSourceLayout.SideBySide,
+            displayOutput = VrDisplayOutput.SbsGlasses,
+            depthStereoEnabled = true
+        )
+        assertFalse(sbs.isDepthStereoEligible())
+
+        val mono = VrPlaybackConfig(
+            contentMode = VrContentMode.Vr,
+            projection = VrProjection.FlatScreen,
+            sourceLayout = VrSourceLayout.Monoscopic,
+            displayOutput = VrDisplayOutput.SbsGlasses,
+            depthStereoEnabled = true
+        )
+        assertTrue(mono.isDepthStereoEligible())
+    }
+
+    @Test
+    fun `depth stereo requires SBS glasses output`() {
+        val singleEye = VrPlaybackConfig(
+            contentMode = VrContentMode.Vr,
+            projection = VrProjection.FlatScreen,
+            sourceLayout = VrSourceLayout.Monoscopic,
+            displayOutput = VrDisplayOutput.SingleEye,
+            depthStereoEnabled = true
+        )
+        assertFalse(singleEye.isDepthStereoEligible())
+
+        val sbsGlasses = VrPlaybackConfig(
+            contentMode = VrContentMode.Vr,
+            projection = VrProjection.FlatScreen,
+            sourceLayout = VrSourceLayout.Monoscopic,
+            displayOutput = VrDisplayOutput.SbsGlasses,
+            depthStereoEnabled = true
+        )
+        assertTrue(sbsGlasses.isDepthStereoEligible())
+    }
+
+    @Test
+    fun `effective depth stereo strength is zero when disabled`() {
+        val config = VrPlaybackConfig(
+            contentMode = VrContentMode.Vr,
+            projection = VrProjection.FlatScreen,
+            sourceLayout = VrSourceLayout.Monoscopic,
+            displayOutput = VrDisplayOutput.SbsGlasses,
+            stereoParallaxPercent = 3f,
+            depthStereoEnabled = false
+        )
+        assertEquals(0f, config.getEffectiveDepthStereoStrength(), 0.001f)
+    }
+
+    @Test
+    fun `effective depth stereo strength is zero when not eligible`() {
+        val config = VrPlaybackConfig(
+            contentMode = VrContentMode.Flat,
+            stereoParallaxPercent = 3f,
+            depthStereoEnabled = true
+        )
+        assertEquals(0f, config.getEffectiveDepthStereoStrength(), 0.001f)
+    }
+
+    @Test
+    fun `effective depth stereo strength is capped at 2 percent`() {
+        val config = VrPlaybackConfig(
+            contentMode = VrContentMode.Vr,
+            projection = VrProjection.FlatScreen,
+            sourceLayout = VrSourceLayout.Monoscopic,
+            displayOutput = VrDisplayOutput.SbsGlasses,
+            stereoParallaxPercent = 5f,
+            depthStereoEnabled = true
+        )
+        val effective = config.getEffectiveDepthStereoStrength()
+        assertEquals(VrPlaybackConfig.MAX_DEPTH_STEREO_PARALLAX_PERCENT, effective, 0.001f)
+        assertTrue(effective <= 2f)
+    }
+
+    @Test
+    fun `effective depth stereo strength allows values below cap`() {
+        val config = VrPlaybackConfig(
+            contentMode = VrContentMode.Vr,
+            projection = VrProjection.FlatScreen,
+            sourceLayout = VrSourceLayout.Monoscopic,
+            displayOutput = VrDisplayOutput.SbsGlasses,
+            stereoParallaxPercent = 1.5f,
+            depthStereoEnabled = true
+        )
+        assertEquals(1.5f, config.getEffectiveDepthStereoStrength(), 0.001f)
+    }
+
+    @Test
+    fun `pseudoVrSbs preset does not enable depth stereo by default`() {
+        val config = VrPlaybackConfig.pseudoVrSbs()
+        assertFalse(config.depthStereoEnabled)
+    }
+
+    @Test
+    fun `youtube360Style preset does not enable depth stereo by default`() {
+        val config = VrPlaybackConfig.youtube360Style()
+        assertFalse(config.depthStereoEnabled)
+    }
+
+    @Test
+    fun `sbs180Fisheye preset does not enable depth stereo by default`() {
+        val config = VrPlaybackConfig.sbs180Fisheye()
+        assertFalse(config.depthStereoEnabled)
     }
 }
 
