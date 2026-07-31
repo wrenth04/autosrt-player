@@ -5,7 +5,7 @@ import android.graphics.Color
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxSize
-import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.offset
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.remember
@@ -34,13 +34,23 @@ fun VrSubtitleOverlay(
 
     if (isSbsMode) {
         // Calculate subtitle offset based on projection type
-        val (leftPaddingDp, rightPaddingDp) = if (isFlatScreen) {
-            // FlatScreen: use parallax-based offset
-            val parallaxOffset = VrTextureCalculator.calculateParallaxOffset(config.stereoParallaxPercent, isLeftEye = true)
-            // Convert UV offset (fraction of width) to approximate dp offset
-            // This is viewer-locked, so it's a rough mapping for visual consistency
-            val offsetDp = (parallaxOffset * 200f).dp  // Scale factor for readability
-            Pair(offsetDp, -offsetDp)
+        val (leftOffsetDp, rightOffsetDp) = if (isFlatScreen) {
+            // FlatScreen: move each eye's subtitle with the same parallax direction as
+            // its video. Offset permits the required negative left-eye displacement;
+            // Compose padding rejects negative values and crashed SBS playback.
+            val leftOffsetDp = (
+                VrTextureCalculator.calculateParallaxOffset(
+                    config.stereoParallaxPercent,
+                    isLeftEye = true
+                ) * 200f
+            ).dp
+            val rightOffsetDp = (
+                VrTextureCalculator.calculateParallaxOffset(
+                    config.stereoParallaxPercent,
+                    isLeftEye = false
+                ) * 200f
+            ).dp
+            Pair(leftOffsetDp, rightOffsetDp)
         } else {
             // Panoramic VR: use fixed stereo depth offset
             Pair(24.dp, 24.dp)
@@ -78,7 +88,7 @@ fun VrSubtitleOverlay(
                     factory = { leftView },
                     modifier = Modifier
                         .fillMaxSize()
-                        .padding(start = leftPaddingDp)
+                        .offset(x = leftOffsetDp)
                 )
             }
 
@@ -110,7 +120,7 @@ fun VrSubtitleOverlay(
                     factory = { rightView },
                     modifier = Modifier
                         .fillMaxSize()
-                        .padding(end = rightPaddingDp)
+                        .offset(x = rightOffsetDp)
                 )
             }
         }
