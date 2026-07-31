@@ -414,6 +414,11 @@ class PlayerViewModel(
         }
     }
 
+    fun deleteDepthModelById(modelId: String) {
+        val model = depthModelRepository?.getModel(modelId) ?: return
+        deleteDepthModel(model)
+    }
+
     fun getTotalModelSizeMB(): Float {
         val bytes = depthModelRepository?.getTotalModelSize() ?: 0L
         return bytes / (1024f * 1024f)

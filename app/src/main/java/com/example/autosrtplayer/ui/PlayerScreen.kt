@@ -247,7 +247,7 @@ fun PlayerScreen(
                     onVrDepthStereoEnabledChange = viewModel::setVrDepthStereoEnabled,
                     onSelectDepthModel = viewModel::selectDepthModel,
                     onDownloadDepthModel = viewModel::downloadDepthModel,
-                    onDeleteDepthModel = viewModel::deleteDepthModel,
+                    onDeleteDepthModel = viewModel::deleteDepthModelById,
                     onGetTotalModelSizeMB = viewModel::getTotalModelSizeMB,
                     onApplyPseudoVrSbsPreset = viewModel::applyPseudoVrSbsPreset
                 )
