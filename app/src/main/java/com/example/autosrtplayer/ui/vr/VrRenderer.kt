@@ -44,7 +44,6 @@ class VrRenderer : GLSurfaceView.Renderer {
     // Depth stereo support
     private var depthTextureId: Int = -1
     private var currentDepthFrame: DepthFrame? = null
-    private val depthMaxAgeMs = 250L
 
     private val mvpMatrix = FloatArray(16)
     private val viewMatrix = FloatArray(16)
@@ -355,12 +354,16 @@ class VrRenderer : GLSurfaceView.Renderer {
         GLES20.glUniform1f(depthStereoStrengthHandle, effectiveStrength)
         GLES20.glUniform1f(eyeDirectionHandle, if (isLeftEye) -1f else 1f)
 
+        // Always assign texture unit 1 to the depth sampler to prevent aliasing unit 0
+        GLES20.glActiveTexture(GLES20.GL_TEXTURE1)
         if (depthEnabled) {
-            GLES20.glActiveTexture(GLES20.GL_TEXTURE1)
             GLES20.glBindTexture(GLES20.GL_TEXTURE_2D, depthTextureId)
-            GLES20.glUniform1i(depthTextureHandle, 1)
+        } else {
+            GLES20.glBindTexture(GLES20.GL_TEXTURE_2D, 0)
         }
+        GLES20.glUniform1i(depthTextureHandle, 1)
 
+        // Bind video texture to unit 0
         GLES20.glActiveTexture(GLES20.GL_TEXTURE0)
         GLES20.glBindTexture(GLES11Ext.GL_TEXTURE_EXTERNAL_OES, textureId)
         GLES20.glUniform1i(textureHandle, 0)
