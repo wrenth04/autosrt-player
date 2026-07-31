@@ -191,16 +191,18 @@ class VrHeadTrackingState {
 
 /**
  * Combines manual view angles with sensor offset and clamps the result.
- * When source orientation is flipped vertically, inverts the pitch offset to match the flipped video.
+ * When source orientation is flipped vertically, inverts both pitch and yaw offsets to match the flipped video.
  */
 fun combineVrAngles(
     manual: VrViewAngles,
     sensorOffset: VrViewAngles,
     config: VrPlaybackConfig
 ): VrViewAngles {
-    val pitchMultiplier = if (config.shouldFlipSourceVertically()) -1f else 1f
+    val shouldFlip = config.shouldFlipSourceVertically()
+    val pitchMultiplier = if (shouldFlip) -1f else 1f
+    val yawMultiplier = if (shouldFlip) -1f else 1f
     return VrViewAngles.clampForConfig(
-        manual.yawDegrees + sensorOffset.yawDegrees,
+        manual.yawDegrees + (sensorOffset.yawDegrees * yawMultiplier),
         manual.pitchDegrees + (sensorOffset.pitchDegrees * pitchMultiplier),
         config
     )
