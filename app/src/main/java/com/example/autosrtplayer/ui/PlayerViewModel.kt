@@ -48,6 +48,20 @@ class PlayerViewModel(
         private const val KeyFavoriteItems = "favorite_items"
         private const val KeyStartupDestination = "startup_destination"
         private const val KeyScreenOrientationMode = "screen_orientation_mode"
+        private const val KeyVrContentMode = "vr_content_mode"
+        private const val KeyVrFieldOfView = "vr_field_of_view"
+        private const val KeyVrSourceLayout = "vr_source_layout"
+        private const val KeyVrProjection = "vr_projection"
+        private const val KeyVrDisplayOutput = "vr_display_output"
+        private const val KeyVrStereoAspectMode = "vr_stereo_aspect_mode"
+        private const val KeyVrFisheyeFov = "vr_fisheye_fov"
+        private const val KeyVrSourceOrientation = "vr_source_orientation"
+        private const val KeyVrForwardDirection = "vr_forward_direction"
+        private const val KeyVrHeadTrackingEnabled = "vr_head_tracking_enabled"
+        private const val KeyVrCustomHorizontalFov = "vr_custom_horizontal_fov"
+        private const val KeyVrStereoParallaxPercent = "vr_stereo_parallax_percent"
+        private const val KeyVrFlatScreenSizePercent = "vr_flat_screen_size_percent"
+        private const val KeyVrCameraFov = "vr_camera_fov"
     }
 
     private val _uiState = MutableStateFlow(PlayerUiState())
@@ -73,12 +87,17 @@ class PlayerViewModel(
             val screenOrientationMode = settingsPrefs
                 ?.getString(KeyScreenOrientationMode, null)
                 .toScreenOrientationMode()
+            val vrConfig = loadVrConfig(settingsPrefs)
+            val isVrHeadTrackingEnabled = settingsPrefs
+                ?.getBoolean(KeyVrHeadTrackingEnabled, false) ?: false
             _uiState.update {
                 it.copy(
                     sourcePrefix = sourcePrefix,
                     favoriteItems = favoriteItems,
                     startupDestination = startupDestination,
-                    screenOrientationMode = screenOrientationMode
+                    screenOrientationMode = screenOrientationMode,
+                    vrConfig = vrConfig,
+                    isVrHeadTrackingEnabled = isVrHeadTrackingEnabled
                 )
             }
             when (startupDestination) {
@@ -167,6 +186,242 @@ class PlayerViewModel(
         }
         settingsPrefs?.edit()?.putString(KeyScreenOrientationMode, nextMode.name)?.apply()
         _uiState.update { it.copy(screenOrientationMode = nextMode) }
+    }
+
+    fun setVrContentMode(mode: VrContentMode) {
+        val savedConfig = loadVrConfig(settingsPrefs)
+        var newConfig = if (mode == VrContentMode.Vr && _uiState.value.vrConfig.contentMode == VrContentMode.Flat) {
+            // Do not reactivate a FlatScreen renderer saved by an older crashing build.
+            if (savedConfig.projection == VrProjection.FlatScreen) {
+                VrPlaybackConfig.youtube360Style()
+            } else {
+                savedConfig.copy(contentMode = VrContentMode.Vr)
+            }
+        } else {
+            _uiState.value.vrConfig.copy(contentMode = mode)
+        }
+
+        // Normalize invalid configurations
+        if (!newConfig.isValid()) {
+            // FlatScreen requires Monoscopic source layout
+            if (newConfig.projection == VrProjection.FlatScreen && newConfig.sourceLayout != VrSourceLayout.Monoscopic) {
+                newConfig = newConfig.copy(sourceLayout = VrSourceLayout.Monoscopic)
+            }
+            // If still invalid, fall back to a safe default
+            if (!newConfig.isValid()) {
+                newConfig = VrPlaybackConfig.youtube360Style().copy(contentMode = mode)
+            }
+        }
+
+        persistVrConfig(newConfig)
+        _uiState.update { it.copy(vrConfig = newConfig, vrViewAngles = newConfig.defaultViewAngles()) }
+    }
+
+    fun setVrFieldOfView(fov: VrFieldOfView) {
+        val newConfig = _uiState.value.vrConfig.copy(fieldOfView = fov)
+        if (!newConfig.isValid()) return
+        persistVrConfig(newConfig)
+        _uiState.update { it.copy(vrConfig = newConfig, vrViewAngles = newConfig.defaultViewAngles()) }
+    }
+
+    fun setVrSourceLayout(layout: VrSourceLayout) {
+        val newConfig = _uiState.value.vrConfig.copy(sourceLayout = layout)
+        if (!newConfig.isValid()) return
+        persistVrConfig(newConfig)
+        _uiState.update { it.copy(vrConfig = newConfig) }
+    }
+
+    fun setVrProjection(projection: VrProjection) {
+        var newConfig = _uiState.value.vrConfig.copy(projection = projection)
+        // FlatScreen requires Monoscopic source layout
+        if (projection == VrProjection.FlatScreen && newConfig.sourceLayout != VrSourceLayout.Monoscopic) {
+            newConfig = newConfig.copy(sourceLayout = VrSourceLayout.Monoscopic)
+        }
+        if (!newConfig.isValid()) return
+        persistVrConfig(newConfig)
+        _uiState.update { it.copy(vrConfig = newConfig, vrViewAngles = newConfig.defaultViewAngles()) }
+    }
+
+    fun setVrDisplayOutput(output: VrDisplayOutput) {
+        val aspectMode = if (output == VrDisplayOutput.SbsGlasses) {
+            VrStereoAspectMode.GlassesCompensated
+        } else {
+            _uiState.value.vrConfig.stereoAspectMode
+        }
+        val newConfig = _uiState.value.vrConfig.copy(
+            displayOutput = output,
+            stereoAspectMode = aspectMode
+        )
+        if (!newConfig.isValid()) return
+        persistVrConfig(newConfig)
+        _uiState.update { it.copy(vrConfig = newConfig) }
+    }
+
+    fun setVrStereoAspectMode(mode: VrStereoAspectMode) {
+        val newConfig = _uiState.value.vrConfig.copy(stereoAspectMode = mode)
+        if (!newConfig.isValid()) return
+        persistVrConfig(newConfig)
+        _uiState.update { it.copy(vrConfig = newConfig) }
+    }
+
+    fun setVrSourceOrientation(orientation: VrSourceOrientation) {
+        val newConfig = _uiState.value.vrConfig.copy(sourceOrientation = orientation)
+        if (!newConfig.isValid()) return
+        persistVrConfig(newConfig)
+        _uiState.update { it.copy(vrConfig = newConfig) }
+    }
+
+    fun setVrForwardDirection(direction: VrForwardDirection) {
+        val newConfig = _uiState.value.vrConfig.copy(forwardDirection = direction)
+        if (!newConfig.isValid()) return
+        persistVrConfig(newConfig)
+        val resetAngles = newConfig.defaultViewAngles()
+        _uiState.update { it.copy(vrConfig = newConfig, vrViewAngles = resetAngles) }
+    }
+
+    fun applySbs180FisheyePreset() {
+        val newConfig = VrPlaybackConfig.sbs180Fisheye()
+        persistVrConfig(newConfig)
+        _uiState.update { it.copy(vrConfig = newConfig, vrViewAngles = newConfig.defaultViewAngles()) }
+    }
+
+    fun applyPseudoVrSbsPreset() {
+        val newConfig = VrPlaybackConfig.pseudoVrSbs()
+        persistVrConfig(newConfig)
+        _uiState.update { it.copy(vrConfig = newConfig, vrViewAngles = newConfig.defaultViewAngles()) }
+    }
+
+    fun setVrStereoParallaxPercent(percent: Float) {
+        val clamped = percent.coerceIn(VrPlaybackConfig.MIN_STEREO_PARALLAX_PERCENT, VrPlaybackConfig.MAX_STEREO_PARALLAX_PERCENT)
+        val newConfig = _uiState.value.vrConfig.copy(stereoParallaxPercent = clamped)
+        persistVrConfig(newConfig)
+        _uiState.update { it.copy(vrConfig = newConfig) }
+    }
+
+    fun setVrFlatScreenSizePercent(percent: Float) {
+        val clamped = percent.coerceIn(VrPlaybackConfig.MIN_FLAT_SCREEN_SIZE_PERCENT, VrPlaybackConfig.MAX_FLAT_SCREEN_SIZE_PERCENT)
+        val newConfig = _uiState.value.vrConfig.copy(flatScreenSizePercent = clamped)
+        persistVrConfig(newConfig)
+        _uiState.update { it.copy(vrConfig = newConfig) }
+    }
+
+    fun setVrFlatScreenSizePercentTransient(percent: Float) {
+        val clamped = percent.coerceIn(VrPlaybackConfig.MIN_FLAT_SCREEN_SIZE_PERCENT, VrPlaybackConfig.MAX_FLAT_SCREEN_SIZE_PERCENT)
+        val newConfig = _uiState.value.vrConfig.copy(flatScreenSizePercent = clamped)
+        _uiState.update { it.copy(vrConfig = newConfig) }
+    }
+
+    fun setVrCameraFovDegrees(degrees: Float) {
+        val clamped = degrees.coerceIn(VrPlaybackConfig.MIN_VR_CAMERA_FOV, VrPlaybackConfig.MAX_VR_CAMERA_FOV)
+        val newConfig = _uiState.value.vrConfig.copy(vrCameraFovDegrees = clamped)
+        persistVrConfig(newConfig)
+        _uiState.update { it.copy(vrConfig = newConfig) }
+    }
+
+    fun setVrCameraFovDegreesTransient(degrees: Float) {
+        val clamped = degrees.coerceIn(VrPlaybackConfig.MIN_VR_CAMERA_FOV, VrPlaybackConfig.MAX_VR_CAMERA_FOV)
+        val newConfig = _uiState.value.vrConfig.copy(vrCameraFovDegrees = clamped)
+        _uiState.update { it.copy(vrConfig = newConfig) }
+    }
+
+    fun setFisheyeFovDegrees(degrees: Float) {
+        val clamped = degrees.coerceIn(VrPlaybackConfig.MIN_FISHEYE_FOV, VrPlaybackConfig.MAX_FISHEYE_FOV)
+        val newConfig = _uiState.value.vrConfig.copy(fisheyeFovDegrees = clamped)
+        persistVrConfig(newConfig)
+        val clampedAngles = VrViewAngles.clampForConfig(
+            _uiState.value.vrViewAngles.yawDegrees,
+            _uiState.value.vrViewAngles.pitchDegrees,
+            newConfig
+        )
+        _uiState.update { it.copy(vrConfig = newConfig, vrViewAngles = clampedAngles) }
+    }
+
+    fun updateVrViewAngles(yaw: Float, pitch: Float) {
+        val clamped = VrViewAngles.clampForConfig(yaw, pitch, _uiState.value.vrConfig)
+        _uiState.update { it.copy(vrViewAngles = clamped) }
+    }
+
+    fun resetVrViewAngles() {
+        val config = _uiState.value.vrConfig
+        _uiState.update { it.copy(vrViewAngles = config.defaultViewAngles()) }
+    }
+
+    fun setVrHeadTrackingEnabled(enabled: Boolean) {
+        settingsPrefs?.edit()?.putBoolean(KeyVrHeadTrackingEnabled, enabled)?.apply()
+        _uiState.update { it.copy(isVrHeadTrackingEnabled = enabled) }
+    }
+
+    fun setVrCustomHorizontalFovDegrees(degrees: Float) {
+        val clamped = degrees.coerceIn(VrPlaybackConfig.MIN_CUSTOM_FOV, VrPlaybackConfig.MAX_CUSTOM_FOV)
+        val newConfig = _uiState.value.vrConfig.copy(customHorizontalFovDegrees = clamped)
+        persistVrConfig(newConfig)
+        val clampedAngles = VrViewAngles.clampForConfig(
+            _uiState.value.vrViewAngles.yawDegrees,
+            _uiState.value.vrViewAngles.pitchDegrees,
+            newConfig
+        )
+        _uiState.update { it.copy(vrConfig = newConfig, vrViewAngles = clampedAngles) }
+    }
+
+    private fun loadVrConfig(prefs: SharedPreferences?): VrPlaybackConfig {
+        fun stringPreference(key: String): String? = runCatching {
+            prefs?.getString(key, null)
+        }.getOrNull()
+
+        fun floatPreference(key: String, default: Float): Float = runCatching {
+            prefs?.getFloat(key, default) ?: default
+        }.getOrDefault(default).takeIf { it.isFinite() } ?: default
+
+        var config = VrPlaybackConfig(
+            contentMode = stringPreference(KeyVrContentMode).toVrContentMode(),
+            fieldOfView = stringPreference(KeyVrFieldOfView).toVrFieldOfView(),
+            sourceLayout = stringPreference(KeyVrSourceLayout).toVrSourceLayout(),
+            projection = stringPreference(KeyVrProjection).toVrProjection(),
+            displayOutput = stringPreference(KeyVrDisplayOutput).toVrDisplayOutput(),
+            stereoAspectMode = stringPreference(KeyVrStereoAspectMode).toVrStereoAspectMode(),
+            fisheyeFovDegrees = floatPreference(KeyVrFisheyeFov, VrPlaybackConfig.DEFAULT_FISHEYE_FOV),
+            sourceOrientation = stringPreference(KeyVrSourceOrientation).toVrSourceOrientation(),
+            forwardDirection = stringPreference(KeyVrForwardDirection).toVrForwardDirection(),
+            customHorizontalFovDegrees = floatPreference(KeyVrCustomHorizontalFov, 180f),
+            stereoParallaxPercent = floatPreference(
+                KeyVrStereoParallaxPercent,
+                VrPlaybackConfig.DEFAULT_STEREO_PARALLAX_PERCENT
+            ),
+            flatScreenSizePercent = floatPreference(
+                KeyVrFlatScreenSizePercent,
+                VrPlaybackConfig.DEFAULT_FLAT_SCREEN_SIZE_PERCENT
+            ),
+            vrCameraFovDegrees = floatPreference(
+                KeyVrCameraFov,
+                VrPlaybackConfig.DEFAULT_VR_CAMERA_FOV
+            )
+        )
+
+        if (!config.isValid()) {
+            android.util.Log.w("PlayerViewModel", "Invalid VR config loaded; resetting to ordinary playback")
+            config = VrPlaybackConfig()
+            persistVrConfig(config)
+        }
+
+        return config
+    }
+
+    private fun persistVrConfig(config: VrPlaybackConfig) {
+        settingsPrefs?.edit()?.apply {
+            putString(KeyVrContentMode, config.contentMode.name)
+            putString(KeyVrFieldOfView, config.fieldOfView.name)
+            putString(KeyVrSourceLayout, config.sourceLayout.name)
+            putString(KeyVrProjection, config.projection.name)
+            putString(KeyVrDisplayOutput, config.displayOutput.name)
+            putString(KeyVrStereoAspectMode, config.stereoAspectMode.name)
+            putFloat(KeyVrFisheyeFov, config.fisheyeFovDegrees)
+            putString(KeyVrSourceOrientation, config.sourceOrientation.name)
+            putString(KeyVrForwardDirection, config.forwardDirection.name)
+            putFloat(KeyVrCustomHorizontalFov, config.customHorizontalFovDegrees)
+            putFloat(KeyVrStereoParallaxPercent, config.stereoParallaxPercent)
+            putFloat(KeyVrFlatScreenSizePercent, config.flatScreenSizePercent)
+            putFloat(KeyVrCameraFov, config.vrCameraFovDegrees)
+        }?.apply()
     }
 
     fun toggleCurrentFavorite() {
@@ -740,4 +995,52 @@ private fun String?.toScreenOrientationMode(): ScreenOrientationMode {
     return runCatching {
         ScreenOrientationMode.valueOf(this.orEmpty())
     }.getOrDefault(ScreenOrientationMode.Auto)
+}
+
+private fun String?.toVrContentMode(): VrContentMode {
+    return runCatching {
+        VrContentMode.valueOf(this.orEmpty())
+    }.getOrDefault(VrContentMode.Flat)
+}
+
+private fun String?.toVrFieldOfView(): VrFieldOfView {
+    return runCatching {
+        VrFieldOfView.valueOf(this.orEmpty())
+    }.getOrDefault(VrFieldOfView.Fov360)
+}
+
+private fun String?.toVrSourceLayout(): VrSourceLayout {
+    return runCatching {
+        VrSourceLayout.valueOf(this.orEmpty())
+    }.getOrDefault(VrSourceLayout.Monoscopic)
+}
+
+private fun String?.toVrProjection(): VrProjection {
+    return runCatching {
+        VrProjection.valueOf(this.orEmpty())
+    }.getOrDefault(VrProjection.Equirectangular)
+}
+
+private fun String?.toVrDisplayOutput(): VrDisplayOutput {
+    return runCatching {
+        VrDisplayOutput.valueOf(this.orEmpty())
+    }.getOrDefault(VrDisplayOutput.SingleEye)
+}
+
+private fun String?.toVrStereoAspectMode(): VrStereoAspectMode {
+    return runCatching {
+        VrStereoAspectMode.valueOf(this.orEmpty())
+    }.getOrDefault(VrStereoAspectMode.GlassesCompensated)
+}
+
+private fun String?.toVrSourceOrientation(): VrSourceOrientation {
+    return runCatching {
+        VrSourceOrientation.valueOf(this.orEmpty())
+    }.getOrDefault(VrSourceOrientation.Normal)
+}
+
+private fun String?.toVrForwardDirection(): VrForwardDirection {
+    return runCatching {
+        VrForwardDirection.valueOf(this.orEmpty())
+    }.getOrDefault(VrForwardDirection.RendererDefault)
 }

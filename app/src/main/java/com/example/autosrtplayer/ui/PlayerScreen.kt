@@ -2,6 +2,7 @@ package com.example.autosrtplayer.ui
 
 import android.app.Activity
 import android.content.pm.ActivityInfo
+import android.os.Build
 import android.view.WindowManager
 import androidx.activity.compose.BackHandler
 import androidx.compose.foundation.layout.Arrangement
@@ -30,6 +31,7 @@ import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedTextField
+import androidx.compose.material3.Slider
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
@@ -96,14 +98,38 @@ fun PlayerScreen(
 
     DisposableEffect(activity, showingPlayerShell) {
         val window = activity?.window
+        val originalCutoutMode = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.P) {
+            window?.attributes?.layoutInDisplayCutoutMode
+        } else {
+            null
+        }
+
         if (window != null) {
             WindowCompat.setDecorFitsSystemWindows(window, !showingPlayerShell)
             val controller = WindowInsetsControllerCompat(window, window.decorView)
             if (showingPlayerShell) {
                 controller.hide(WindowInsetsCompat.Type.systemBars())
                 controller.systemBarsBehavior = WindowInsetsControllerCompat.BEHAVIOR_SHOW_TRANSIENT_BARS_BY_SWIPE
+
+                // Allow content to extend into display cutout area in landscape
+                if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.P) {
+                    val attributes = window.attributes
+                    attributes.layoutInDisplayCutoutMode =
+                        WindowManager.LayoutParams.LAYOUT_IN_DISPLAY_CUTOUT_MODE_SHORT_EDGES
+                    window.attributes = attributes
+                }
+
+                // Request layout to apply new window policy
+                window.decorView.requestLayout()
             } else {
                 controller.show(WindowInsetsCompat.Type.systemBars())
+
+                // Restore original cutout mode when leaving player shell
+                if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.P && originalCutoutMode != null) {
+                    val attributes = window.attributes
+                    attributes.layoutInDisplayCutoutMode = originalCutoutMode
+                    window.attributes = attributes
+                }
             }
         }
 
@@ -112,6 +138,13 @@ fun PlayerScreen(
                 WindowCompat.setDecorFitsSystemWindows(window, true)
                 WindowInsetsControllerCompat(window, window.decorView)
                     .show(WindowInsetsCompat.Type.systemBars())
+
+                // Restore original cutout mode on dispose
+                if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.P && originalCutoutMode != null) {
+                    val attributes = window.attributes
+                    attributes.layoutInDisplayCutoutMode = originalCutoutMode
+                    window.attributes = attributes
+                }
             }
         }
     }
@@ -198,7 +231,20 @@ fun PlayerScreen(
                     onSaveSourcePrefix = viewModel::saveSourcePrefix,
                     onToggleFavorite = viewModel::toggleCurrentFavorite,
                     onBack = viewModel::closeSettings,
-                    onStartupDestinationChange = viewModel::setStartupDestination
+                    onStartupDestinationChange = viewModel::setStartupDestination,
+                    onVrContentModeChange = viewModel::setVrContentMode,
+                    onVrFieldOfViewChange = viewModel::setVrFieldOfView,
+                    onVrSourceLayoutChange = viewModel::setVrSourceLayout,
+                    onVrProjectionChange = viewModel::setVrProjection,
+                    onVrDisplayOutputChange = viewModel::setVrDisplayOutput,
+                    onVrStereoAspectModeChange = viewModel::setVrStereoAspectMode,
+                    onVrSourceOrientationChange = viewModel::setVrSourceOrientation,
+                    onVrForwardDirectionChange = viewModel::setVrForwardDirection,
+                    onVrHeadTrackingEnabledChange = viewModel::setVrHeadTrackingEnabled,
+                    onVrCustomHorizontalFovChange = viewModel::setVrCustomHorizontalFovDegrees,
+                    onVrStereoParallaxPercentChange = viewModel::setVrStereoParallaxPercent,
+                    onVrFlatScreenSizePercentChange = viewModel::setVrFlatScreenSizePercent,
+                    onApplyPseudoVrSbsPreset = viewModel::applyPseudoVrSbsPreset
                 )
             }
             else -> {
@@ -207,6 +253,9 @@ fun PlayerScreen(
                     player = player,
                     playbackSpeed = uiState.playbackSpeed,
                     screenOrientationMode = uiState.screenOrientationMode,
+                    vrConfig = uiState.vrConfig,
+                    vrViewAngles = uiState.vrViewAngles,
+                    isVrHeadTrackingEnabled = uiState.isVrHeadTrackingEnabled,
                     currentSourceId = currentSourceId,
                     currentRequestLabel = uiState.currentRequestLabel,
                     isCurrentFavorite = isCurrentFavorite,
@@ -217,6 +266,12 @@ fun PlayerScreen(
                     errorMessage = uiState.errorMessage,
                     onPlaybackSpeedChange = viewModel::setPlaybackSpeed,
                     onToggleScreenOrientationMode = viewModel::toggleScreenOrientationMode,
+                    onVrViewDrag = viewModel::updateVrViewAngles,
+                    onVrFlatScreenSizeChange = viewModel::setVrFlatScreenSizePercentTransient,
+                    onVrFlatScreenSizeChangeFinished = viewModel::setVrFlatScreenSizePercent,
+                    onVrCameraFovChange = viewModel::setVrCameraFovDegreesTransient,
+                    onVrCameraFovChangeFinished = viewModel::setVrCameraFovDegrees,
+                    onResetVrView = viewModel::resetVrViewAngles,
                     onToggleFavorite = viewModel::toggleCurrentFavorite,
                     onOpenTodayHot = viewModel::loadTodayHot,
                     onOpenFavorites = viewModel::openFavorites,
@@ -253,7 +308,20 @@ private fun PlayerOptionsScreen(
     onSaveSourcePrefix: () -> Unit,
     onToggleFavorite: () -> Unit,
     onBack: () -> Unit,
-    onStartupDestinationChange: (StartupDestination) -> Unit
+    onStartupDestinationChange: (StartupDestination) -> Unit,
+    onVrContentModeChange: (VrContentMode) -> Unit,
+    onVrFieldOfViewChange: (VrFieldOfView) -> Unit,
+    onVrSourceLayoutChange: (VrSourceLayout) -> Unit,
+    onVrProjectionChange: (VrProjection) -> Unit,
+    onVrDisplayOutputChange: (VrDisplayOutput) -> Unit,
+    onVrStereoAspectModeChange: (VrStereoAspectMode) -> Unit,
+    onVrSourceOrientationChange: (VrSourceOrientation) -> Unit,
+    onVrForwardDirectionChange: (VrForwardDirection) -> Unit,
+    onVrHeadTrackingEnabledChange: (Boolean) -> Unit,
+    onVrCustomHorizontalFovChange: (Float) -> Unit,
+    onVrStereoParallaxPercentChange: (Float) -> Unit,
+    onVrFlatScreenSizePercentChange: (Float) -> Unit,
+    onApplyPseudoVrSbsPreset: () -> Unit
 ) {
     var advancedExpanded by rememberSaveable { mutableStateOf(false) }
     var techInfoExpanded by rememberSaveable { mutableStateOf(false) }
@@ -348,6 +416,318 @@ private fun PlayerOptionsScreen(
                 modifier = Modifier.weight(1f)
             ) {
                 Text("最愛 (${uiState.favoriteItems.size})")
+            }
+        }
+
+        Card(modifier = Modifier.fillMaxWidth()) {
+            Column(
+                modifier = Modifier.padding(12.dp),
+                verticalArrangement = Arrangement.spacedBy(8.dp)
+            ) {
+                Text("VR 播放模式", style = MaterialTheme.typography.titleMedium)
+
+                Text("播放模式")
+                Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                    VrOptionButton(
+                        selected = uiState.vrConfig.contentMode == VrContentMode.Flat,
+                        text = "一般",
+                        onClick = { onVrContentModeChange(VrContentMode.Flat) }
+                    )
+                    VrOptionButton(
+                        selected = uiState.vrConfig.contentMode == VrContentMode.Vr,
+                        text = "VR",
+                        onClick = { onVrContentModeChange(VrContentMode.Vr) }
+                    )
+                }
+
+                if (uiState.vrConfig.contentMode == VrContentMode.Vr) {
+                    val isFlatScreen = uiState.vrConfig.projection == VrProjection.FlatScreen
+
+                    Button(
+                        onClick = onApplyPseudoVrSbsPreset,
+                        modifier = Modifier.fillMaxWidth()
+                    ) {
+                        Text("一般影片 VR 眼鏡")
+                    }
+
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.SpaceBetween,
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Column {
+                            Text("頭部追蹤（G-sensor）")
+                            Text(
+                                "依手機方向調整 VR 視角",
+                                style = MaterialTheme.typography.bodySmall,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant
+                            )
+                        }
+                        androidx.compose.material3.Switch(
+                            checked = uiState.isVrHeadTrackingEnabled,
+                            onCheckedChange = onVrHeadTrackingEnabledChange
+                        )
+                    }
+
+                    if (!isFlatScreen) {
+                        Text("視野範圍")
+                        Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                            VrOptionButton(
+                                selected = uiState.vrConfig.fieldOfView == VrFieldOfView.Fov180,
+                                text = "180°",
+                                onClick = { onVrFieldOfViewChange(VrFieldOfView.Fov180) }
+                            )
+                            VrOptionButton(
+                                selected = uiState.vrConfig.fieldOfView == VrFieldOfView.Fov360,
+                                text = "360°",
+                                onClick = { onVrFieldOfViewChange(VrFieldOfView.Fov360) }
+                            )
+                            VrOptionButton(
+                                selected = uiState.vrConfig.fieldOfView == VrFieldOfView.FovCustom,
+                                text = "自由",
+                                onClick = { onVrFieldOfViewChange(VrFieldOfView.FovCustom) }
+                            )
+                        }
+                    }
+
+                    if (uiState.vrConfig.fieldOfView == VrFieldOfView.FovCustom && !isFlatScreen) {
+                        var customFovDraft by rememberSaveable { mutableStateOf(uiState.vrConfig.customHorizontalFovDegrees.toInt().toString()) }
+                        Text("內容水平範圍")
+                        Row(
+                            modifier = Modifier.fillMaxWidth(),
+                            horizontalArrangement = Arrangement.spacedBy(8.dp),
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            Slider(
+                                value = uiState.vrConfig.customHorizontalFovDegrees,
+                                onValueChange = onVrCustomHorizontalFovChange,
+                                valueRange = VrPlaybackConfig.MIN_CUSTOM_FOV..VrPlaybackConfig.MAX_CUSTOM_FOV,
+                                modifier = Modifier.weight(1f)
+                            )
+                            OutlinedTextField(
+                                value = customFovDraft,
+                                onValueChange = { customFovDraft = it },
+                                modifier = Modifier.width(80.dp),
+                                singleLine = true,
+                                keyboardOptions = KeyboardOptions(keyboardType = androidx.compose.ui.text.input.KeyboardType.Number),
+                                keyboardActions = KeyboardActions(
+                                    onDone = {
+                                        val parsed = customFovDraft.toFloatOrNull()
+                                        if (parsed != null) {
+                                            onVrCustomHorizontalFovChange(parsed)
+                                        }
+                                        customFovDraft = uiState.vrConfig.customHorizontalFovDegrees.toInt().toString()
+                                    }
+                                ),
+                                suffix = { Text("°") }
+                            )
+                        }
+                        LaunchedEffect(uiState.vrConfig.customHorizontalFovDegrees) {
+                            customFovDraft = uiState.vrConfig.customHorizontalFovDegrees.toInt().toString()
+                        }
+                    }
+
+                    Text("來源格式")
+                    Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                        VrOptionButton(
+                            selected = uiState.vrConfig.sourceLayout == VrSourceLayout.Monoscopic,
+                            text = if (isFlatScreen) "單畫面" else "單螢幕 360°",
+                            onClick = { onVrSourceLayoutChange(VrSourceLayout.Monoscopic) }
+                        )
+                        if (!isFlatScreen) {
+                            VrOptionButton(
+                                selected = uiState.vrConfig.sourceLayout == VrSourceLayout.SideBySide,
+                                text = "立體左右並排",
+                                onClick = { onVrSourceLayoutChange(VrSourceLayout.SideBySide) }
+                            )
+                        }
+                    }
+
+                    Text("投影方式")
+                    Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                        VrOptionButton(
+                            selected = uiState.vrConfig.projection == VrProjection.Equirectangular,
+                            text = "等距柱狀",
+                            onClick = { onVrProjectionChange(VrProjection.Equirectangular) }
+                        )
+                        VrOptionButton(
+                            selected = uiState.vrConfig.projection == VrProjection.Fisheye180,
+                            text = "180° 魚眼",
+                            enabled = uiState.vrConfig.fieldOfView == VrFieldOfView.Fov180,
+                            onClick = { onVrProjectionChange(VrProjection.Fisheye180) }
+                        )
+                        VrOptionButton(
+                            selected = uiState.vrConfig.projection == VrProjection.Fisheye360Dual,
+                            text = "360° 雙魚眼",
+                            enabled = uiState.vrConfig.fieldOfView == VrFieldOfView.Fov360,
+                            onClick = { onVrProjectionChange(VrProjection.Fisheye360Dual) }
+                        )
+                    }
+                    Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                        VrOptionButton(
+                            selected = uiState.vrConfig.projection == VrProjection.FlatScreen,
+                            text = "一般影片／虛擬巨幕",
+                            onClick = { onVrProjectionChange(VrProjection.FlatScreen) }
+                        )
+                    }
+
+                    if (isFlatScreen) {
+                        Text(
+                            "此模式將一般 2D 影片放在可轉頭觀看的虛擬螢幕。左右眼為同一影片加水平偏移以營造效果，沒有真實深度或位置移動。",
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant
+                        )
+
+                        var sizePercentDraft by rememberSaveable { mutableStateOf(uiState.vrConfig.flatScreenSizePercent.toInt().toString()) }
+                        Text("虛擬螢幕大小")
+                        Text(
+                            "調整虛擬螢幕的視覺尺寸。100% 為預設大小，可縮小至 50% 或放大至 300%。",
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant
+                        )
+                        Row(
+                            modifier = Modifier.fillMaxWidth(),
+                            horizontalArrangement = Arrangement.spacedBy(8.dp),
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            Slider(
+                                value = uiState.vrConfig.flatScreenSizePercent,
+                                onValueChange = onVrFlatScreenSizePercentChange,
+                                valueRange = VrPlaybackConfig.MIN_FLAT_SCREEN_SIZE_PERCENT..VrPlaybackConfig.MAX_FLAT_SCREEN_SIZE_PERCENT,
+                                modifier = Modifier.weight(1f)
+                            )
+                            OutlinedTextField(
+                                value = sizePercentDraft,
+                                onValueChange = { sizePercentDraft = it },
+                                modifier = Modifier.width(80.dp),
+                                singleLine = true,
+                                keyboardOptions = KeyboardOptions(keyboardType = androidx.compose.ui.text.input.KeyboardType.Number),
+                                keyboardActions = KeyboardActions(
+                                    onDone = {
+                                        val parsed = sizePercentDraft.toFloatOrNull()
+                                        if (parsed != null) {
+                                            onVrFlatScreenSizePercentChange(parsed)
+                                        }
+                                        sizePercentDraft = uiState.vrConfig.flatScreenSizePercent.toInt().toString()
+                                    }
+                                ),
+                                suffix = { Text("%") }
+                            )
+                        }
+                        LaunchedEffect(uiState.vrConfig.flatScreenSizePercent) {
+                            sizePercentDraft = uiState.vrConfig.flatScreenSizePercent.toInt().toString()
+                        }
+                    }
+
+                    Text("來源方向")
+                    Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                        VrOptionButton(
+                            selected = uiState.vrConfig.sourceOrientation == VrSourceOrientation.Normal,
+                            text = "正常",
+                            onClick = { onVrSourceOrientationChange(VrSourceOrientation.Normal) }
+                        )
+                        VrOptionButton(
+                            selected = uiState.vrConfig.sourceOrientation == VrSourceOrientation.FlippedVertically,
+                            text = "上下翻轉",
+                            onClick = { onVrSourceOrientationChange(VrSourceOrientation.FlippedVertically) }
+                        )
+                    }
+
+                    if (uiState.vrConfig.projection == VrProjection.Equirectangular &&
+                        uiState.vrConfig.fieldOfView == VrFieldOfView.Fov360 &&
+                        !isFlatScreen) {
+                        Text("正面方向")
+                        Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                            VrOptionButton(
+                                selected = uiState.vrConfig.forwardDirection == VrForwardDirection.RendererDefault,
+                                text = "目前預設",
+                                onClick = { onVrForwardDirectionChange(VrForwardDirection.RendererDefault) }
+                            )
+                            VrOptionButton(
+                                selected = uiState.vrConfig.forwardDirection == VrForwardDirection.PanoramaCenter,
+                                text = "全景中央",
+                                onClick = { onVrForwardDirectionChange(VrForwardDirection.PanoramaCenter) }
+                            )
+                        }
+                    }
+
+                    Text("顯示輸出")
+                    Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                        VrOptionButton(
+                            selected = uiState.vrConfig.displayOutput == VrDisplayOutput.SingleEye,
+                            text = "全螢幕單眼",
+                            onClick = { onVrDisplayOutputChange(VrDisplayOutput.SingleEye) }
+                        )
+                        VrOptionButton(
+                            selected = uiState.vrConfig.displayOutput == VrDisplayOutput.SbsGlasses,
+                            text = "左右分屏（眼鏡）",
+                            onClick = { onVrDisplayOutputChange(VrDisplayOutput.SbsGlasses) }
+                        )
+                    }
+
+                    if (uiState.vrConfig.displayOutput == VrDisplayOutput.SbsGlasses) {
+                        Text("眼鏡畫面比例")
+                        Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                            VrOptionButton(
+                                selected = uiState.vrConfig.stereoAspectMode == VrStereoAspectMode.Normal,
+                                text = "一般比例",
+                                onClick = { onVrStereoAspectModeChange(VrStereoAspectMode.Normal) }
+                            )
+                            VrOptionButton(
+                                selected = uiState.vrConfig.stereoAspectMode == VrStereoAspectMode.GlassesCompensated,
+                                text = "補償壓扁",
+                                onClick = { onVrStereoAspectModeChange(VrStereoAspectMode.GlassesCompensated) }
+                            )
+                            VrOptionButton(
+                                selected = uiState.vrConfig.stereoAspectMode == VrStereoAspectMode.GlassesCompensated16By9,
+                                text = "8:9→16:9 補償",
+                                onClick = { onVrStereoAspectModeChange(VrStereoAspectMode.GlassesCompensated16By9) }
+                            )
+                        }
+                    }
+
+                    if (isFlatScreen && uiState.vrConfig.displayOutput == VrDisplayOutput.SbsGlasses) {
+                        var parallaxDraft by rememberSaveable { mutableStateOf(uiState.vrConfig.stereoParallaxPercent.toString()) }
+                        Text("假立體強度")
+                        Text(
+                            "0 = 無偏移（舒適），值越大左右眼水平偏移越明顯。過大可能造成不適。",
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant
+                        )
+                        Row(
+                            modifier = Modifier.fillMaxWidth(),
+                            horizontalArrangement = Arrangement.spacedBy(8.dp),
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            Slider(
+                                value = uiState.vrConfig.stereoParallaxPercent,
+                                onValueChange = onVrStereoParallaxPercentChange,
+                                valueRange = VrPlaybackConfig.MIN_STEREO_PARALLAX_PERCENT..VrPlaybackConfig.MAX_STEREO_PARALLAX_PERCENT,
+                                modifier = Modifier.weight(1f)
+                            )
+                            OutlinedTextField(
+                                value = parallaxDraft,
+                                onValueChange = { parallaxDraft = it },
+                                modifier = Modifier.width(80.dp),
+                                singleLine = true,
+                                keyboardOptions = KeyboardOptions(keyboardType = androidx.compose.ui.text.input.KeyboardType.Decimal),
+                                keyboardActions = KeyboardActions(
+                                    onDone = {
+                                        val parsed = parallaxDraft.toFloatOrNull()
+                                        if (parsed != null) {
+                                            onVrStereoParallaxPercentChange(parsed)
+                                        }
+                                        parallaxDraft = uiState.vrConfig.stereoParallaxPercent.toString()
+                                    }
+                                ),
+                                suffix = { Text("%") }
+                            )
+                        }
+                        LaunchedEffect(uiState.vrConfig.stereoParallaxPercent) {
+                            parallaxDraft = String.format("%.1f", uiState.vrConfig.stereoParallaxPercent)
+                        }
+                    }
+                }
             }
         }
 
@@ -495,6 +875,33 @@ private fun StartupDestinationButton(
 ) {
     Button(
         onClick = onClick,
+        colors = ButtonDefaults.buttonColors(
+            containerColor = if (selected) {
+                MaterialTheme.colorScheme.primaryContainer
+            } else {
+                MaterialTheme.colorScheme.surfaceVariant
+            },
+            contentColor = if (selected) {
+                MaterialTheme.colorScheme.onPrimaryContainer
+            } else {
+                MaterialTheme.colorScheme.onSurfaceVariant
+            }
+        )
+    ) {
+        Text(if (selected) "✓ $text" else text)
+    }
+}
+
+@Composable
+private fun VrOptionButton(
+    selected: Boolean,
+    text: String,
+    onClick: () -> Unit,
+    enabled: Boolean = true
+) {
+    Button(
+        onClick = onClick,
+        enabled = enabled,
         colors = ButtonDefaults.buttonColors(
             containerColor = if (selected) {
                 MaterialTheme.colorScheme.primaryContainer

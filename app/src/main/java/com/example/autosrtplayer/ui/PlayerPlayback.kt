@@ -2,6 +2,7 @@ package com.example.autosrtplayer.ui
 
 import android.app.Activity
 import android.content.Context
+import android.content.ClipboardManager
 import android.graphics.Color as AndroidColor
 import android.media.AudioManager
 import android.view.WindowManager
@@ -80,8 +81,11 @@ import androidx.compose.ui.viewinterop.AndroidView
 import androidx.media3.common.C
 import androidx.media3.common.Player
 import androidx.media3.exoplayer.ExoPlayer
+import androidx.media3.ui.AspectRatioFrameLayout
 import androidx.media3.ui.CaptionStyleCompat
 import androidx.media3.ui.PlayerView
+import com.example.autosrtplayer.ui.vr.VrPlayerSurface
+import com.example.autosrtplayer.ui.vr.VrSubtitleOverlay
 import kotlinx.coroutines.delay
 import kotlin.math.abs
 import kotlin.math.roundToInt
@@ -103,6 +107,7 @@ private const val MinSpeedControlAlpha = 0.42f
 private const val SpeedMenuContainerAlpha = 0.94f
 private const val SpeedMenuBorderAlpha = 0.36f
 private const val SpeedMenuItemPaddingVertical = 10
+private const val VrRotationSensitivity = 0.4f
 private val PlaybackSpeedOptions = listOf(0.5f, 1f, 2f, 4f, 8f)
 
 private enum class OverlayGestureMode {
@@ -192,6 +197,9 @@ internal fun FullscreenPlayer(
     player: ExoPlayer?,
     playbackSpeed: Float,
     screenOrientationMode: ScreenOrientationMode,
+    vrConfig: VrPlaybackConfig,
+    vrViewAngles: VrViewAngles,
+    isVrHeadTrackingEnabled: Boolean,
     currentSourceId: String?,
     currentRequestLabel: String?,
     isCurrentFavorite: Boolean,
@@ -202,6 +210,12 @@ internal fun FullscreenPlayer(
     errorMessage: String?,
     onPlaybackSpeedChange: (Float) -> Unit,
     onToggleScreenOrientationMode: () -> Unit,
+    onVrViewDrag: (Float, Float) -> Unit,
+    onVrFlatScreenSizeChange: (Float) -> Unit,
+    onVrFlatScreenSizeChangeFinished: (Float) -> Unit,
+    onVrCameraFovChange: (Float) -> Unit,
+    onVrCameraFovChangeFinished: (Float) -> Unit,
+    onResetVrView: () -> Unit,
     onToggleFavorite: () -> Unit,
     onOpenTodayHot: () -> Unit,
     onOpenFavorites: () -> Unit,
@@ -279,21 +293,75 @@ internal fun FullscreenPlayer(
         val widthPx = with(density) { maxWidth.toPx() }.takeIf { it > 0f } ?: 1f
         val heightPx = with(density) { maxHeight.toPx() }.takeIf { it > 0f } ?: 1f
 
+        val isVrMode = vrConfig.contentMode == VrContentMode.Vr
+        val hasMedia = player != null && player.currentMediaItem != null
+        val canInitializeVr = isVrMode && hasMedia && vrConfig.isValid()
+
+        // Keep this stateful composable at a stable composition position. Playback changes
+        // currentMediaItem asynchronously, so conditionally creating the sensor effect here
+        // can race the GL surface and player surface handoff.
+        val headTrackingState = com.example.autosrtplayer.ui.vr.rememberVrHeadTrackingState(
+            enabled = canInitializeVr && isVrHeadTrackingEnabled,
+            config = vrConfig
+        )
+
         if (player != null) {
-            AndroidView(
-                factory = { viewContext ->
-                    PlayerView(viewContext).apply {
-                        this.player = player
-                        useController = false
-                        applySubtitleStyle()
-                    }
-                },
-                modifier = Modifier.fillMaxSize(),
-                update = {
-                    it.player = player
-                    it.applySubtitleStyle()
+            if (canInitializeVr) {
+                val effectiveVrViewAngles = com.example.autosrtplayer.ui.vr.combineVrAngles(
+                    manual = vrViewAngles,
+                    sensorOffset = headTrackingState.offset,
+                    config = vrConfig
+                )
+
+                Box(modifier = Modifier.fillMaxSize()) {
+                    VrPlayerSurface(
+                        player = player,
+                        config = vrConfig,
+                        viewAngles = effectiveVrViewAngles,
+                        modifier = Modifier.fillMaxSize()
+                    )
+                    VrSubtitleOverlay(
+                        player = player,
+                        config = vrConfig,
+                        modifier = Modifier.fillMaxSize()
+                    )
+
+                    VrGestureLayer(
+                        manualViewAngles = vrViewAngles,
+                        vrConfig = vrConfig,
+                        onVrViewDrag = onVrViewDrag,
+                        onVrFlatScreenSizeChange = onVrFlatScreenSizeChange,
+                        onVrFlatScreenSizeChangeFinished = onVrFlatScreenSizeChangeFinished,
+                        onVrCameraFovChange = onVrCameraFovChange,
+                        onVrCameraFovChangeFinished = onVrCameraFovChangeFinished,
+                        onToggleControls = {
+                            if (controlsVisible) {
+                                controlsVisible = false
+                            } else {
+                                controlsVisible = true
+                                pingControls()
+                            }
+                        },
+                        modifier = Modifier.fillMaxSize()
+                    )
                 }
-            )
+            } else {
+                AndroidView(
+                    factory = { viewContext ->
+                        PlayerView(viewContext).apply {
+                            this.player = player
+                            useController = false
+                            resizeMode = AspectRatioFrameLayout.RESIZE_MODE_FIT
+                            applySubtitleStyle()
+                        }
+                    },
+                    modifier = Modifier.fillMaxSize(),
+                    update = {
+                        it.player = player
+                        it.applySubtitleStyle()
+                    }
+                )
+            }
         }
 
         if (dimOverlayAlpha > 0f) {
@@ -304,7 +372,7 @@ internal fun FullscreenPlayer(
             )
         }
 
-        if (!controlsVisible) {
+        if (!controlsVisible && !isVrMode) {
             Row(
                 modifier = Modifier
                     .align(Alignment.Center)
@@ -553,18 +621,23 @@ internal fun FullscreenPlayer(
             IconButton(
                 onClick = {
                     pingControls()
-                    onToggleScreenOrientationMode()
+                    if (isVrMode) {
+                        onResetVrView()
+                        headTrackingState.recenter()
+                    } else {
+                        onToggleScreenOrientationMode()
+                    }
                 },
                 modifier = Modifier
                     .align(Alignment.BottomEnd)
                     .padding(end = 20.dp, bottom = 84.dp)
-                    .alpha(controlsContentAlpha)
                     .background(androidx.compose.ui.graphics.Color.Black.copy(alpha = ControlOverlayAlpha), shape = MaterialTheme.shapes.small)
                     .size(48.dp)
+                    .alpha(controlsContentAlpha)
             ) {
                 Icon(
-                    imageVector = orientationIcon,
-                    contentDescription = orientationDescription,
+                    imageVector = if (isVrMode) Icons.Filled.ScreenRotation else orientationIcon,
+                    contentDescription = if (isVrMode) "重設視角" else orientationDescription,
                     tint = androidx.compose.ui.graphics.Color.White
                 )
             }
@@ -646,6 +719,7 @@ internal fun FullscreenPlayer(
         }
 
         errorMessage?.let { message ->
+            val context = LocalContext.current
             Card(
                 modifier = Modifier
                     .align(Alignment.BottomCenter)
@@ -657,17 +731,35 @@ internal fun FullscreenPlayer(
                     verticalArrangement = Arrangement.spacedBy(8.dp)
                 ) {
                     Text(message, color = MaterialTheme.colorScheme.onErrorContainer)
-                    IconButton(
-                        onClick = onOpenSettings,
-                        modifier = Modifier
-                            .background(androidx.compose.ui.graphics.Color.Black.copy(alpha = 0.45f), shape = MaterialTheme.shapes.small)
-                            .size(40.dp)
+                    Row(
+                        horizontalArrangement = Arrangement.spacedBy(8.dp),
+                        verticalAlignment = Alignment.CenterVertically
                     ) {
-                        Icon(
-                            imageVector = Icons.Filled.Settings,
-                            contentDescription = "前往設定",
-                            tint = androidx.compose.ui.graphics.Color.White
-                        )
+                        Button(
+                            onClick = {
+                                val clipboard = context.getSystemService(Context.CLIPBOARD_SERVICE) as? android.content.ClipboardManager
+                                val clip = android.content.ClipData.newPlainText("錯誤訊息", message)
+                                clipboard?.setPrimaryClip(clip)
+                            },
+                            colors = ButtonDefaults.buttonColors(
+                                containerColor = MaterialTheme.colorScheme.error,
+                                contentColor = MaterialTheme.colorScheme.onError
+                            )
+                        ) {
+                            Text("複製錯誤訊息")
+                        }
+                        IconButton(
+                            onClick = onOpenSettings,
+                            modifier = Modifier
+                                .background(MaterialTheme.colorScheme.error, shape = MaterialTheme.shapes.small)
+                                .size(40.dp)
+                        ) {
+                            Icon(
+                                imageVector = Icons.Filled.Settings,
+                                contentDescription = "前往設定",
+                                tint = MaterialTheme.colorScheme.onError
+                            )
+                        }
                     }
                 }
             }
