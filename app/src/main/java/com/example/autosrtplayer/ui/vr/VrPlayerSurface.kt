@@ -23,6 +23,12 @@ fun VrPlayerSurface(
     viewAngles: VrViewAngles,
     modifier: Modifier = Modifier
 ) {
+    // Guard: Only proceed if player is valid and has media
+    if (player == null || player.currentMediaItem == null) {
+        android.util.Log.w("VrPlayerSurface", "Skipping VR surface setup: player=${player != null}, hasMedia=${player?.currentMediaItem != null}")
+        return
+    }
+
     val context = LocalContext.current
     val glView = remember { createGLSurfaceView(context) }
     val renderer = remember { glView.tag as VrRenderer }
@@ -34,13 +40,18 @@ fun VrPlayerSurface(
         renderer.setOnSurfaceReadyListener { surface ->
             // Post to main thread to update Compose state safely
             mainHandler.post {
-                videoSurface = surface
-                android.util.Log.d("VrPlayerSurface", "Video surface ready: $surface")
+                if (surface.isValid) {
+                    videoSurface = surface
+                    android.util.Log.d("VrPlayerSurface", "Video surface ready: $surface")
+                } else {
+                    android.util.Log.w("VrPlayerSurface", "Received invalid surface, skipping")
+                }
             }
         }
 
         onDispose {
             mainHandler.removeCallbacksAndMessages(null)
+            videoSurface = null
             glView.queueEvent {
                 renderer.release()
             }
@@ -96,14 +107,27 @@ fun VrPlayerSurface(
     // Bind surface to player
     DisposableEffect(player, videoSurface) {
         val surface = videoSurface
-        if (player != null && surface != null && surface.isValid) {
-            android.util.Log.d("VrPlayerSurface", "Binding surface to player")
-            player.setVideoSurface(surface)
+        val currentPlayer = player
+
+        if (currentPlayer != null && surface != null && surface.isValid) {
+            try {
+                android.util.Log.d("VrPlayerSurface", "Binding surface to player")
+                currentPlayer.setVideoSurface(surface)
+            } catch (e: Exception) {
+                android.util.Log.e("VrPlayerSurface", "Failed to bind surface to player", e)
+            }
+        } else {
+            android.util.Log.w("VrPlayerSurface", "Skipping surface bind: player=${currentPlayer != null}, surface=${surface != null}, valid=${surface?.isValid}")
         }
 
         onDispose {
-            if (surface != null && surface.isValid) {
-                player?.clearVideoSurface(surface)
+            if (currentPlayer != null && surface != null && surface.isValid) {
+                try {
+                    currentPlayer.clearVideoSurface(surface)
+                    android.util.Log.d("VrPlayerSurface", "Cleared surface from player")
+                } catch (e: Exception) {
+                    android.util.Log.e("VrPlayerSurface", "Failed to clear surface from player", e)
+                }
             }
         }
     }

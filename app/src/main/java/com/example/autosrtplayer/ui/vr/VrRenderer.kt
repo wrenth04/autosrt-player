@@ -83,36 +83,44 @@ class VrRenderer : GLSurfaceView.Renderer {
             return
         }
 
-        GLES20.glClearColor(0f, 0f, 0f, 1f)
-        GLES20.glEnable(GLES20.GL_DEPTH_TEST)
-
-        textureId = createOESTexture()
-        if (textureId == -1) {
-            android.util.Log.e(TAG, "Failed to create OES texture")
-            return
-        }
-
-        program = createShaderProgram()
-        if (program == -1) {
-            android.util.Log.e(TAG, "Failed to create shader program")
-            return
-        }
-
-        val linkStatus = IntArray(1)
-        GLES20.glGetProgramiv(program, GLES20.GL_LINK_STATUS, linkStatus, 0)
-        if (linkStatus[0] == 0) {
-            val log = GLES20.glGetProgramInfoLog(program)
-            android.util.Log.e(TAG, "Shader program link failed: $log")
-            GLES20.glDeleteProgram(program)
-            program = -1
-            return
-        }
-
-        generateSphereMesh()
-        generateFlatScreenMesh()
-        Matrix.setIdentityM(textureMatrix, 0)
-
         try {
+            GLES20.glClearColor(0f, 0f, 0f, 1f)
+            GLES20.glEnable(GLES20.GL_DEPTH_TEST)
+
+            textureId = createOESTexture()
+            if (textureId == -1) {
+                android.util.Log.e(TAG, "Failed to create OES texture")
+                return
+            }
+
+            program = createShaderProgram()
+            if (program == -1) {
+                android.util.Log.e(TAG, "Failed to create shader program")
+                cleanupGLResources()
+                return
+            }
+
+            val linkStatus = IntArray(1)
+            GLES20.glGetProgramiv(program, GLES20.GL_LINK_STATUS, linkStatus, 0)
+            if (linkStatus[0] == 0) {
+                val log = GLES20.glGetProgramInfoLog(program)
+                android.util.Log.e(TAG, "Shader program link failed: $log")
+                GLES20.glDeleteProgram(program)
+                program = -1
+                cleanupGLResources()
+                return
+            }
+
+            generateSphereMesh()
+            generateFlatScreenMesh()
+            Matrix.setIdentityM(textureMatrix, 0)
+
+            if (isReleased) {
+                android.util.Log.w(TAG, "Renderer released during surface creation, aborting")
+                cleanupGLResources()
+                return
+            }
+
             surfaceTexture = SurfaceTexture(textureId).apply {
                 setOnFrameAvailableListener {
                     if (!isReleased) {
@@ -122,10 +130,24 @@ class VrRenderer : GLSurfaceView.Renderer {
                 }
             }
             videoSurface = Surface(surfaceTexture)
-            android.util.Log.d(TAG, "GL surface created, texture=$textureId")
-            onSurfaceReady?.invoke(videoSurface!!)
+
+            if (videoSurface?.isValid == true) {
+                android.util.Log.d(TAG, "GL surface created, texture=$textureId")
+                onSurfaceReady?.invoke(videoSurface!!)
+            } else {
+                android.util.Log.e(TAG, "Created surface is invalid")
+                videoSurface?.release()
+                videoSurface = null
+                surfaceTexture?.release()
+                surfaceTexture = null
+                cleanupGLResources()
+            }
         } catch (e: Exception) {
-            android.util.Log.e(TAG, "Failed to create SurfaceTexture or Surface", e)
+            android.util.Log.e(TAG, "Exception during GL surface creation", e)
+            videoSurface?.release()
+            videoSurface = null
+            surfaceTexture?.release()
+            surfaceTexture = null
             cleanupGLResources()
         }
     }
@@ -136,7 +158,10 @@ class VrRenderer : GLSurfaceView.Renderer {
     }
 
     override fun onDrawFrame(gl: GL10?) {
-        if (isReleased || program == -1) return
+        if (isReleased || program == -1 || textureId == -1) {
+            // Skip rendering if core resources are not ready
+            return
+        }
 
         try {
             surfaceTexture?.let { st ->
@@ -175,6 +200,16 @@ class VrRenderer : GLSurfaceView.Renderer {
     }
 
     private fun renderEye(isLeftEye: Boolean, x: Int, y: Int, width: Int, height: Int) {
+        // Guard against invalid viewport or uninitialized resources
+        if (width <= 0 || height <= 0) {
+            android.util.Log.w(TAG, "renderEye called with invalid dimensions: ${width}x${height}")
+            return
+        }
+        if (program == -1 || textureId == -1) {
+            android.util.Log.w(TAG, "renderEye called without GL program or texture")
+            return
+        }
+
         GLES20.glViewport(x, y, width, height)
 
         val aspect = VrTextureCalculator.calculateEyeProjectionAspect(
@@ -478,10 +513,21 @@ class VrRenderer : GLSurfaceView.Renderer {
         android.util.Log.d(TAG, "Releasing VR renderer resources")
 
         // Release Surface and SurfaceTexture on main thread or GL thread
-        videoSurface?.release()
-        videoSurface = null
-        surfaceTexture?.release()
-        surfaceTexture = null
+        try {
+            videoSurface?.release()
+        } catch (e: Exception) {
+            android.util.Log.e(TAG, "Error releasing video surface", e)
+        } finally {
+            videoSurface = null
+        }
+
+        try {
+            surfaceTexture?.release()
+        } catch (e: Exception) {
+            android.util.Log.e(TAG, "Error releasing surface texture", e)
+        } finally {
+            surfaceTexture = null
+        }
 
         cleanupGLResources()
     }
