@@ -419,6 +419,11 @@ class PlayerViewModel(
         return bytes / (1024f * 1024f)
     }
 
+    fun getDepthModelFilePath(modelId: String?): String? {
+        if (modelId == null) return null
+        return depthModelRepository?.getModelFile(modelId)?.absolutePath
+    }
+
     private fun loadVrConfig(prefs: SharedPreferences?): VrPlaybackConfig {
         fun stringPreference(key: String): String? = runCatching {
             prefs?.getString(key, null)

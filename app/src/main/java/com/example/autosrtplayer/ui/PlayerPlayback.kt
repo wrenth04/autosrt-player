@@ -200,6 +200,8 @@ internal fun FullscreenPlayer(
     vrConfig: VrPlaybackConfig,
     vrViewAngles: VrViewAngles,
     isVrHeadTrackingEnabled: Boolean,
+    selectedDepthModelId: String?,
+    depthModelFilePath: String?,
     currentSourceId: String?,
     currentRequestLabel: String?,
     isCurrentFavorite: Boolean,
@@ -318,6 +320,8 @@ internal fun FullscreenPlayer(
                         player = player,
                         config = vrConfig,
                         viewAngles = effectiveVrViewAngles,
+                        selectedDepthModelId = selectedDepthModelId,
+                        depthModelFilePath = depthModelFilePath,
                         modifier = Modifier.fillMaxSize()
                     )
                     VrSubtitleOverlay(

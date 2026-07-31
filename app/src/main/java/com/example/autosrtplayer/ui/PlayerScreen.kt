@@ -261,6 +261,8 @@ fun PlayerScreen(
                     vrConfig = uiState.vrConfig,
                     vrViewAngles = uiState.vrViewAngles,
                     isVrHeadTrackingEnabled = uiState.isVrHeadTrackingEnabled,
+                    selectedDepthModelId = uiState.selectedDepthModelId,
+                    depthModelFilePath = viewModel.getDepthModelFilePath(uiState.selectedDepthModelId),
                     currentSourceId = currentSourceId,
                     currentRequestLabel = uiState.currentRequestLabel,
                     isCurrentFavorite = isCurrentFavorite,
