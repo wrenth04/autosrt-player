@@ -80,6 +80,7 @@ import androidx.compose.ui.viewinterop.AndroidView
 import androidx.media3.common.C
 import androidx.media3.common.Player
 import androidx.media3.exoplayer.ExoPlayer
+import androidx.media3.ui.AspectRatioFrameLayout
 import androidx.media3.ui.CaptionStyleCompat
 import androidx.media3.ui.PlayerView
 import com.example.autosrtplayer.ui.vr.VrPlayerSurface
@@ -339,6 +340,7 @@ internal fun FullscreenPlayer(
                         PlayerView(viewContext).apply {
                             this.player = player
                             useController = false
+                            resizeMode = AspectRatioFrameLayout.RESIZE_MODE_FIT
                             applySubtitleStyle()
                         }
                     },

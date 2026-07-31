@@ -2,6 +2,7 @@ package com.example.autosrtplayer.ui
 
 import android.app.Activity
 import android.content.pm.ActivityInfo
+import android.os.Build
 import android.view.WindowManager
 import androidx.activity.compose.BackHandler
 import androidx.compose.foundation.layout.Arrangement
@@ -96,14 +97,38 @@ fun PlayerScreen(
 
     DisposableEffect(activity, showingPlayerShell) {
         val window = activity?.window
+        val originalCutoutMode = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.P) {
+            window?.attributes?.layoutInDisplayCutoutMode
+        } else {
+            null
+        }
+
         if (window != null) {
             WindowCompat.setDecorFitsSystemWindows(window, !showingPlayerShell)
             val controller = WindowInsetsControllerCompat(window, window.decorView)
             if (showingPlayerShell) {
                 controller.hide(WindowInsetsCompat.Type.systemBars())
                 controller.systemBarsBehavior = WindowInsetsControllerCompat.BEHAVIOR_SHOW_TRANSIENT_BARS_BY_SWIPE
+
+                // Allow content to extend into display cutout area in landscape
+                if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.P) {
+                    val attributes = window.attributes
+                    attributes.layoutInDisplayCutoutMode =
+                        WindowManager.LayoutParams.LAYOUT_IN_DISPLAY_CUTOUT_MODE_SHORT_EDGES
+                    window.attributes = attributes
+                }
+
+                // Request layout to apply new window policy
+                window.decorView.requestLayout()
             } else {
                 controller.show(WindowInsetsCompat.Type.systemBars())
+
+                // Restore original cutout mode when leaving player shell
+                if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.P && originalCutoutMode != null) {
+                    val attributes = window.attributes
+                    attributes.layoutInDisplayCutoutMode = originalCutoutMode
+                    window.attributes = attributes
+                }
             }
         }
 
@@ -112,6 +137,13 @@ fun PlayerScreen(
                 WindowCompat.setDecorFitsSystemWindows(window, true)
                 WindowInsetsControllerCompat(window, window.decorView)
                     .show(WindowInsetsCompat.Type.systemBars())
+
+                // Restore original cutout mode on dispose
+                if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.P && originalCutoutMode != null) {
+                    val attributes = window.attributes
+                    attributes.layoutInDisplayCutoutMode = originalCutoutMode
+                    window.attributes = attributes
+                }
             }
         }
     }
