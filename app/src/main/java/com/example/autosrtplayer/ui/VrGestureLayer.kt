@@ -13,10 +13,7 @@ import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.input.pointer.PointerEventPass
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.input.pointer.positionChange
-import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.platform.LocalViewConfiguration
-import androidx.compose.ui.unit.dp
-import kotlin.math.abs
 
 @Composable
 internal fun VrGestureLayer(
@@ -49,55 +46,52 @@ internal fun VrGestureLayer(
                 var totalDrag = Offset.Zero
                 var isDragging = false
                 var hasMultiplePointers = false
-                var initialPinchDistance: Float? = null
                 var lastPinchDistance: Float? = null
                 var isPinching = false
 
                 while (true) {
                     val event = awaitPointerEvent(pass = PointerEventPass.Main)
 
-                    // Detect multiple pointers
-                    if (event.changes.size > 1) {
-                        hasMultiplePointers = true
+                    // Handle two-finger pinch for zoom adjustment
+                    if (event.changes.size == 2) {
+                        val (first, second) = event.changes.take(2)
+                        if (first.pressed && second.pressed) {
+                            hasMultiplePointers = true
+                            val currentDistance = (first.position - second.position).getDistance()
 
-                        // Handle two-finger pinch for zoom adjustment
-                        if (event.changes.size == 2) {
-                            val (first, second) = event.changes.take(2)
-                            if (first.pressed && second.pressed) {
-                                val currentDistance = (first.position - second.position).getDistance()
+                            if (!isPinching) {
+                                isPinching = true
+                                lastPinchDistance = currentDistance
+                            } else {
+                                val previousDistance = lastPinchDistance ?: currentDistance
+                                val distanceChange = currentDistance - previousDistance
 
-                                if (initialPinchDistance == null) {
-                                    initialPinchDistance = currentDistance
-                                    lastPinchDistance = currentDistance
-                                    isPinching = true
+                                if (isFlatScreen) {
+                                    val sizeChange = (distanceChange / 100f) * 10f
+                                    val newSize = (vrConfig.flatScreenSizePercent + sizeChange).coerceIn(
+                                        VrPlaybackConfig.MIN_FLAT_SCREEN_SIZE_PERCENT,
+                                        VrPlaybackConfig.MAX_FLAT_SCREEN_SIZE_PERCENT
+                                    )
+                                    onVrFlatScreenSizeChange(newSize)
                                 } else {
-                                    val distanceChange = currentDistance - (lastPinchDistance ?: currentDistance)
-
-                                    // Scale factor: convert pixel distance change to percentage/degree change
-                                    if (abs(distanceChange) > touchSlop) {
-                                        if (isFlatScreen) {
-                                            // For FlatScreen: adjust screen size (100 pixels = ~10% size change)
-                                            val sizeChange = (distanceChange / 100f) * 10f
-                                            val newSize = (vrConfig.flatScreenSizePercent + sizeChange).coerceIn(
-                                                VrPlaybackConfig.MIN_FLAT_SCREEN_SIZE_PERCENT,
-                                                VrPlaybackConfig.MAX_FLAT_SCREEN_SIZE_PERCENT
-                                            )
-                                            onVrFlatScreenSizeChange(newSize)
-                                        } else {
-                                            // For sphere projections: adjust camera FOV (100 pixels = ~5 degree change)
-                                            val fovChange = (distanceChange / 100f) * 5f
-                                            val newFov = (vrConfig.vrCameraFovDegrees - fovChange).coerceIn(
-                                                VrPlaybackConfig.MIN_VR_CAMERA_FOV,
-                                                VrPlaybackConfig.MAX_VR_CAMERA_FOV
-                                            )
-                                            onVrCameraFovChange(newFov)
-                                        }
-                                        lastPinchDistance = currentDistance
-                                        first.consume()
-                                        second.consume()
-                                    }
+                                    val fovChange = (distanceChange / 100f) * 5f
+                                    val newFov = (vrConfig.vrCameraFovDegrees - fovChange).coerceIn(
+                                        VrPlaybackConfig.MIN_VR_CAMERA_FOV,
+                                        VrPlaybackConfig.MAX_VR_CAMERA_FOV
+                                    )
+                                    onVrCameraFovChange(newFov)
                                 }
+                                lastPinchDistance = currentDistance
+                                first.consume()
+                                second.consume()
                             }
+                        }
+                    } else {
+                        // Finger count changed away from two — reset pinch state so the next
+                        // two-finger gesture starts from a clean baseline instead of jumping.
+                        if (isPinching) {
+                            isPinching = false
+                            lastPinchDistance = null
                         }
                     }
 

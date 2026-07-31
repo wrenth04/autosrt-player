@@ -305,10 +305,22 @@ class PlayerViewModel(
         _uiState.update { it.copy(vrConfig = newConfig) }
     }
 
+    fun setVrFlatScreenSizePercentTransient(percent: Float) {
+        val clamped = percent.coerceIn(VrPlaybackConfig.MIN_FLAT_SCREEN_SIZE_PERCENT, VrPlaybackConfig.MAX_FLAT_SCREEN_SIZE_PERCENT)
+        val newConfig = _uiState.value.vrConfig.copy(flatScreenSizePercent = clamped)
+        _uiState.update { it.copy(vrConfig = newConfig) }
+    }
+
     fun setVrCameraFovDegrees(degrees: Float) {
         val clamped = degrees.coerceIn(VrPlaybackConfig.MIN_VR_CAMERA_FOV, VrPlaybackConfig.MAX_VR_CAMERA_FOV)
         val newConfig = _uiState.value.vrConfig.copy(vrCameraFovDegrees = clamped)
         persistVrConfig(newConfig)
+        _uiState.update { it.copy(vrConfig = newConfig) }
+    }
+
+    fun setVrCameraFovDegreesTransient(degrees: Float) {
+        val clamped = degrees.coerceIn(VrPlaybackConfig.MIN_VR_CAMERA_FOV, VrPlaybackConfig.MAX_VR_CAMERA_FOV)
+        val newConfig = _uiState.value.vrConfig.copy(vrCameraFovDegrees = clamped)
         _uiState.update { it.copy(vrConfig = newConfig) }
     }
 
