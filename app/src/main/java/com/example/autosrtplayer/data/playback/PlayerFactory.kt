@@ -9,8 +9,17 @@ import androidx.media3.exoplayer.source.DefaultMediaSourceFactory
 import okhttp3.OkHttpClient
 
 class PlayerFactory(
-    private val okHttpClient: OkHttpClient = OkHttpClient()
+    private val okHttpClient: OkHttpClient = Companion.sharedHttpClient
 ) {
+    companion object {
+        private val sharedHttpClient: OkHttpClient by lazy {
+            OkHttpClient.Builder()
+                .followRedirects(true)
+                .followSslRedirects(true)
+                .build()
+        }
+    }
+
     @UnstableApi
     fun create(
         context: Context,

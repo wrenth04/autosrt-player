@@ -25,6 +25,7 @@ import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
+import okhttp3.OkHttpClient
 import java.util.Locale
 
 private data class PlaybackConfig(
@@ -36,13 +37,17 @@ private data class PlaybackConfig(
 @androidx.media3.common.util.UnstableApi
 class PlayerViewModel(
     private val parser: PlaylistParser = PlaylistParser(),
-    private val repository: PlaylistRepository = PlaylistRepository(),
+    private val sharedHttpClient: OkHttpClient = OkHttpClient.Builder()
+        .followRedirects(true)
+        .followSslRedirects(true)
+        .build(),
+    private val repository: PlaylistRepository = PlaylistRepository(sharedHttpClient),
     private val mediaItemBuilder: MediaItemBuilder = MediaItemBuilder(),
     private val subtitleRepository: SubtitleRepository = SubtitleRepository(),
     private val todayHotRepository: TodayHotRepository = TodayHotRepository(),
     private val missavHtmlExtractor: MissavHtmlExtractor = MissavHtmlExtractor(),
     private val missavPlaylistBuilder: MissavPlaylistBuilder = MissavPlaylistBuilder(),
-    private val playerFactory: PlayerFactory = PlayerFactory()
+    private val playerFactory: PlayerFactory = PlayerFactory(sharedHttpClient)
 ) : ViewModel() {
     companion object {
         private const val PrefsName = "autosrt_player_settings"

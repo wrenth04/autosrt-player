@@ -6,7 +6,10 @@ import okhttp3.OkHttpClient
 import okhttp3.Request
 
 class PlaylistRepository(
-    private val client: OkHttpClient = OkHttpClient()
+    private val client: OkHttpClient = OkHttpClient.Builder()
+        .followRedirects(true)
+        .followSslRedirects(true)
+        .build()
 ) {
     suspend fun loadFromUrl(url: String): String = withContext(Dispatchers.IO) {
         val request = Request.Builder().url(url).build()
