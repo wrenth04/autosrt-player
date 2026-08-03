@@ -8,10 +8,11 @@ import com.example.autosrtplayer.data.playlist.PlaylistEntry
 
 class MediaItemBuilder {
     fun build(entry: PlaylistEntry, subtitleSource: String? = entry.subtitleUrl): MediaItem {
+        val mimeType = inferMediaMimeType(entry.mediaUrl)
         val builder = MediaItem.Builder()
             .setUri(entry.mediaUrl)
             .setMediaId(entry.mediaUrl)
-            .setMimeType(MimeTypes.APPLICATION_M3U8)
+            .setMimeType(mimeType)
             .setMediaMetadata(
                 androidx.media3.common.MediaMetadata.Builder()
                     .setTitle(entry.title)
@@ -33,6 +34,15 @@ class MediaItemBuilder {
         }
 
         return builder.build()
+    }
+
+    private fun inferMediaMimeType(url: String): String {
+        val normalized = url.substringBefore('?').lowercase()
+        return when {
+            normalized.endsWith(".mp4") -> MimeTypes.VIDEO_MP4
+            normalized.endsWith(".m3u8") -> MimeTypes.APPLICATION_M3U8
+            else -> MimeTypes.APPLICATION_M3U8 // default to HLS
+        }
     }
 
     fun inferSubtitleMimeType(url: String): String? {
