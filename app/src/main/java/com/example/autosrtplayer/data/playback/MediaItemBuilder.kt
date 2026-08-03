@@ -9,6 +9,7 @@ import com.example.autosrtplayer.data.playlist.PlaylistEntry
 class MediaItemBuilder {
     fun build(entry: PlaylistEntry, subtitleSource: String? = entry.subtitleUrl): MediaItem {
         val mimeType = inferMediaMimeType(entry.mediaUrl)
+        android.util.Log.d("MediaItemBuilder", "Building media item: url=${entry.mediaUrl}, mimeType=$mimeType")
         val builder = MediaItem.Builder()
             .setUri(entry.mediaUrl)
             .setMediaId(entry.mediaUrl)
