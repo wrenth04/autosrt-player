@@ -48,6 +48,8 @@ data class PlayerUiState(
     val sourcePrefix: String = "",
     val playlistText: String = "",
     val playlistUrl: String = "",
+    val patToken: String = "",
+    val isPatTokenEnabled: Boolean = false,
     val parsedEntry: PlaylistEntry? = null,
     val mediaItem: MediaItem? = null,
     val lastPlayedMediaUrl: String? = null,

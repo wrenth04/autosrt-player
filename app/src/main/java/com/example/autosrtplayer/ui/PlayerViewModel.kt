@@ -160,6 +160,14 @@ class PlayerViewModel(
         _uiState.update { it.copy(playlistUrl = value) }
     }
 
+    fun onPatTokenChange(value: String) {
+        _uiState.update { it.copy(patToken = value) }
+    }
+
+    fun onPatTokenEnabledChange(enabled: Boolean) {
+        _uiState.update { it.copy(isPatTokenEnabled = enabled) }
+    }
+
     fun onSourceIdChange(value: String) {
         _uiState.update { it.copy(sourceId = value) }
     }
@@ -901,7 +909,18 @@ class PlayerViewModel(
 
     private suspend fun parseAndBuild(content: String, playlistUrl: String? = null, sourceId: String? = null) {
         runCatching {
-            val entry = parser.parse(content, playlistUrl)
+            val parsedEntry = parser.parse(content, playlistUrl)
+            val state = uiState.value
+            val entry = if (state.isPatTokenEnabled && state.patToken.isNotBlank()) {
+                val isSurritDomain = parsedEntry.mediaUrl.contains("surrit", ignoreCase = true)
+                if (isSurritDomain) {
+                    parsedEntry
+                } else {
+                    parsedEntry.copy(patToken = state.patToken)
+                }
+            } else {
+                parsedEntry
+            }
             val subtitleSource = resolveSubtitleSource(entry)
             entry to mediaItemBuilder.build(entry, subtitleSource)
         }.onSuccess { (entry, mediaItem) ->

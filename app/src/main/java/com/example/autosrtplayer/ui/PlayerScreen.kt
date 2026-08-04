@@ -32,6 +32,7 @@ import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Slider
+import androidx.compose.material3.Switch
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
@@ -227,6 +228,8 @@ fun PlayerScreen(
                     onLoadFromUrl = { viewModel.loadFromUrl() },
                     onPlaylistTextChange = viewModel::onPlaylistTextChange,
                     onLoadFromText = viewModel::loadFromText,
+                    onPatTokenChange = viewModel::onPatTokenChange,
+                    onPatTokenEnabledChange = viewModel::onPatTokenEnabledChange,
                     onSourcePrefixChange = viewModel::onSourcePrefixChange,
                     onSaveSourcePrefix = viewModel::saveSourcePrefix,
                     onToggleFavorite = viewModel::toggleCurrentFavorite,
@@ -311,6 +314,8 @@ private fun PlayerOptionsScreen(
     onLoadFromUrl: () -> Unit,
     onPlaylistTextChange: (String) -> Unit,
     onLoadFromText: () -> Unit,
+    onPatTokenChange: (String) -> Unit,
+    onPatTokenEnabledChange: (Boolean) -> Unit,
     onSourcePrefixChange: (String) -> Unit,
     onSaveSourcePrefix: () -> Unit,
     onToggleFavorite: () -> Unit,
@@ -929,6 +934,35 @@ private fun PlayerOptionsScreen(
                     ) {
                         Text("匯入 M3U")
                     }
+
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.SpaceBetween,
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Text("啟用 PAT Token")
+                        Switch(
+                            checked = uiState.isPatTokenEnabled,
+                            onCheckedChange = onPatTokenEnabledChange
+                        )
+                    }
+                    if (uiState.isPatTokenEnabled) {
+                        OutlinedTextField(
+                            value = uiState.patToken,
+                            onValueChange = onPatTokenChange,
+                            modifier = Modifier.fillMaxWidth(),
+                            label = { Text("PAT Token") },
+                            placeholder = { Text("輸入 Bearer token") },
+                            minLines = 1,
+                            singleLine = true
+                        )
+                        Text(
+                            "Token 會加入為 Authorization: Bearer header（surrit domain 除外）",
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant
+                        )
+                    }
+
                     OutlinedTextField(
                         value = uiState.sourcePrefix,
                         onValueChange = onSourcePrefixChange,
