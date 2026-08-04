@@ -33,7 +33,16 @@ class PlayerFactory(
             patToken?.takeIf { it.isNotBlank() }?.let { put("Authorization", "Bearer $it") }
         }
 
-        val httpDataSourceFactory = OkHttpDataSource.Factory(okHttpClient)
+        // Create OkHttpClient with GitHub interceptor if PAT token is provided
+        val clientForPlayer = if (!patToken.isNullOrBlank()) {
+            okHttpClient.newBuilder()
+                .addInterceptor(GitHubReleaseInterceptor(patToken))
+                .build()
+        } else {
+            okHttpClient
+        }
+
+        val httpDataSourceFactory = OkHttpDataSource.Factory(clientForPlayer)
             .setDefaultRequestProperties(requestHeaders)
             .setUserAgent(userAgent ?: "AutoSRT Player")
 

@@ -911,16 +911,28 @@ class PlayerViewModel(
         runCatching {
             val parsedEntry = parser.parse(content, playlistUrl)
             val state = uiState.value
+
+            android.util.Log.d("PlayerViewModel", "parseAndBuild: isPatTokenEnabled=${state.isPatTokenEnabled}, hasToken=${state.patToken.isNotBlank()}")
+            android.util.Log.d("PlayerViewModel", "parseAndBuild: parsedEntry.mediaUrl=${parsedEntry.mediaUrl}")
+            android.util.Log.d("PlayerViewModel", "parseAndBuild: parsedEntry.patToken=${if (parsedEntry.patToken.isNullOrBlank()) "(none)" else "***${parsedEntry.patToken.takeLast(4)}"}")
+
             val entry = if (state.isPatTokenEnabled && state.patToken.isNotBlank()) {
                 val isSurritDomain = parsedEntry.mediaUrl.contains("surrit", ignoreCase = true)
+                android.util.Log.d("PlayerViewModel", "parseAndBuild: isSurritDomain=$isSurritDomain")
                 if (isSurritDomain) {
+                    android.util.Log.d("PlayerViewModel", "parseAndBuild: Skipping PAT token for surrit domain")
                     parsedEntry
                 } else {
+                    android.util.Log.d("PlayerViewModel", "parseAndBuild: Applying UI PAT token")
                     parsedEntry.copy(patToken = state.patToken)
                 }
             } else {
+                android.util.Log.d("PlayerViewModel", "parseAndBuild: Using parsed entry as-is (PAT not enabled or empty)")
                 parsedEntry
             }
+
+            android.util.Log.d("PlayerViewModel", "parseAndBuild: final entry.patToken=${if (entry.patToken.isNullOrBlank()) "(none)" else "***${entry.patToken.takeLast(4)}"}")
+
             val subtitleSource = resolveSubtitleSource(entry)
             entry to mediaItemBuilder.build(entry, subtitleSource)
         }.onSuccess { (entry, mediaItem) ->
