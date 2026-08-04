@@ -72,6 +72,8 @@ class PlayerViewModel(
         private const val KeyVrCameraFov = "vr_camera_fov"
         private const val KeyVrDepthStereoEnabled = "vr_depth_stereo_enabled"
         private const val KeySelectedDepthModel = "selected_depth_model"
+        private const val KeyPatToken = "pat_token"
+        private const val KeyPatTokenEnabled = "pat_token_enabled"
     }
 
     private val _uiState = MutableStateFlow(PlayerUiState())
@@ -103,6 +105,8 @@ class PlayerViewModel(
                 ?.getBoolean(KeyVrHeadTrackingEnabled, false) ?: false
             val selectedDepthModelId = settingsPrefs
                 ?.getString(KeySelectedDepthModel, null)
+            val patToken = settingsPrefs?.getString(KeyPatToken, "").orEmpty()
+            val isPatTokenEnabled = settingsPrefs?.getBoolean(KeyPatTokenEnabled, false) ?: false
 
             // Initialize depth model repository
             if (depthModelRepository == null) {
@@ -118,6 +122,8 @@ class PlayerViewModel(
                     vrConfig = vrConfig,
                     isVrHeadTrackingEnabled = isVrHeadTrackingEnabled,
                     selectedDepthModelId = selectedDepthModelId,
+                    patToken = patToken,
+                    isPatTokenEnabled = isPatTokenEnabled,
                     availableDepthModels = DepthModel.availableModels()
                 )
             }
@@ -161,10 +167,12 @@ class PlayerViewModel(
     }
 
     fun onPatTokenChange(value: String) {
+        settingsPrefs?.edit()?.putString(KeyPatToken, value)?.apply()
         _uiState.update { it.copy(patToken = value) }
     }
 
     fun onPatTokenEnabledChange(enabled: Boolean) {
+        settingsPrefs?.edit()?.putBoolean(KeyPatTokenEnabled, enabled)?.apply()
         _uiState.update { it.copy(isPatTokenEnabled = enabled) }
     }
 
