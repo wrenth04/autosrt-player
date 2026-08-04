@@ -31,7 +31,8 @@ import java.util.Locale
 private data class PlaybackConfig(
     val mediaUrl: String,
     val userAgent: String?,
-    val referrer: String?
+    val referrer: String?,
+    val patToken: String?
 )
 
 @androidx.media3.common.util.UnstableApi
@@ -960,7 +961,8 @@ class PlayerViewModel(
         return playerFactory.create(
             context = context,
             userAgent = state.parsedEntry?.userAgent,
-            referrer = state.parsedEntry?.referrer
+            referrer = state.parsedEntry?.referrer,
+            patToken = state.parsedEntry?.patToken
         )
     }
 
@@ -992,16 +994,26 @@ class PlayerViewModel(
 
     private fun syncPlayerWithState(player: ExoPlayer) {
         val state = uiState.value
-        val entry = state.parsedEntry ?: return
-        val mediaItem = state.mediaItem ?: return
+        val entry = state.parsedEntry ?: run {
+            android.util.Log.w("PlayerViewModel", "syncPlayerWithState: no parsed entry")
+            return
+        }
+        val mediaItem = state.mediaItem ?: run {
+            android.util.Log.w("PlayerViewModel", "syncPlayerWithState: no media item")
+            return
+        }
         val desiredConfig = PlaybackConfig(
             mediaUrl = entry.mediaUrl,
             userAgent = entry.userAgent,
-            referrer = entry.referrer
+            referrer = entry.referrer,
+            patToken = entry.patToken
         )
         val currentConfig = activePlaybackConfig
 
+        android.util.Log.d("PlayerViewModel", "syncPlayerWithState: desiredUrl=${desiredConfig.mediaUrl}, currentUrl=${currentConfig?.mediaUrl}, currentMediaItem=${player.currentMediaItem?.mediaId}")
+
         if (currentConfig == desiredConfig && player.currentMediaItem == mediaItem) {
+            android.util.Log.d("PlayerViewModel", "syncPlayerWithState: already synced, skipping")
             return
         }
 
@@ -1018,7 +1030,10 @@ class PlayerViewModel(
             currentConfig != desiredConfig && headersChanged
         }
 
+        android.util.Log.d("PlayerViewModel", "syncPlayerWithState: needsRecreate=$needsRecreate, hasHeaders=$desiredHasHeaders, headersChanged=$headersChanged")
+
         val targetPlayer = if (needsRecreate) {
+            android.util.Log.i("PlayerViewModel", "syncPlayerWithState: recreating player with new headers")
             recreatePlayer(desiredConfig)
         } else {
             player
@@ -1051,7 +1066,8 @@ class PlayerViewModel(
         val newPlayer = playerFactory.create(
             context = context,
             userAgent = config.userAgent,
-            referrer = config.referrer
+            referrer = config.referrer,
+            patToken = config.patToken
         )
         player = newPlayer
         attachPlayerListener(newPlayer)

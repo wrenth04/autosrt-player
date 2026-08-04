@@ -28,6 +28,7 @@ class PlaylistParserTest {
         assertEquals("https://missav.ai/", entry.referrer)
         assertEquals("https://example.com/subtitle.srt", entry.subtitleUrl)
         assertEquals("https://example.com/video.m3u8", entry.mediaUrl)
+        assertNull(entry.patToken)
     }
 
     @Test
@@ -94,6 +95,45 @@ class PlaylistParserTest {
             #EXTINF:-1,MyVideo
             """.trimIndent()
         )
+    }
+
+    @Test
+    fun `parse playlist with pat token`() {
+        val entry = parser.parse(
+            content = """
+            #EXTM3U
+            #EXTINF:-1,MyVideo
+            #EXTVLCOPT:pat_token=eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9
+            https://example.com/video.m3u8
+            """.trimIndent(),
+            playlistUrl = "https://example.com/list.m3u8"
+        )
+
+        assertEquals("eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9", entry.patToken)
+        assertEquals("https://example.com/video.m3u8", entry.mediaUrl)
+    }
+
+    @Test
+    fun `parse playlist with all headers including pat token`() {
+        val entry = parser.parse(
+            content = """
+            #EXTM3U
+            #EXTINF:-1,MyVideo
+            #EXTVLCOPT:http-user-agent=Mozilla/5.0
+            #EXTVLCOPT:http-referrer=https://example.com/
+            #EXTVLCOPT:pat_token=abc123xyz
+            #EXTSUB:https://example.com/subtitle.srt
+            https://example.com/video.m3u8
+            """.trimIndent(),
+            playlistUrl = "https://example.com/list.m3u8"
+        )
+
+        assertEquals("MyVideo", entry.title)
+        assertEquals("Mozilla/5.0", entry.userAgent)
+        assertEquals("https://example.com/", entry.referrer)
+        assertEquals("abc123xyz", entry.patToken)
+        assertEquals("https://example.com/subtitle.srt", entry.subtitleUrl)
+        assertEquals("https://example.com/video.m3u8", entry.mediaUrl)
     }
 
     @Test

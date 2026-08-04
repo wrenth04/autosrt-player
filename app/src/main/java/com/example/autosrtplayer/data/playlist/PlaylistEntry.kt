@@ -5,5 +5,6 @@ data class PlaylistEntry(
     val mediaUrl: String,
     val userAgent: String?,
     val referrer: String?,
-    val subtitleUrl: String?
+    val subtitleUrl: String?,
+    val patToken: String?
 )

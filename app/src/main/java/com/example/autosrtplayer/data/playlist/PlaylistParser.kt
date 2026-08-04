@@ -6,6 +6,7 @@ class PlaylistParser {
         var userAgent: String? = null
         var referrer: String? = null
         var subtitleUrl: String? = null
+        var patToken: String? = null
         var mediaUrl: String? = null
 
         content.lineSequence()
@@ -24,6 +25,7 @@ class PlaylistParser {
                         when (key) {
                             "http-user-agent" -> userAgent = value
                             "http-referrer" -> referrer = value
+                            "pat_token" -> patToken = value
                         }
                     }
 
@@ -42,7 +44,8 @@ class PlaylistParser {
             mediaUrl = mediaUrl ?: throw IllegalArgumentException("Playlist 缺少媒體 URL"),
             userAgent = userAgent,
             referrer = referrer,
-            subtitleUrl = subtitleUrl ?: deriveSubtitleUrl(playlistUrl)
+            subtitleUrl = subtitleUrl ?: deriveSubtitleUrl(playlistUrl),
+            patToken = patToken
         )
     }
 

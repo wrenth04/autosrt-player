@@ -24,11 +24,13 @@ class PlayerFactory(
     fun create(
         context: Context,
         userAgent: String?,
-        referrer: String?
+        referrer: String?,
+        patToken: String?
     ): ExoPlayer {
         val requestHeaders = buildMap {
             userAgent?.takeIf { it.isNotBlank() }?.let { put("User-Agent", it) }
             referrer?.takeIf { it.isNotBlank() }?.let { put("Referer", it) }
+            patToken?.takeIf { it.isNotBlank() }?.let { put("Authorization", "Bearer $it") }
         }
 
         val httpDataSourceFactory = OkHttpDataSource.Factory(okHttpClient)
