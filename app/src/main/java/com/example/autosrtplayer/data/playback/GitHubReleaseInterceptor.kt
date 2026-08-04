@@ -95,14 +95,24 @@ class GitHubReleaseInterceptor(private val patToken: String?) : Interceptor {
 
             val assetsJson = assetsMatch.groupValues[1]
 
-            // Find the asset with matching name
-            val assetPattern = Regex(
-                """"name"\s*:\s*"${Regex.escape(filename)}".*?"url"\s*:\s*"([^"]+)"""",
+            // Find the individual asset object with matching name
+            // Match the entire asset object to avoid picking up nested uploader.url
+            val assetObjectPattern = Regex(
+                """\{[^}]*"name"\s*:\s*"${Regex.escape(filename)}"[^}]*\}""",
                 RegexOption.DOT_MATCHES_ALL
             )
 
-            val urlMatch = assetPattern.find(assetsJson)
-            return urlMatch?.groupValues?.get(1)
+            val assetObjectMatch = assetObjectPattern.find(assetsJson) ?: return null
+            val assetObject = assetObjectMatch.value
+
+            // Now extract the "url" field from this specific asset object
+            // Look for "url" that appears before any nested objects like "uploader"
+            val urlPattern = Regex(""""url"\s*:\s*"([^"]+)"""")
+            val urlMatch = urlPattern.find(assetObject)
+            val assetUrl = urlMatch?.groupValues?.get(1)
+
+            android.util.Log.d("GitHubInterceptor", "Extracted asset URL: $assetUrl")
+            return assetUrl
 
         } catch (e: Exception) {
             android.util.Log.e("GitHubInterceptor", "Error parsing release JSON", e)
