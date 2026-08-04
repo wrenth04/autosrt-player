@@ -16,6 +16,12 @@ class GitHubReleaseInterceptor(private val patToken: String?) : Interceptor {
         val originalRequest = chain.request()
         val originalUrl = originalRequest.url.toString()
 
+        // Skip subtitle files - they should be accessed directly without PAT token
+        if (originalUrl.endsWith(".srt", ignoreCase = true) ||
+            originalUrl.endsWith(".vtt", ignoreCase = true)) {
+            return chain.proceed(originalRequest)
+        }
+
         // Only process if PAT token is available and URL matches GitHub release pattern
         if (patToken.isNullOrBlank() || !GITHUB_RELEASE_PATTERN.matcher(originalUrl).matches()) {
             return chain.proceed(originalRequest)
