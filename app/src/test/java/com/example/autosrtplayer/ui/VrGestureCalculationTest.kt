@@ -235,4 +235,45 @@ class VrGestureCalculationTest {
         val newFov = calculateCameraFovFromPinchDelta(currentFov, pinchDelta)
         assertEquals(VrPlaybackConfig.MAX_VR_CAMERA_FOV, newFov, 0.01f)
     }
+
+    // Double-tap seek delta tests
+    @Test
+    fun `tap on left half rewinds by seek step`() {
+        val tapX = 400f // left of center (center = 960)
+        val screenWidth = 1920f
+        val seekStep = 60_000L
+        assertEquals(-60_000L, calculateVrSeekDelta(tapX, screenWidth, seekStep))
+    }
+
+    @Test
+    fun `tap on right half fast-forwards by seek step`() {
+        val tapX = 1500f // right of center (center = 960)
+        val screenWidth = 1920f
+        val seekStep = 60_000L
+        assertEquals(60_000L, calculateVrSeekDelta(tapX, screenWidth, seekStep))
+    }
+
+    @Test
+    fun `tap exactly at center is treated as right half`() {
+        val tapX = 960f // exactly center
+        val screenWidth = 1920f
+        val seekStep = 60_000L
+        assertEquals(60_000L, calculateVrSeekDelta(tapX, screenWidth, seekStep))
+    }
+
+    @Test
+    fun `tap at left edge rewinds`() {
+        val tapX = 0f
+        val screenWidth = 1920f
+        val seekStep = 60_000L
+        assertEquals(-60_000L, calculateVrSeekDelta(tapX, screenWidth, seekStep))
+    }
+
+    @Test
+    fun `tap at right edge fast-forwards`() {
+        val tapX = 1920f
+        val screenWidth = 1920f
+        val seekStep = 60_000L
+        assertEquals(60_000L, calculateVrSeekDelta(tapX, screenWidth, seekStep))
+    }
 }

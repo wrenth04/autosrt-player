@@ -7,6 +7,7 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
@@ -15,6 +16,10 @@ import androidx.compose.ui.input.pointer.PointerEventPass
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.input.pointer.positionChange
 import androidx.compose.ui.platform.LocalViewConfiguration
+import android.os.SystemClock
+import kotlinx.coroutines.Job
+import kotlinx.coroutines.delay
+import kotlinx.coroutines.launch
 
 /**
  * Calculate new FlatScreen size percent from a pinch distance delta.
@@ -47,11 +52,37 @@ internal fun calculateCameraFovFromPinchDelta(
     )
 }
 
+/**
+ * The gesture double-tap window in milliseconds. A single tap is only treated as a
+ * controls-toggle after this window elapses without a second tap arriving, so the
+ * two taps of a double-tap can be grouped and used to seek instead.
+ */
+private const val VrDoubleTapTimeoutMs = 250L
+
+/**
+ * The seek step (in milliseconds) applied per double-tap in VR mode.
+ */
+private const val VrSeekStepMs = 60_000L
+
+/**
+ * Calculate the seek delta (in milliseconds) for a double-tap in VR mode.
+ * A tap on the left half rewinds (negative delta); the right half fast-forwards.
+ */
+internal fun calculateVrSeekDelta(
+    tapPositionX: Float,
+    screenWidth: Float,
+    seekStepMs: Long
+): Long {
+    return if (tapPositionX < screenWidth / 2f) -seekStepMs else seekStepMs
+}
+
 @Composable
 internal fun VrGestureLayer(
     manualViewAngles: VrViewAngles,
     vrConfig: VrPlaybackConfig,
     onVrViewDrag: (Float, Float) -> Unit,
+    onVrSeekBy: (Long) -> Unit,
+    onVrFlatScreenSizeChange: (Float) -> Unit,
     onVrFlatScreenSizeChange: (Float) -> Unit,
     onVrFlatScreenSizeChangeFinished: (Float) -> Unit,
     onVrCameraFovChange: (Float) -> Unit,
@@ -68,11 +99,18 @@ internal fun VrGestureLayer(
     // configuration and callbacks without restarting on every config update
     val currentConfig by rememberUpdatedState(vrConfig)
     val currentViewDrag by rememberUpdatedState(onVrViewDrag)
+    val currentSeekBy by rememberUpdatedState(onVrSeekBy)
     val currentFlatSizeChange by rememberUpdatedState(onVrFlatScreenSizeChange)
     val currentFlatSizeFinished by rememberUpdatedState(onVrFlatScreenSizeChangeFinished)
     val currentCameraFovChange by rememberUpdatedState(onVrCameraFovChange)
     val currentCameraFovFinished by rememberUpdatedState(onVrCameraFovChangeFinished)
     val currentToggleControls by rememberUpdatedState(onToggleControls)
+    val scope = rememberCoroutineScope()
+
+    // A pending single-tap that is waiting to see whether a second tap follows (double-tap).
+    // Only fired as a controls-toggle if the double-tap window elapses without a second tap.
+    var pendingTapJob by remember { mutableStateOf<Job?>(null) }
+    var pendingTapTimeMs by remember { mutableStateOf(0L) }
 
     if (manualViewAngles.yawDegrees != latestYaw || manualViewAngles.pitchDegrees != latestPitch) {
         latestYaw = manualViewAngles.yawDegrees
@@ -176,9 +214,33 @@ internal fun VrGestureLayer(
                         if (isPinching) {
                             finishPinch()
                         }
-                        // Only toggle if this was a clean single-finger tap (no pinching, no dragging, no multi-touch)
+                        // Handle a clean single-finger tap (no pinching, no dragging, no multi-touch).
+                        // A single tap toggles controls, but only after the double-tap window
+                        // elapses so a second tap can be grouped as a double-tap to seek instead.
                         if (change != null && !hasMultiplePointers && !isDragging && totalDrag.getDistance() <= touchSlop) {
-                            currentToggleControls()
+                            val tapX = change.position.x
+                            val existingTap = pendingTapJob
+                            val doubleTapDetected = existingTap != null &&
+                                SystemClock.elapsedRealtime() - pendingTapTimeMs <= VrDoubleTapTimeoutMs
+
+                            if (doubleTapDetected) {
+                                // Two taps within the window: seek, don't toggle controls.
+                                existingTap?.cancel()
+                                pendingTapJob = null
+                                currentSeekBy(calculateVrSeekDelta(tapX, screenWidth, VrSeekStepMs))
+                            } else {
+                                // First tap: arm the double-tap window, then toggle controls.
+                                pendingTapTimeMs = SystemClock.elapsedRealtime()
+                                pendingTapJob = scope.launch {
+                                    delay(VrDoubleTapTimeoutMs)
+                                    pendingTapJob = null
+                                    currentToggleControls()
+                                }
+                            }
+                        } else {
+                            // Any non-clean release (drag/pinch) cancels a pending double-tap.
+                            pendingTapJob?.cancel()
+                            pendingTapJob = null
                         }
                         break
                     }
