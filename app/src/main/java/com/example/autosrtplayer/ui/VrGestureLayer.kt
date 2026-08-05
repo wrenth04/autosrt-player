@@ -83,7 +83,6 @@ internal fun VrGestureLayer(
     onVrViewDrag: (Float, Float) -> Unit,
     onVrSeekBy: (Long) -> Unit,
     onVrFlatScreenSizeChange: (Float) -> Unit,
-    onVrFlatScreenSizeChange: (Float) -> Unit,
     onVrFlatScreenSizeChangeFinished: (Float) -> Unit,
     onVrCameraFovChange: (Float) -> Unit,
     onVrCameraFovChangeFinished: (Float) -> Unit,

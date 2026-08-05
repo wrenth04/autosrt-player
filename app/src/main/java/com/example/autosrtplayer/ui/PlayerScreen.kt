@@ -278,7 +278,7 @@ fun PlayerScreen(
                     onToggleScreenOrientationMode = viewModel::toggleScreenOrientationMode,
                     onVrViewDrag = viewModel::updateVrViewAngles,
                     onVrSeekBy = { deltaMs ->
-                        player?.let {
+                        player.let {
                             val target = it.currentPosition + deltaMs
                             val duration = it.duration.takeIf { d -> d > 0 }
                             it.seekTo(target.coerceIn(0L, duration ?: target))
