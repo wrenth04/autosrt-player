@@ -5,6 +5,7 @@ import androidx.media3.common.util.UnstableApi
 import androidx.media3.datasource.DefaultDataSource
 import androidx.media3.datasource.okhttp.OkHttpDataSource
 import androidx.media3.exoplayer.ExoPlayer
+import androidx.media3.exoplayer.SeekParameters
 import androidx.media3.exoplayer.source.DefaultMediaSourceFactory
 import okhttp3.OkHttpClient
 
@@ -51,6 +52,7 @@ class PlayerFactory(
 
         return ExoPlayer.Builder(context)
             .setMediaSourceFactory(mediaSourceFactory)
+            .setSeekParameters(SeekParameters.CLOSEST_SYNC)
             .build()
     }
 }
