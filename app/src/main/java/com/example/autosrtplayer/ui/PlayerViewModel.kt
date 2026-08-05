@@ -6,6 +6,7 @@ import android.content.ClipboardManager
 import android.content.SharedPreferences
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
+import androidx.media3.common.PlaybackException
 import androidx.media3.common.Player
 import androidx.media3.exoplayer.ExoPlayer
 import com.example.autosrtplayer.data.favorites.FavoriteCodec
@@ -83,6 +84,7 @@ class PlayerViewModel(
     private var settingsPrefs: SharedPreferences? = null
     private var player: ExoPlayer? = null
     private var playerListener: Player.Listener? = null
+    private var decodeErrorRetryPending = false
     private var activePlaybackConfig: PlaybackConfig? = null
     private var autoFullscreenPending: Boolean = false
     private var sourceResolveRequestCounter: Long = 0
@@ -1008,6 +1010,9 @@ class PlayerViewModel(
     private fun attachPlayerListener(player: ExoPlayer) {
         val listener = object : Player.Listener {
             override fun onIsPlayingChanged(isPlaying: Boolean) {
+                if (isPlaying) {
+                    decodeErrorRetryPending = false
+                }
                 if (isPlaying && autoFullscreenPending) {
                     autoFullscreenPending = false
                     _uiState.update { state ->
@@ -1024,6 +1029,20 @@ class PlayerViewModel(
                         playbackPositionMs = player.currentPosition,
                         playWhenReady = player.playWhenReady
                     )
+                }
+            }
+
+            override fun onPlayerError(error: PlaybackException) {
+                // Decoding failures (e.g. a corrupt segment or bad GOP placement)
+                // can leave the player stuck. Seek back past the bad position and
+                // retry once so playback resumes from a decodable sync point.
+                if (error.errorCode == PlaybackException.ERROR_CODE_DECODING_FAILED &&
+                    activePlaybackConfig != null && !decodeErrorRetryPending
+                ) {
+                    decodeErrorRetryPending = true
+                    val target = (player.currentPosition - 5_000L).coerceAtLeast(0L)
+                    player.seekTo(target)
+                    player.prepare()
                 }
             }
         }
