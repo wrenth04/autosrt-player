@@ -16,6 +16,7 @@ import com.example.autosrtplayer.ui.vr.depth.DepthFrame
 import java.nio.ByteBuffer
 import java.nio.ByteOrder
 import java.nio.FloatBuffer
+import java.util.concurrent.atomic.AtomicBoolean
 import javax.microedition.khronos.egl.EGLConfig
 import javax.microedition.khronos.opengles.GL10
 import android.opengl.GLSurfaceView
@@ -53,8 +54,7 @@ class VrRenderer : GLSurfaceView.Renderer {
 
     private var onSurfaceReady: ((Surface) -> Unit)? = null
     private var onRequestRender: (() -> Unit)? = null
-    @Volatile
-    private var frameUpdateNeeded = false
+    private val frameUpdateNeeded = AtomicBoolean(false)
     @Volatile
     private var isReleased = false
 
@@ -89,7 +89,7 @@ class VrRenderer : GLSurfaceView.Renderer {
     }
 
     fun requestFrameUpdate() {
-        frameUpdateNeeded = true
+        frameUpdateNeeded.set(true)
         onRequestRender?.invoke()
     }
 
@@ -188,7 +188,7 @@ class VrRenderer : GLSurfaceView.Renderer {
             surfaceTexture = SurfaceTexture(textureId).apply {
                 setOnFrameAvailableListener {
                     if (!isReleased) {
-                        frameUpdateNeeded = true
+                        frameUpdateNeeded.set(true)
                         onRequestRender?.invoke()
                     }
                 }
@@ -229,10 +229,9 @@ class VrRenderer : GLSurfaceView.Renderer {
 
         try {
             surfaceTexture?.let { st ->
-                if (frameUpdateNeeded) {
+                if (frameUpdateNeeded.getAndSet(false)) {
                     st.updateTexImage()
                     st.getTransformMatrix(textureMatrix)
-                    frameUpdateNeeded = false
                 }
             }
         } catch (e: Exception) {
@@ -614,7 +613,7 @@ class VrRenderer : GLSurfaceView.Renderer {
             return
         }
         isReleased = true
-        frameUpdateNeeded = false
+        frameUpdateNeeded.set(false)
         onSurfaceReady = null
         onRequestRender = null
 
