@@ -557,6 +557,11 @@ private fun PlayerOptionsScreen(
                                 text = "立體左右並排",
                                 onClick = { onVrSourceLayoutChange(VrSourceLayout.SideBySide) }
                             )
+                            VrOptionButton(
+                                selected = uiState.vrConfig.sourceLayout == VrSourceLayout.TopBottom,
+                                text = "立體上下排列",
+                                onClick = { onVrSourceLayoutChange(VrSourceLayout.TopBottom) }
+                            )
                         }
                     }
 

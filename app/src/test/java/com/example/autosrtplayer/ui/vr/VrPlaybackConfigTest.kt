@@ -115,6 +115,13 @@ class VrPlaybackConfigTest {
             sourceLayout = VrSourceLayout.SideBySide
         )
         assertFalse(invalid.isValid())
+
+        val topBottomInvalid = VrPlaybackConfig(
+            contentMode = VrContentMode.Vr,
+            projection = VrProjection.FlatScreen,
+            sourceLayout = VrSourceLayout.TopBottom
+        )
+        assertFalse(topBottomInvalid.isValid())
     }
 
     @Test
@@ -343,6 +350,20 @@ class VrTextureCalculatorTest {
         assertEquals(1f, rightCrop.uMax, 0.01f)
     }
 
+    @Test
+    fun `top-bottom splits texture vertically`() {
+        val leftCrop = VrTextureCalculator.calculateEyeCrop(VrSourceLayout.TopBottom, true)
+        assertEquals(0f, leftCrop.uMin, 0.01f)
+        assertEquals(1f, leftCrop.uMax, 0.01f)
+        assertEquals(0f, leftCrop.vMin, 0.01f)
+        assertEquals(0.5f, leftCrop.vMax, 0.01f)
+
+        val rightCrop = VrTextureCalculator.calculateEyeCrop(VrSourceLayout.TopBottom, false)
+        assertEquals(0f, rightCrop.uMin, 0.01f)
+        assertEquals(1f, rightCrop.uMax, 0.01f)
+        assertEquals(0.5f, rightCrop.vMin, 0.01f)
+        assertEquals(1f, rightCrop.vMax, 0.01f)
+    }
     @Test
     fun `single eye output renders once`() {
         assertFalse(VrTextureCalculator.shouldRenderTwoViewports(VrDisplayOutput.SingleEye))

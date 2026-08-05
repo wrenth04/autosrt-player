@@ -13,7 +13,8 @@ enum class VrFieldOfView {
 
 enum class VrSourceLayout {
     Monoscopic,
-    SideBySide
+    SideBySide,
+    TopBottom
 }
 
 enum class VrProjection {
@@ -270,6 +271,13 @@ object VrTextureCalculator {
                     TextureCrop(0f, 0.5f, 0f, 1f)
                 } else {
                     TextureCrop(0.5f, 1f, 0f, 1f)
+                }
+            }
+            VrSourceLayout.TopBottom -> {
+                if (isLeftEye) {
+                    TextureCrop(0f, 1f, 0f, 0.5f)
+                } else {
+                    TextureCrop(0f, 1f, 0.5f, 1f)
                 }
             }
         }

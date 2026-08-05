@@ -255,6 +255,7 @@ class VrRenderer : GLSurfaceView.Renderer {
                 val useLeftEye = when (config.sourceLayout) {
                     VrSourceLayout.Monoscopic -> true
                     VrSourceLayout.SideBySide -> true
+                    VrSourceLayout.TopBottom -> true
                 }
                 renderEye(useLeftEye, 0, 0, viewportWidth, viewportHeight)
             }
