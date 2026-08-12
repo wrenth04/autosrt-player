@@ -92,7 +92,7 @@ internal fun VrGestureLayer(
     val touchSlop = LocalViewConfiguration.current.touchSlop
     var latestYaw by remember { mutableStateOf(manualViewAngles.yawDegrees) }
     var latestPitch by remember { mutableStateOf(manualViewAngles.pitchDegrees) }
-    val isFlatScreen = vrConfig.projection == VrProjection.FlatScreen
+    val isFlatScreen = vrConfig.isFlatScreenProjection()
 
     // Use rememberUpdatedState so the pointer coroutine always sees the current
     // configuration and callbacks without restarting on every config update
@@ -135,7 +135,7 @@ internal fun VrGestureLayer(
                     val finalValue = pinchValue
                     if (finalValue != null) {
                         // Commit the final gesture value only if a real pinch occurred
-                        if (currentConfig.projection == VrProjection.FlatScreen) {
+                        if (currentConfig.isFlatScreenProjection()) {
                             currentFlatSizeFinished(finalValue)
                         } else {
                             currentCameraFovFinished(finalValue)
@@ -160,7 +160,7 @@ internal fun VrGestureLayer(
                                 // Initialize pinch with current configuration value
                                 isPinching = true
                                 lastPinchDistance = currentDistance
-                                pinchValue = if (currentConfig.projection == VrProjection.FlatScreen) {
+                                pinchValue = if (currentConfig.isFlatScreenProjection()) {
                                     currentConfig.flatScreenSizePercent
                                 } else {
                                     currentConfig.vrCameraFovDegrees
@@ -170,14 +170,14 @@ internal fun VrGestureLayer(
                                 val distanceChange = currentDistance - previousDistance
                                 val currentPinchValue = pinchValue ?: run {
                                     // Fallback if pinchValue wasn't initialized
-                                    if (currentConfig.projection == VrProjection.FlatScreen) {
+                                    if (currentConfig.isFlatScreenProjection()) {
                                         currentConfig.flatScreenSizePercent
                                     } else {
                                         currentConfig.vrCameraFovDegrees
                                     }
                                 }
 
-                                val newValue = if (currentConfig.projection == VrProjection.FlatScreen) {
+                                val newValue = if (currentConfig.isFlatScreenProjection()) {
                                     calculateFlatScreenSizeFromPinchDelta(currentPinchValue, distanceChange)
                                 } else {
                                     calculateCameraFovFromPinchDelta(currentPinchValue, distanceChange)
@@ -187,7 +187,7 @@ internal fun VrGestureLayer(
                                 lastPinchDistance = currentDistance
 
                                 // Send transient update
-                                if (currentConfig.projection == VrProjection.FlatScreen) {
+                                if (currentConfig.isFlatScreenProjection()) {
                                     currentFlatSizeChange(newValue)
                                 } else {
                                     currentCameraFovChange(newValue)

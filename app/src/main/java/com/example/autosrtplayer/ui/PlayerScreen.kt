@@ -467,7 +467,8 @@ private fun PlayerOptionsScreen(
                 }
 
                 if (uiState.vrConfig.contentMode == VrContentMode.Vr) {
-                    val isFlatScreen = uiState.vrConfig.projection == VrProjection.FlatScreen
+                    val isFlatScreen = uiState.vrConfig.isFlatScreenProjection()
+                    val isStereoFlatScreen = uiState.vrConfig.projection == VrProjection.StereoFlatScreen
 
                     Button(
                         onClick = onApplyPseudoVrSbsPreset,
@@ -555,21 +556,25 @@ private fun PlayerOptionsScreen(
 
                     Text("來源格式")
                     Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                        VrOptionButton(
-                            selected = uiState.vrConfig.sourceLayout == VrSourceLayout.Monoscopic,
-                            text = if (isFlatScreen) "單畫面 2D" else "單螢幕 360°",
-                            onClick = { onVrSourceLayoutChange(VrSourceLayout.Monoscopic) }
-                        )
-                        VrOptionButton(
-                            selected = uiState.vrConfig.sourceLayout == VrSourceLayout.SideBySide,
-                            text = "立體左右並排",
-                            onClick = { onVrSourceLayoutChange(VrSourceLayout.SideBySide) }
-                        )
-                        VrOptionButton(
-                            selected = uiState.vrConfig.sourceLayout == VrSourceLayout.TopBottom,
-                            text = "立體上下排列",
-                            onClick = { onVrSourceLayoutChange(VrSourceLayout.TopBottom) }
-                        )
+                        if (!isStereoFlatScreen) {
+                            VrOptionButton(
+                                selected = uiState.vrConfig.sourceLayout == VrSourceLayout.Monoscopic,
+                                text = if (isFlatScreen) "單畫面 2D" else "單螢幕 360°",
+                                onClick = { onVrSourceLayoutChange(VrSourceLayout.Monoscopic) }
+                            )
+                        }
+                        if (!isFlatScreen || isStereoFlatScreen) {
+                            VrOptionButton(
+                                selected = uiState.vrConfig.sourceLayout == VrSourceLayout.SideBySide,
+                                text = "立體左右並排",
+                                onClick = { onVrSourceLayoutChange(VrSourceLayout.SideBySide) }
+                            )
+                            VrOptionButton(
+                                selected = uiState.vrConfig.sourceLayout == VrSourceLayout.TopBottom,
+                                text = "立體上下排列",
+                                onClick = { onVrSourceLayoutChange(VrSourceLayout.TopBottom) }
+                            )
+                        }
                     }
 
                     Text("投影方式")
@@ -597,6 +602,11 @@ private fun PlayerOptionsScreen(
                             selected = uiState.vrConfig.projection == VrProjection.FlatScreen,
                             text = "一般影片／虛擬巨幕",
                             onClick = { onVrProjectionChange(VrProjection.FlatScreen) }
+                        )
+                        VrOptionButton(
+                            selected = isStereoFlatScreen,
+                            text = "3D 影片／虛擬巨幕",
+                            onClick = { onVrProjectionChange(VrProjection.StereoFlatScreen) }
                         )
                     }
 
@@ -754,7 +764,9 @@ private fun PlayerOptionsScreen(
                         }
                     }
 
-                    if (isFlatScreen && uiState.vrConfig.displayOutput == VrDisplayOutput.SbsGlasses) {
+                    if (isFlatScreen && !isStereoFlatScreen &&
+                        uiState.vrConfig.displayOutput == VrDisplayOutput.SbsGlasses
+                    ) {
                         val isDepthStereoEligible = uiState.vrConfig.isDepthStereoEligible()
 
                         var showModelDialog by rememberSaveable { mutableStateOf(false) }

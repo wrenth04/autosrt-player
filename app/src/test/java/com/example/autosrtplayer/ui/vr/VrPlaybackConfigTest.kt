@@ -125,6 +125,33 @@ class VrPlaybackConfigTest {
     }
 
     @Test
+    fun `stereo flat screen requires a packed source layout`() {
+        val sbs = VrPlaybackConfig(
+            contentMode = VrContentMode.Vr,
+            projection = VrProjection.StereoFlatScreen,
+            sourceLayout = VrSourceLayout.SideBySide
+        )
+        assertTrue(sbs.isValid())
+
+        val topBottom = sbs.copy(sourceLayout = VrSourceLayout.TopBottom)
+        assertTrue(topBottom.isValid())
+
+        val monoscopic = sbs.copy(sourceLayout = VrSourceLayout.Monoscopic)
+        assertFalse(monoscopic.isValid())
+    }
+
+    @Test
+    fun `flat screen projection accepts only monoscopic source`() {
+        val mono = VrPlaybackConfig(
+            contentMode = VrContentMode.Vr,
+            projection = VrProjection.FlatScreen,
+            sourceLayout = VrSourceLayout.Monoscopic
+        )
+        assertTrue(mono.isValid())
+        assertFalse(mono.copy(sourceLayout = VrSourceLayout.SideBySide).isValid())
+    }
+
+    @Test
     fun `pseudoVrSbs preset has correct configuration`() {
         val config = VrPlaybackConfig.pseudoVrSbs()
         assertEquals(VrContentMode.Vr, config.contentMode)

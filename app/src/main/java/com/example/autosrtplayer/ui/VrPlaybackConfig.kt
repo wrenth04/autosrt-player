@@ -21,7 +21,8 @@ enum class VrProjection {
     Equirectangular,
     Fisheye180,
     Fisheye360Dual,
-    FlatScreen
+    FlatScreen,
+    StereoFlatScreen
 }
 
 enum class VrDisplayOutput {
@@ -77,13 +78,14 @@ data class VrPlaybackConfig(
             VrProjection.Fisheye180 -> fieldOfView == VrFieldOfView.Fov180
             VrProjection.Fisheye360Dual -> fieldOfView == VrFieldOfView.Fov360
             VrProjection.Equirectangular -> true
-            VrProjection.FlatScreen -> true
+            VrProjection.FlatScreen -> sourceLayout == VrSourceLayout.Monoscopic
+            VrProjection.StereoFlatScreen -> sourceLayout != VrSourceLayout.Monoscopic
         }
     }
 
     fun getMaxYawDegrees(): Float {
         return when {
-            projection == VrProjection.FlatScreen -> FLAT_SCREEN_MAX_YAW
+            projection.isFlatScreenProjection() -> FLAT_SCREEN_MAX_YAW
             projection == VrProjection.Fisheye180 -> fisheyeFovDegrees.coerceIn(MIN_FISHEYE_FOV, MAX_FISHEYE_FOV) / 2f
             else -> getEffectiveHorizontalFovDegrees() / 2f
         }
@@ -91,7 +93,7 @@ data class VrPlaybackConfig(
 
     fun getMaxPitchDegrees(): Float {
         return when (projection) {
-            VrProjection.FlatScreen -> FLAT_SCREEN_MAX_PITCH
+            VrProjection.FlatScreen, VrProjection.StereoFlatScreen -> FLAT_SCREEN_MAX_PITCH
             else -> 89f
         }
     }
@@ -144,6 +146,10 @@ data class VrPlaybackConfig(
             VrForwardDirection.PanoramaCenter -> 180f
         }
         return VrViewAngles.clampForConfig(yaw, 0f, this)
+    }
+
+    fun isFlatScreenProjection(): Boolean {
+        return projection.isFlatScreenProjection()
     }
 
     fun shouldFlipSourceVertically(): Boolean {
@@ -223,6 +229,10 @@ data class VrPlaybackConfig(
             )
         }
     }
+}
+
+private fun VrProjection.isFlatScreenProjection(): Boolean {
+    return this == VrProjection.FlatScreen || this == VrProjection.StereoFlatScreen
 }
 
 data class VrViewAngles(

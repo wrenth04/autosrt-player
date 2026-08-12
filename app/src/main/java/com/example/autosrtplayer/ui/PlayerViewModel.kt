@@ -238,7 +238,9 @@ class PlayerViewModel(
         val savedConfig = loadVrConfig(settingsPrefs)
         var newConfig = if (mode == VrContentMode.Vr && _uiState.value.vrConfig.contentMode == VrContentMode.Flat) {
             // Do not reactivate a FlatScreen renderer saved by an older crashing build.
-            if (savedConfig.projection == VrProjection.FlatScreen) {
+            if (savedConfig.projection == VrProjection.FlatScreen ||
+                savedConfig.projection == VrProjection.StereoFlatScreen
+            ) {
                 VrPlaybackConfig.youtube360Style()
             } else {
                 savedConfig.copy(contentMode = VrContentMode.Vr)
@@ -275,6 +277,13 @@ class PlayerViewModel(
 
     fun setVrProjection(projection: VrProjection) {
         var newConfig = _uiState.value.vrConfig.copy(projection = projection)
+        if (projection == VrProjection.FlatScreen) {
+            newConfig = newConfig.copy(sourceLayout = VrSourceLayout.Monoscopic)
+        } else if (projection == VrProjection.StereoFlatScreen &&
+            newConfig.sourceLayout == VrSourceLayout.Monoscopic
+        ) {
+            newConfig = newConfig.copy(sourceLayout = VrSourceLayout.SideBySide)
+        }
         if (!newConfig.isValid()) return
         persistVrConfig(newConfig)
         _uiState.update { it.copy(vrConfig = newConfig, vrViewAngles = newConfig.defaultViewAngles()) }

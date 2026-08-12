@@ -70,7 +70,7 @@ class VrRenderer : GLSurfaceView.Renderer {
         val sizeChanged = newConfig.flatScreenSizePercent != lastFlatScreenSizePercent
         val fovChanged = newConfig.vrCameraFovDegrees != lastVrCameraFov
         config = newConfig
-        if (sizeChanged && newConfig.projection == VrProjection.FlatScreen) {
+        if (sizeChanged && newConfig.isFlatScreenProjection()) {
             lastFlatScreenSizePercent = newConfig.flatScreenSizePercent
             generateFlatScreenMesh()
         }
@@ -280,13 +280,13 @@ class VrRenderer : GLSurfaceView.Renderer {
             width, height, config.displayOutput, config.stereoAspectMode
         )
         val cameraFov = if (config.displayOutput == VrDisplayOutput.SingleEye) {
-            if (config.projection == VrProjection.FlatScreen) {
+            if (config.isFlatScreenProjection()) {
                 VrPlaybackConfig.NORMAL_SCREEN_CAMERA_FOV
             } else {
                 config.getEffectiveVrCameraFovDegrees()
             }
         } else {
-            if (config.projection == VrProjection.FlatScreen) {
+            if (config.isFlatScreenProjection()) {
                 VrPlaybackConfig.NORMAL_SCREEN_CAMERA_FOV
             } else {
                 config.getEffectiveVrCameraFovDegrees()
@@ -336,7 +336,7 @@ class VrRenderer : GLSurfaceView.Renderer {
             VrProjection.Equirectangular -> 0
             VrProjection.Fisheye180 -> 1
             VrProjection.Fisheye360Dual -> 2
-            VrProjection.FlatScreen -> 3
+            VrProjection.FlatScreen, VrProjection.StereoFlatScreen -> 3
         }
         GLES20.glUniform1i(projectionTypeHandle, projectionType)
 
@@ -377,7 +377,7 @@ class VrRenderer : GLSurfaceView.Renderer {
         GLES20.glUniform1i(textureHandle, 0)
 
         // Use flat screen mesh for FlatScreen projection, sphere mesh otherwise
-        val (vertexBuffer, texCoordBuffer, vertexCount) = if (config.projection == VrProjection.FlatScreen) {
+        val (vertexBuffer, texCoordBuffer, vertexCount) = if (config.isFlatScreenProjection()) {
             Triple(flatScreenVertexBuffer, flatScreenTexCoordBuffer, flatScreenVertexCount)
         } else {
             Triple(sphereVertexBuffer, sphereTexCoordBuffer, sphereVertexCount)
