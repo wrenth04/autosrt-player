@@ -101,7 +101,7 @@ class VrPlaybackConfigTest {
     }
 
     @Test
-    fun `FlatScreen requires Monoscopic source layout`() {
+    fun `FlatScreen accepts monoscopic and packed 3D source layouts`() {
         val valid = VrPlaybackConfig(
             contentMode = VrContentMode.Vr,
             projection = VrProjection.FlatScreen,
@@ -109,19 +109,19 @@ class VrPlaybackConfigTest {
         )
         assertTrue(valid.isValid())
 
-        val invalid = VrPlaybackConfig(
+        val sbs = VrPlaybackConfig(
             contentMode = VrContentMode.Vr,
             projection = VrProjection.FlatScreen,
             sourceLayout = VrSourceLayout.SideBySide
         )
-        assertFalse(invalid.isValid())
+        assertTrue(sbs.isValid())
 
-        val topBottomInvalid = VrPlaybackConfig(
+        val topBottom = VrPlaybackConfig(
             contentMode = VrContentMode.Vr,
             projection = VrProjection.FlatScreen,
             sourceLayout = VrSourceLayout.TopBottom
         )
-        assertFalse(topBottomInvalid.isValid())
+        assertTrue(topBottom.isValid())
     }
 
     @Test
@@ -688,6 +688,20 @@ class VrTextureCalculatorTest {
             depthStereoEnabled = true
         )
         assertTrue(mono.isDepthStereoEligible())
+    }
+
+    @Test
+    fun `subtitle stereo depth clamps and mirrors per eye`() {
+        val config = VrPlaybackConfig(subtitleStereoDepthPercent = 20f)
+        assertEquals(VrPlaybackConfig.MAX_SUBTITLE_STEREO_DEPTH_PERCENT, config.getEffectiveSubtitleStereoDepthPercent(), 0.001f)
+
+        val left = VrTextureCalculator.calculateSubtitleStereoOffsetDp(
+            config.getEffectiveSubtitleStereoDepthPercent(), true
+        )
+        val right = VrTextureCalculator.calculateSubtitleStereoOffsetDp(
+            config.getEffectiveSubtitleStereoDepthPercent(), false
+        )
+        assertEquals(-right, left, 0.001f)
     }
 
     @Test

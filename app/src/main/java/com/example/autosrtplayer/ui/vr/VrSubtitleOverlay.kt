@@ -19,7 +19,6 @@ import androidx.media3.ui.CaptionStyleCompat
 import androidx.media3.ui.SubtitleView
 import com.example.autosrtplayer.ui.VrDisplayOutput
 import com.example.autosrtplayer.ui.VrPlaybackConfig
-import com.example.autosrtplayer.ui.VrProjection
 import com.example.autosrtplayer.ui.VrTextureCalculator
 
 @Composable
@@ -30,31 +29,16 @@ fun VrSubtitleOverlay(
 ) {
     val context = LocalContext.current
     val isSbsMode = config.displayOutput == VrDisplayOutput.SbsGlasses
-    val isFlatScreen = config.projection == VrProjection.FlatScreen
 
     if (isSbsMode) {
-        // Calculate subtitle offset based on projection type
-        val (leftOffsetDp, rightOffsetDp) = if (isFlatScreen) {
-            // FlatScreen: move each eye's subtitle with the same parallax direction as
-            // its video. Offset permits the required negative left-eye displacement;
-            // Compose padding rejects negative values and crashed SBS playback.
-            val leftOffsetDp = (
-                VrTextureCalculator.calculateParallaxOffset(
-                    config.stereoParallaxPercent,
-                    isLeftEye = true
-                ) * 200f
-            ).dp
-            val rightOffsetDp = (
-                VrTextureCalculator.calculateParallaxOffset(
-                    config.stereoParallaxPercent,
-                    isLeftEye = false
-                ) * 200f
-            ).dp
-            Pair(leftOffsetDp, rightOffsetDp)
-        } else {
-            // Panoramic VR: use fixed stereo depth offset
-            Pair(24.dp, 24.dp)
-        }
+        val leftOffsetDp = VrTextureCalculator.calculateSubtitleStereoOffsetDp(
+            config.getEffectiveSubtitleStereoDepthPercent(),
+            isLeftEye = true
+        ).dp
+        val rightOffsetDp = VrTextureCalculator.calculateSubtitleStereoOffsetDp(
+            config.getEffectiveSubtitleStereoDepthPercent(),
+            isLeftEye = false
+        ).dp
 
         // SBS mode: render two independent subtitle overlays side by side
         androidx.compose.foundation.layout.Row(

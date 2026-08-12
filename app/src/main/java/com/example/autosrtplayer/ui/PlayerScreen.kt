@@ -248,6 +248,7 @@ fun PlayerScreen(
                     onVrStereoParallaxPercentChange = viewModel::setVrStereoParallaxPercent,
                     onVrFlatScreenSizePercentChange = viewModel::setVrFlatScreenSizePercent,
                     onVrDepthStereoEnabledChange = viewModel::setVrDepthStereoEnabled,
+                    onVrSubtitleStereoDepthPercentChange = viewModel::setVrSubtitleStereoDepthPercent,
                     onSelectDepthModel = viewModel::selectDepthModel,
                     onDownloadDepthModel = viewModel::downloadDepthModel,
                     onDeleteDepthModel = viewModel::deleteDepthModelById,
@@ -341,6 +342,7 @@ private fun PlayerOptionsScreen(
     onVrStereoParallaxPercentChange: (Float) -> Unit,
     onVrFlatScreenSizePercentChange: (Float) -> Unit,
     onVrDepthStereoEnabledChange: (Boolean) -> Unit,
+    onVrSubtitleStereoDepthPercentChange: (Float) -> Unit,
     onSelectDepthModel: (String) -> Unit,
     onDownloadDepthModel: (com.example.autosrtplayer.ui.vr.depth.DepthModel) -> Unit,
     onDeleteDepthModel: (String) -> Unit,
@@ -555,21 +557,19 @@ private fun PlayerOptionsScreen(
                     Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                         VrOptionButton(
                             selected = uiState.vrConfig.sourceLayout == VrSourceLayout.Monoscopic,
-                            text = if (isFlatScreen) "單畫面" else "單螢幕 360°",
+                            text = if (isFlatScreen) "單畫面 2D" else "單螢幕 360°",
                             onClick = { onVrSourceLayoutChange(VrSourceLayout.Monoscopic) }
                         )
-                        if (!isFlatScreen) {
-                            VrOptionButton(
-                                selected = uiState.vrConfig.sourceLayout == VrSourceLayout.SideBySide,
-                                text = "立體左右並排",
-                                onClick = { onVrSourceLayoutChange(VrSourceLayout.SideBySide) }
-                            )
-                            VrOptionButton(
-                                selected = uiState.vrConfig.sourceLayout == VrSourceLayout.TopBottom,
-                                text = "立體上下排列",
-                                onClick = { onVrSourceLayoutChange(VrSourceLayout.TopBottom) }
-                            )
-                        }
+                        VrOptionButton(
+                            selected = uiState.vrConfig.sourceLayout == VrSourceLayout.SideBySide,
+                            text = "立體左右並排",
+                            onClick = { onVrSourceLayoutChange(VrSourceLayout.SideBySide) }
+                        )
+                        VrOptionButton(
+                            selected = uiState.vrConfig.sourceLayout == VrSourceLayout.TopBottom,
+                            text = "立體上下排列",
+                            onClick = { onVrSourceLayoutChange(VrSourceLayout.TopBottom) }
+                        )
                     }
 
                     Text("投影方式")
@@ -695,6 +695,45 @@ private fun PlayerOptionsScreen(
                     }
 
                     if (uiState.vrConfig.displayOutput == VrDisplayOutput.SbsGlasses) {
+                        Text("3D 字幕深度")
+                        Text(
+                            "調整左右眼字幕的水平視差；0 為無偏移，過大可能造成不適。",
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant
+                        )
+                        var subtitleDepthDraft by rememberSaveable {
+                            mutableStateOf(String.format("%.1f", uiState.vrConfig.subtitleStereoDepthPercent))
+                        }
+                        Row(
+                            modifier = Modifier.fillMaxWidth(),
+                            horizontalArrangement = Arrangement.spacedBy(8.dp),
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            Slider(
+                                value = uiState.vrConfig.subtitleStereoDepthPercent,
+                                onValueChange = onVrSubtitleStereoDepthPercentChange,
+                                valueRange = VrPlaybackConfig.MIN_SUBTITLE_STEREO_DEPTH_PERCENT..VrPlaybackConfig.MAX_SUBTITLE_STEREO_DEPTH_PERCENT,
+                                modifier = Modifier.weight(1f)
+                            )
+                            OutlinedTextField(
+                                value = subtitleDepthDraft,
+                                onValueChange = { subtitleDepthDraft = it },
+                                modifier = Modifier.width(80.dp),
+                                singleLine = true,
+                                keyboardOptions = KeyboardOptions(keyboardType = androidx.compose.ui.text.input.KeyboardType.Decimal),
+                                keyboardActions = KeyboardActions(
+                                    onDone = {
+                                        subtitleDepthDraft.toFloatOrNull()?.let(onVrSubtitleStereoDepthPercentChange)
+                                        subtitleDepthDraft = String.format("%.1f", uiState.vrConfig.subtitleStereoDepthPercent)
+                                    }
+                                ),
+                                suffix = { Text("%") }
+                            )
+                        }
+                        LaunchedEffect(uiState.vrConfig.subtitleStereoDepthPercent) {
+                            subtitleDepthDraft = String.format("%.1f", uiState.vrConfig.subtitleStereoDepthPercent)
+                        }
+
                         Text("眼鏡畫面比例")
                         Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                             VrOptionButton(

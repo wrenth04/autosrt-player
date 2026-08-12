@@ -71,6 +71,7 @@ class PlayerViewModel(
         private const val KeyVrFlatScreenSizePercent = "vr_flat_screen_size_percent"
         private const val KeyVrCameraFov = "vr_camera_fov"
         private const val KeyVrDepthStereoEnabled = "vr_depth_stereo_enabled"
+        private const val KeyVrSubtitleStereoDepthPercent = "vr_subtitle_stereo_depth_percent"
         private const val KeySelectedDepthModel = "selected_depth_model"
         private const val KeyPatToken = "pat_token"
         private const val KeyPatTokenEnabled = "pat_token_enabled"
@@ -248,10 +249,6 @@ class PlayerViewModel(
 
         // Normalize invalid configurations
         if (!newConfig.isValid()) {
-            // FlatScreen requires Monoscopic source layout
-            if (newConfig.projection == VrProjection.FlatScreen && newConfig.sourceLayout != VrSourceLayout.Monoscopic) {
-                newConfig = newConfig.copy(sourceLayout = VrSourceLayout.Monoscopic)
-            }
             // If still invalid, fall back to a safe default
             if (!newConfig.isValid()) {
                 newConfig = VrPlaybackConfig.youtube360Style().copy(contentMode = mode)
@@ -278,10 +275,6 @@ class PlayerViewModel(
 
     fun setVrProjection(projection: VrProjection) {
         var newConfig = _uiState.value.vrConfig.copy(projection = projection)
-        // FlatScreen requires Monoscopic source layout
-        if (projection == VrProjection.FlatScreen && newConfig.sourceLayout != VrSourceLayout.Monoscopic) {
-            newConfig = newConfig.copy(sourceLayout = VrSourceLayout.Monoscopic)
-        }
         if (!newConfig.isValid()) return
         persistVrConfig(newConfig)
         _uiState.update { it.copy(vrConfig = newConfig, vrViewAngles = newConfig.defaultViewAngles()) }
@@ -414,6 +407,16 @@ class PlayerViewModel(
         _uiState.update { it.copy(vrConfig = newConfig) }
     }
 
+    fun setVrSubtitleStereoDepthPercent(percent: Float) {
+        val clamped = percent.coerceIn(
+            VrPlaybackConfig.MIN_SUBTITLE_STEREO_DEPTH_PERCENT,
+            VrPlaybackConfig.MAX_SUBTITLE_STEREO_DEPTH_PERCENT
+        )
+        val newConfig = _uiState.value.vrConfig.copy(subtitleStereoDepthPercent = clamped)
+        persistVrConfig(newConfig)
+        _uiState.update { it.copy(vrConfig = newConfig) }
+    }
+
     fun selectDepthModel(modelId: String) {
         settingsPrefs?.edit()?.putString(KeySelectedDepthModel, modelId)?.apply()
         _uiState.update { it.copy(selectedDepthModelId = modelId) }
@@ -496,7 +499,11 @@ class PlayerViewModel(
             ),
             depthStereoEnabled = runCatching {
                 prefs?.getBoolean(KeyVrDepthStereoEnabled, false) ?: false
-            }.getOrDefault(false)
+            }.getOrDefault(false),
+            subtitleStereoDepthPercent = floatPreference(
+                KeyVrSubtitleStereoDepthPercent,
+                VrPlaybackConfig.DEFAULT_SUBTITLE_STEREO_DEPTH_PERCENT
+            )
         )
 
         if (!config.isValid()) {
@@ -524,6 +531,7 @@ class PlayerViewModel(
             putFloat(KeyVrFlatScreenSizePercent, config.flatScreenSizePercent)
             putFloat(KeyVrCameraFov, config.vrCameraFovDegrees)
             putBoolean(KeyVrDepthStereoEnabled, config.depthStereoEnabled)
+            putFloat(KeyVrSubtitleStereoDepthPercent, config.subtitleStereoDepthPercent)
         }?.apply()
     }
 

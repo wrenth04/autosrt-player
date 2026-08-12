@@ -59,7 +59,8 @@ data class VrPlaybackConfig(
     val stereoParallaxPercent: Float = DEFAULT_STEREO_PARALLAX_PERCENT,
     val flatScreenSizePercent: Float = DEFAULT_FLAT_SCREEN_SIZE_PERCENT,
     val vrCameraFovDegrees: Float = DEFAULT_VR_CAMERA_FOV,
-    val depthStereoEnabled: Boolean = false
+    val depthStereoEnabled: Boolean = false,
+    val subtitleStereoDepthPercent: Float = DEFAULT_SUBTITLE_STEREO_DEPTH_PERCENT
 ) {
     fun getEffectiveHorizontalFovDegrees(): Float {
         return when (fieldOfView) {
@@ -76,7 +77,7 @@ data class VrPlaybackConfig(
             VrProjection.Fisheye180 -> fieldOfView == VrFieldOfView.Fov180
             VrProjection.Fisheye360Dual -> fieldOfView == VrFieldOfView.Fov360
             VrProjection.Equirectangular -> true
-            VrProjection.FlatScreen -> sourceLayout == VrSourceLayout.Monoscopic
+            VrProjection.FlatScreen -> true
         }
     }
 
@@ -101,6 +102,13 @@ data class VrPlaybackConfig(
 
     fun getEffectiveVrCameraFovDegrees(): Float {
         return vrCameraFovDegrees.coerceIn(MIN_VR_CAMERA_FOV, MAX_VR_CAMERA_FOV)
+    }
+
+    fun getEffectiveSubtitleStereoDepthPercent(): Float {
+        return subtitleStereoDepthPercent.coerceIn(
+            MIN_SUBTITLE_STEREO_DEPTH_PERCENT,
+            MAX_SUBTITLE_STEREO_DEPTH_PERCENT
+        )
     }
 
     /**
@@ -162,6 +170,10 @@ data class VrPlaybackConfig(
         const val MIN_VR_CAMERA_FOV = 30f
         const val DEFAULT_VR_CAMERA_FOV = 90f
         const val MAX_VR_CAMERA_FOV = 120f
+
+        const val MIN_SUBTITLE_STEREO_DEPTH_PERCENT = -5f
+        const val DEFAULT_SUBTITLE_STEREO_DEPTH_PERCENT = 1.5f
+        const val MAX_SUBTITLE_STEREO_DEPTH_PERCENT = 5f
 
         const val FLAT_SCREEN_MAX_YAW = 100f
         const val FLAT_SCREEN_MAX_PITCH = 75f
@@ -260,6 +272,8 @@ data class TextureCrop(
 )
 
 object VrTextureCalculator {
+    private const val SUBTITLE_DEPTH_DP_PER_PERCENT = 16f
+
     fun calculateEyeCrop(
         sourceLayout: VrSourceLayout,
         isLeftEye: Boolean
@@ -297,6 +311,18 @@ object VrTextureCalculator {
             VrPlaybackConfig.MAX_STEREO_PARALLAX_PERCENT
         )
         val halfOffset = (clampedPercent / 100f) / 2f
+        return if (isLeftEye) -halfOffset else halfOffset
+    }
+
+    fun calculateSubtitleStereoOffsetDp(
+        subtitleStereoDepthPercent: Float,
+        isLeftEye: Boolean
+    ): Float {
+        val clampedPercent = subtitleStereoDepthPercent.coerceIn(
+            VrPlaybackConfig.MIN_SUBTITLE_STEREO_DEPTH_PERCENT,
+            VrPlaybackConfig.MAX_SUBTITLE_STEREO_DEPTH_PERCENT
+        )
+        val halfOffset = clampedPercent * SUBTITLE_DEPTH_DP_PER_PERCENT / 2f
         return if (isLeftEye) -halfOffset else halfOffset
     }
 

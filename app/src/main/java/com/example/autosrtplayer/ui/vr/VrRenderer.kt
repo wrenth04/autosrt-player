@@ -306,8 +306,13 @@ class VrRenderer : GLSurfaceView.Renderer {
         Matrix.multiplyMM(mvpMatrix, 0, projectionMatrix, 0, temp, 0)
 
         val baseCrop = VrTextureCalculator.calculateEyeCrop(config.sourceLayout, isLeftEye)
-        val crop = if (config.projection == VrProjection.FlatScreen) {
-            val parallaxOffset = VrTextureCalculator.calculateParallaxOffset(config.stereoParallaxPercent, isLeftEye)
+        val crop = if (config.projection == VrProjection.FlatScreen &&
+            config.sourceLayout == VrSourceLayout.Monoscopic
+        ) {
+            val parallaxOffset = VrTextureCalculator.calculateParallaxOffset(
+                config.stereoParallaxPercent,
+                isLeftEye
+            )
             VrTextureCalculator.applyParallaxToCrop(baseCrop, parallaxOffset)
         } else {
             baseCrop
