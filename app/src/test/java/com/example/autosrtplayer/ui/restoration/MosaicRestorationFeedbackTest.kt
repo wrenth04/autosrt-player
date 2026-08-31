@@ -67,13 +67,14 @@ class MosaicRestorationFeedbackTest {
     fun `completed feedback reports inference duration`() {
         val completed = MosaicRestorationFeedback.Completed(
             inferenceDurationMs = 3_120L,
-            visibleChangeFraction = 0.042f
+            modelChangeFraction = 0.042f,
+            strength = 0.8f
         )
 
         assertFalse(completed.isBusy)
         assertTrue(completed.isTemporaryResult)
         assertEquals(
-            "DeepMosaics 處理完成（3.1 秒，模型變化 4.20%）",
+            "DeepMosaics 處理完成（3.1 秒，模型變化 4.20%，混合強度 80%）",
             completed.displayMessage()
         )
     }
@@ -82,7 +83,8 @@ class MosaicRestorationFeedbackTest {
     fun `completed feedback warns when model output barely changes`() {
         val completed = MosaicRestorationFeedback.Completed(
             inferenceDurationMs = 900L,
-            visibleChangeFraction = 0.0012f
+            modelChangeFraction = 0.0012f,
+            strength = 1f
         )
 
         assertFalse(completed.hasVisibleChange)

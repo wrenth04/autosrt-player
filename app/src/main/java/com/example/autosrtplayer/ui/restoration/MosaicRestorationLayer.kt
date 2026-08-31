@@ -52,6 +52,7 @@ import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.unit.IntOffset
 import androidx.compose.ui.unit.dp
+import androidx.media3.common.PlaybackException
 import androidx.media3.common.Player
 import androidx.media3.exoplayer.ExoPlayer
 import androidx.media3.exoplayer.SeekParameters
@@ -74,10 +75,10 @@ import kotlin.math.roundToInt
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.NonCancellable
-import kotlinx.coroutines.currentCoroutineContext
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.isActive
 import kotlinx.coroutines.suspendCancellableCoroutine
+import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.withContext
 import kotlinx.coroutines.withTimeoutOrNull
 
@@ -265,21 +266,31 @@ internal fun MosaicRestorationLayer(
         totalFrameCount = totalFrameCount,
         isRestoring = restorationProcessing
     )
+    val isProcessing = detectorProcessing ||
+        frameCaptureProcessing ||
+        restorationProcessing ||
+        isRestorerLoading ||
+        isDetectorLoading ||
+        activeFeedback?.isBusy == true
+
+    LaunchedEffect(isProcessing) {
+        latestOnProcessingChange(isProcessing)
+    }
 
     LaunchedEffect(
-        detectorProcessing,
-        frameCaptureProcessing,
-        restorationProcessing,
-        isRestorerLoading,
-        isDetectorLoading
+        pendingFeedback,
+        detectorError,
+        captureError,
+        detectorState,
+        restorerState
     ) {
-        latestOnProcessingChange(
-            detectorProcessing ||
-                frameCaptureProcessing ||
-                restorationProcessing ||
-                isRestorerLoading ||
-                isDetectorLoading
-        )
+        if (detectorError != null ||
+            captureError != null ||
+            detectorState is DetectorState.Error ||
+            restorerState is RestorerState.Error
+        ) {
+            pendingFeedback = null
+        }
     }
 
     LaunchedEffect(pendingFeedback) {
@@ -320,6 +331,7 @@ internal fun MosaicRestorationLayer(
         if (!config.enabled || !autoDetectionConfig.enabled) return@LaunchedEffect
 
         val regionTracker = MosaicRegionTracker()
+        var consecutiveCaptureFailures = 0
         var lastProcessedPositionMs: Long? = null
         var trackedMediaItem = player.currentMediaItem
         while (isActive) {
@@ -361,7 +373,9 @@ internal fun MosaicRestorationLayer(
                 delay(PlayerNotReadyDelayMs)
                 continue
             }
-            if (!player.isPlaying && lastProcessedPositionMs == player.currentPosition) {
+            if (!player.isPlaying &&
+                lastProcessedPositionMs?.isNearPosition(player.currentPosition) == true
+            ) {
                 delay(PausedPreviewDelayMs)
                 continue
             }
@@ -374,6 +388,7 @@ internal fun MosaicRestorationLayer(
                 return@LaunchedEffect
             }
 
+            val detectionPositionMs = player.currentPosition
             detectorProcessing = true
             when (
                 val capture = captureVideoFrame(
@@ -385,6 +400,14 @@ internal fun MosaicRestorationLayer(
             ) {
                 CaptureResult.NoFrame -> {
                     detectorProcessing = false
+                    consecutiveCaptureFailures += 1
+                    if (consecutiveCaptureFailures >= MaxTransientCaptureFailures) {
+                        val message = "無法從播放器擷取畫面供馬賽克偵測"
+                        autoDetectionTarget = null
+                        detectorError = message
+                        latestOnError(message)
+                        return@LaunchedEffect
+                    }
                     delay(PlayerNotReadyDelayMs)
                 }
                 is CaptureResult.Error -> {
@@ -395,6 +418,7 @@ internal fun MosaicRestorationLayer(
                     return@LaunchedEffect
                 }
                 is CaptureResult.Success -> {
+                    consecutiveCaptureFailures = 0
                     val detection = try {
                         readyState.detector.detect(
                             bitmap = capture.bitmap,
@@ -450,12 +474,14 @@ internal fun MosaicRestorationLayer(
                         else -> null
                     }
                     autoDetectionTarget = target
-                    pendingFeedback = if (target == null) {
-                        MosaicRestorationFeedback.NoMosaicDetected
-                    } else {
-                        MosaicRestorationFeedback.Preparing
+                    if (target == null) {
+                        pendingFeedback = MosaicRestorationFeedback.NoMosaicDetected
+                    } else if (
+                        pendingFeedback is MosaicRestorationFeedback.NoMosaicDetected
+                    ) {
+                        pendingFeedback = null
                     }
-                    lastProcessedPositionMs = player.currentPosition
+                    lastProcessedPositionMs = detectionPositionMs
                     detectorError = null
                     delay(
                         max(
@@ -480,7 +506,8 @@ internal fun MosaicRestorationLayer(
         autoDetectionConfig.threshold,
         processingRequestId,
         model,
-        restorerState
+        restorerState,
+        isRegionEditing
     ) {
         frameCaptureProcessing = false
         capturedFrameCount = 0
@@ -521,6 +548,13 @@ internal fun MosaicRestorationLayer(
                 delay(PausedPreviewDelayMs)
                 continue
             }
+            if (isRegionEditing) {
+                restoredPreview = null
+                pendingFeedback = null
+                clearTemporalState()
+                delay(PausedPreviewDelayMs)
+                continue
+            }
             if (config.processOnlyWhenPaused && player.isPlaying) {
                 restoredPreview = null
                 clearTemporalState()
@@ -538,7 +572,13 @@ internal fun MosaicRestorationLayer(
                 delay(PlayerNotReadyDelayMs)
                 continue
             }
-            if (!player.isPlaying && lastProcessedPositionMs == player.currentPosition) {
+            if (!config.processOnlyWhenPaused && !player.isPlaying) {
+                delay(PausedPreviewDelayMs)
+                continue
+            }
+            if (!player.isPlaying &&
+                lastProcessedPositionMs?.isNearPosition(player.currentPosition) == true
+            ) {
                 delay(PausedPreviewDelayMs)
                 continue
             }
@@ -616,33 +656,41 @@ internal fun MosaicRestorationLayer(
             capturedFrameCount = 0
             totalFrameCount = model.temporalFrameCount
             val capture = try {
-                captureVideoFrameSequence(
-                    player = player,
-                    videoSurface = videoSurface,
-                    sourceRect = sourceRect,
-                    textureSourceRect = textureSourceRect,
-                    destinationSize = model.inputSize,
-                    frameCount = model.temporalFrameCount,
-                    handler = mainHandler,
-                    frameIntervalMs = calculateDeepMosaicsFrameIntervalMs(
-                        player.videoFormat?.frameRate
-                    ),
-                    onFrameCaptured = { captured, total ->
-                        capturedFrameCount = captured
-                        totalFrameCount = total
-                    }
-                )
-            } catch (error: CancellationException) {
+                temporalCaptureMutex.lock()
+                try {
+                    captureVideoFrameSequence(
+                        player = player,
+                        videoSurface = videoSurface,
+                        sourceRect = sourceRect,
+                        textureSourceRect = textureSourceRect,
+                        destinationSize = model.inputSize,
+                        frameCount = model.temporalFrameCount,
+                        handler = mainHandler,
+                        frameIntervalMs = calculateDeepMosaicsFrameIntervalMs(
+                            player.videoFormat?.frameRate
+                        ),
+                        allowPausedTemporalSeeking = config.processOnlyWhenPaused,
+                        onFrameCaptured = { captured, total ->
+                            capturedFrameCount = captured
+                            totalFrameCount = total
+                        }
+                    )
+                } finally {
+                    temporalCaptureMutex.unlock()
+                }
+            } finally {
                 frameCaptureProcessing = false
-                throw error
             }
-            frameCaptureProcessing = false
             when (capture) {
                 FrameSequenceCaptureResult.NoFrame -> {
                     consecutiveCaptureFailures += 1
                     if (consecutiveCaptureFailures >= MaxTransientCaptureFailures) {
-                        Log.w(Tag, "Video surface has not produced a capturable frame yet")
-                        consecutiveCaptureFailures = 0
+                        val message = "無法擷取 DeepMosaics 所需的時序影格"
+                        Log.w(Tag, message)
+                        restoredPreview = null
+                        captureError = message
+                        latestOnError(message)
+                        return@LaunchedEffect
                     }
                     delay(PlayerNotReadyDelayMs)
                 }
@@ -676,11 +724,9 @@ internal fun MosaicRestorationLayer(
                         )
                     } catch (error: CancellationException) {
                         capture.frames.recycleAll()
-                        restorationProcessing = false
                         throw error
                     } catch (error: OrtException) {
                         capture.frames.recycleAll()
-                        restorationProcessing = false
                         val message = error.message ?: "AI 推論失敗"
                         restoredPreview = null
                         captureError = message
@@ -688,7 +734,6 @@ internal fun MosaicRestorationLayer(
                         return@LaunchedEffect
                     } catch (error: IllegalStateException) {
                         capture.frames.recycleAll()
-                        restorationProcessing = false
                         val message = error.message ?: "AI 模型輸出格式不符"
                         restoredPreview = null
                         captureError = message
@@ -696,15 +741,15 @@ internal fun MosaicRestorationLayer(
                         return@LaunchedEffect
                     } catch (error: IllegalArgumentException) {
                         capture.frames.recycleAll()
-                        restorationProcessing = false
                         val message = error.message ?: "AI 模型輸入格式不符"
                         restoredPreview = null
                         captureError = message
                         latestOnError(message)
                         return@LaunchedEffect
+                    } finally {
+                        restorationProcessing = false
                     }
                     capture.frames.recycleAll()
-                    restorationProcessing = false
                     temporalStateActive = true
                     if (config.processOnlyWhenPaused && player.isPlaying) {
                         restored.bitmap.recycle()
@@ -718,8 +763,8 @@ internal fun MosaicRestorationLayer(
                     )
                     pendingFeedback = MosaicRestorationFeedback.Completed(
                         inferenceDurationMs = restored.inferenceDurationMs,
-                        visibleChangeFraction =
-                            (restored.changeFraction * config.strength).coerceIn(0f, 1f)
+                        modelChangeFraction = restored.changeFraction,
+                        strength = config.strength
                     )
                     captureError = null
                     lastProcessedPositionMs = capture.centerPositionMs
@@ -774,17 +819,15 @@ internal fun MosaicRestorationLayer(
                         "DeepMosaics 處理完成 · " +
                             "${formatMosaicInferenceDuration(preview.image.inferenceDurationMs)}" +
                             " · 模型變化 " +
-                            formatMosaicChangeFraction(
-                                preview.image.changeFraction * config.strength
-                            ) +
+                            formatMosaicChangeFraction(preview.image.changeFraction) +
+                            " · 混合 ${formatMosaicStrength(config.strength)}" +
                             "（自動偵測，推測畫面）"
                     } else {
                         "DeepMosaics 處理完成 · " +
                             "${formatMosaicInferenceDuration(preview.image.inferenceDurationMs)}" +
                             " · 模型變化 " +
-                            formatMosaicChangeFraction(
-                                preview.image.changeFraction * config.strength
-                            ) +
+                            formatMosaicChangeFraction(preview.image.changeFraction) +
+                            " · 混合 ${formatMosaicStrength(config.strength)}" +
                             "（手動框選，推測畫面）"
                     },
                     color = Color.White,
@@ -1174,6 +1217,7 @@ private suspend fun captureVideoFrameSequence(
     frameCount: Int,
     handler: Handler,
     frameIntervalMs: Long,
+    allowPausedTemporalSeeking: Boolean,
     onFrameCaptured: (captured: Int, total: Int) -> Unit
 ): FrameSequenceCaptureResult {
     require(destinationSize > 0) { "Destination size must be positive" }
@@ -1183,6 +1227,9 @@ private suspend fun captureVideoFrameSequence(
     require(frameIntervalMs > 0L) { "Frame interval must be positive" }
 
     if (!player.isPlaying) {
+        if (!allowPausedTemporalSeeking) {
+            return FrameSequenceCaptureResult.NoFrame
+        }
         return capturePausedVideoFrameSequence(
             player = player,
             videoSurface = videoSurface,
@@ -1262,6 +1309,30 @@ private suspend fun capturePausedVideoFrameSequence(
         )
     }
 
+    return capturePausedVideoFrameSequenceLocked(
+        player = player,
+        videoSurface = videoSurface,
+        sourceRect = sourceRect,
+        textureSourceRect = textureSourceRect,
+        destinationSize = destinationSize,
+        frameCount = frameCount,
+        frameIntervalMs = frameIntervalMs,
+        handler = handler,
+        onFrameCaptured = onFrameCaptured
+    )
+}
+
+private suspend fun capturePausedVideoFrameSequenceLocked(
+    player: ExoPlayer,
+    videoSurface: View,
+    sourceRect: Rect,
+    textureSourceRect: Rect,
+    destinationSize: Int,
+    frameCount: Int,
+    frameIntervalMs: Long,
+    handler: Handler,
+    onFrameCaptured: (captured: Int, total: Int) -> Unit
+): FrameSequenceCaptureResult {
     val centerPositionMs = player.currentPosition.coerceAtLeast(0L)
     val durationMs = player.duration.takeIf { it > 0L }
     val samplePositions = calculateDeepMosaicsSamplePositions(
@@ -1284,7 +1355,7 @@ private suspend fun capturePausedVideoFrameSequence(
                 return@forEachIndexed
             }
 
-            if (player.currentPosition != positionMs) {
+            if (!player.currentPosition.isNearPosition(positionMs)) {
                 issuedSeek = true
                 if (!seekToPausedVideoFrame(player, positionMs)) {
                     return FrameSequenceCaptureResult.Error(
@@ -1318,7 +1389,7 @@ private suspend fun capturePausedVideoFrameSequence(
             }
         }
 
-        if (issuedSeek && player.currentPosition != centerPositionMs) {
+        if (issuedSeek && !player.currentPosition.isNearPosition(centerPositionMs)) {
             if (!seekToPausedVideoFrame(player, centerPositionMs)) {
                 return FrameSequenceCaptureResult.Error(
                     "已擷取時序影格，但播放器無法回到原本位置"
@@ -1332,7 +1403,7 @@ private suspend fun capturePausedVideoFrameSequence(
             centerPositionMs = centerPositionMs
         )
     } finally {
-        if (issuedSeek && player.currentPosition != centerPositionMs) {
+        if (issuedSeek && !player.currentPosition.isNearPosition(centerPositionMs)) {
             player.seekTo(centerPositionMs)
         }
         player.setSeekParameters(originalSeekParameters)
@@ -1346,24 +1417,37 @@ private suspend fun seekToPausedVideoFrame(
     player: ExoPlayer,
     positionMs: Long
 ): Boolean {
-    player.seekTo(positionMs)
-    return withTimeoutOrNull(SeekFrameTimeoutMs) {
-        while (currentCoroutineContext().isActive) {
-            if (player.playerError != null) {
-                return@withTimeoutOrNull false
+    val frameRendered = withTimeoutOrNull(SeekFrameTimeoutMs) {
+        suspendCancellableCoroutine { continuation ->
+            lateinit var listener: Player.Listener
+            fun complete(success: Boolean) {
+                player.removeListener(listener)
+                if (continuation.isActive) {
+                    continuation.resume(success)
+                }
             }
-            val frameReady = (
-                player.playbackState == Player.STATE_READY ||
-                    player.playbackState == Player.STATE_ENDED
-                ) && abs(player.currentPosition - positionMs) <= SeekPositionToleranceMs
-            if (frameReady) {
-                delay(SeekFrameRenderDelayMs)
-                return@withTimeoutOrNull player.playerError == null
+
+            listener = object : Player.Listener {
+                override fun onRenderedFirstFrame() {
+                    complete(player.currentPosition.isNearPosition(positionMs))
+                }
+
+                override fun onPlayerError(error: PlaybackException) {
+                    complete(false)
+                }
             }
-            delay(SeekFramePollIntervalMs)
+
+            player.addListener(listener)
+            continuation.invokeOnCancellation {
+                player.removeListener(listener)
+            }
+            player.seekTo(positionMs)
         }
-        false
     } ?: false
+    if (frameRendered) {
+        delay(SurfaceLatchDelayMs)
+    }
+    return frameRendered
 }
 
 private suspend fun captureVideoRegionWithRetries(
@@ -1390,6 +1474,10 @@ private suspend fun captureVideoRegionWithRetries(
         }
     }
     return CaptureResult.NoFrame
+}
+
+private fun Long.isNearPosition(other: Long): Boolean {
+    return abs(this - other) <= SeekPositionToleranceMs
 }
 
 private suspend fun captureVideoFrame(
@@ -1597,9 +1685,9 @@ private const val MinimumDetectionIntervalMs = 750L
 private const val DetectionCooldownMultiplier = 1.25f
 private const val MaxTransientCaptureFailures = 12
 private const val FeedbackResultVisibilityMs = 5_000L
-private const val SeekFrameTimeoutMs = 8_000L
-private const val SeekPositionToleranceMs = 40L
-private const val SeekFrameRenderDelayMs = 120L
-private const val SeekFramePollIntervalMs = 25L
+private const val SeekFrameTimeoutMs = 3_000L
+private const val SeekPositionToleranceMs = 2L
+private const val SurfaceLatchDelayMs = 32L
 private const val PausedFrameCaptureAttempts = 3
 private const val PausedFrameCaptureRetryDelayMs = 80L
+private val temporalCaptureMutex = Mutex()

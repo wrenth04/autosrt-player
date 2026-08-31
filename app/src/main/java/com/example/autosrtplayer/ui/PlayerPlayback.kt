@@ -719,7 +719,11 @@ internal fun FullscreenPlayer(
                                     valueText = mosaicUnavailableReason
                                 )
                             } else {
-                                player?.pause()
+                                if (mosaicRestorationConfig.processOnlyWhenPaused) {
+                                    player?.pause()
+                                } else {
+                                    player?.play()
+                                }
                                 mosaicProcessingRequestId += 1
                                 hudState = GestureHudState(
                                     icon = Icons.Filled.AutoFixHigh,

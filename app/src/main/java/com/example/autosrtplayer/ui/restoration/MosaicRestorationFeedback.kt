@@ -20,7 +20,8 @@ internal sealed interface MosaicRestorationFeedback {
     data object Restoring : MosaicRestorationFeedback
     data class Completed(
         val inferenceDurationMs: Long,
-        val visibleChangeFraction: Float
+        val modelChangeFraction: Float,
+        val strength: Float
     ) : MosaicRestorationFeedback
     data object NoMosaicDetected : MosaicRestorationFeedback
 }
@@ -76,10 +77,10 @@ internal fun MosaicRestorationFeedback.displayMessage(): String {
                 "$capturedFrameCount/$totalFrameCount"
         MosaicRestorationFeedback.Restoring -> "正在使用 DeepMosaics 處理目前畫面…"
         is MosaicRestorationFeedback.Completed -> {
-            val change = formatMosaicChangeFraction(visibleChangeFraction)
+            val change = formatMosaicChangeFraction(modelChangeFraction)
             if (hasVisibleChange) {
                 "DeepMosaics 處理完成（${formatMosaicInferenceDuration(inferenceDurationMs)}，" +
-                    "模型變化 $change）"
+                    "模型變化 $change，混合強度 ${formatMosaicStrength(strength)}）"
             } else {
                 "推論完成，但模型輸出與原畫面幾乎相同（變化 $change）"
             }
@@ -90,7 +91,7 @@ internal fun MosaicRestorationFeedback.displayMessage(): String {
 }
 
 internal val MosaicRestorationFeedback.Completed.hasVisibleChange: Boolean
-    get() = visibleChangeFraction >= MinimumVisibleChangeFraction
+    get() = modelChangeFraction >= MinimumVisibleChangeFraction
 
 internal val MosaicRestorationFeedback.progressFraction: Float?
     get() = when (this) {
@@ -120,6 +121,10 @@ internal fun formatMosaicChangeFraction(changeFraction: Float): String {
         ?.coerceIn(0f, 1f)
         ?: 0f
     return String.format(Locale.ROOT, "%.2f%%", safeChangeFraction * 100f)
+}
+
+internal fun formatMosaicStrength(strength: Float): String {
+    return "${(strength.coerceIn(0f, 1f) * 100f).toInt()}%"
 }
 
 private const val MinimumVisibleChangeFraction = 0.005f
