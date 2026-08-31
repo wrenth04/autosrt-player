@@ -825,7 +825,10 @@ internal fun FullscreenPlayer(
                                 },
                                 modifier = Modifier.size(24.dp)
                             )
-                            if (isMosaicCleanupActive && isMosaicProcessing) {
+                            if (isMosaicCleanupActive &&
+                                isMosaicProcessing &&
+                                mosaicRestorationConfig.showProcessingProgress
+                            ) {
                                 CircularProgressIndicator(
                                     modifier = Modifier.size(38.dp),
                                     color = MaterialTheme.colorScheme.onPrimary,

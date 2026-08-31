@@ -60,8 +60,9 @@ data class NormalizedRegion(
 
 data class MosaicRestorationConfig(
     val enabled: Boolean = false,
-    val processOnlyWhenPaused: Boolean = true,
+    val processOnlyWhenPaused: Boolean = false,
     val showProcessingRegion: Boolean = false,
+    val showProcessingProgress: Boolean = false,
     val strength: Float = DefaultStrength,
     val region: NormalizedRegion = NormalizedRegion()
 ) {

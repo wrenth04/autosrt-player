@@ -143,19 +143,22 @@ class MosaicRestorationConfigTest {
     }
 
     @Test
-    fun `restoration defaults to paused processing`() {
-        assertTrue(MosaicRestorationConfig().processOnlyWhenPaused)
+    fun `restoration defaults to continuous low FPS playback`() {
+        assertFalse(MosaicRestorationConfig().processOnlyWhenPaused)
         assertEquals(1f, MosaicRestorationConfig.DefaultStrength, 0f)
     }
 
     @Test
-    fun `processing range overlay defaults to hidden`() {
+    fun `optional processing overlays default to hidden and survive sanitizing`() {
         assertFalse(MosaicRestorationConfig().showProcessingRegion)
-        assertTrue(
-            MosaicRestorationConfig(showProcessingRegion = true)
-                .sanitized()
-                .showProcessingRegion
-        )
+        assertFalse(MosaicRestorationConfig().showProcessingProgress)
+        val sanitized = MosaicRestorationConfig(
+            showProcessingRegion = true,
+            showProcessingProgress = true
+        ).sanitized()
+
+        assertTrue(sanitized.showProcessingRegion)
+        assertTrue(sanitized.showProcessingProgress)
     }
 
     @Test

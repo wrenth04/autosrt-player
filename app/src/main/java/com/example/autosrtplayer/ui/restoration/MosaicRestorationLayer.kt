@@ -107,6 +107,8 @@ internal fun MosaicRestorationLayer(
     var surfaceBounds by remember { mutableStateOf<SurfaceBounds?>(null) }
     var displayedSourceFrame by remember { mutableStateOf<Bitmap?>(null) }
     var restoredPreview by remember { mutableStateOf<RestorationPreview?>(null) }
+    var continuousPassthrough by remember { mutableStateOf(true) }
+    var lastChangeFraction by remember { mutableStateOf<Float?>(null) }
     var autoDetectionTarget by remember { mutableStateOf<AutoDetectionTarget?>(null) }
     var captureError by remember { mutableStateOf<String?>(null) }
     var detectorError by remember { mutableStateOf<String?>(null) }
@@ -122,6 +124,12 @@ internal fun MosaicRestorationLayer(
     LaunchedEffect(processingRequestId) {
         if (processingRequestId > 0L) {
             pendingFeedback = MosaicRestorationFeedback.Preparing
+        }
+    }
+    LaunchedEffect(config.enabled) {
+        if (!config.enabled) {
+            continuousPassthrough = true
+            lastChangeFraction = null
         }
     }
     DisposableEffect(Unit) {
@@ -231,17 +239,29 @@ internal fun MosaicRestorationLayer(
             throw error
         } catch (error: OrtException) {
             val message = error.message ?: "ONNX Runtime 無法載入偵測模型"
-            latestOnError(message)
+            if (config.processOnlyWhenPaused) {
+                latestOnError(message)
+            } else {
+                Log.e(Tag, message, error)
+            }
             value = DetectorState.Error(message)
             return@produceState
         } catch (error: IllegalArgumentException) {
             val message = error.message ?: "馬賽克偵測模型格式無效"
-            latestOnError(message)
+            if (config.processOnlyWhenPaused) {
+                latestOnError(message)
+            } else {
+                Log.e(Tag, message, error)
+            }
             value = DetectorState.Error(message)
             return@produceState
         } catch (error: IllegalStateException) {
             val message = error.message ?: "馬賽克偵測模型資料不完整"
-            latestOnError(message)
+            if (config.processOnlyWhenPaused) {
+                latestOnError(message)
+            } else {
+                Log.e(Tag, message, error)
+            }
             value = DetectorState.Error(message)
             return@produceState
         }
@@ -336,6 +356,18 @@ internal fun MosaicRestorationLayer(
         var consecutiveCaptureFailures = 0
         var lastProcessedPositionMs: Long? = null
         var trackedMediaItem = player.currentMediaItem
+
+        fun useContinuousPassthrough() {
+            if (!config.processOnlyWhenPaused) {
+                autoDetectionTarget = null
+                displayedSourceFrame = null
+                restoredPreview = null
+                pendingFeedback = null
+                detectorError = null
+                continuousPassthrough = true
+            }
+        }
+
         while (isActive) {
             val currentMediaItem = player.currentMediaItem
             if (currentMediaItem !== trackedMediaItem) {
@@ -384,9 +416,16 @@ internal fun MosaicRestorationLayer(
 
             val videoSurface = playerView.videoSurfaceView
             if (videoSurface == null) {
+                val message = "播放器沒有可供自動偵測的影像 Surface"
+                if (!config.processOnlyWhenPaused) {
+                    Log.w(Tag, message)
+                    useContinuousPassthrough()
+                    delay(ContinuousFailureRetryMs)
+                    continue
+                }
                 autoDetectionTarget = null
-                detectorError = "播放器沒有可供自動偵測的影像 Surface"
-                latestOnError(requireNotNull(detectorError))
+                detectorError = message
+                latestOnError(message)
                 return@LaunchedEffect
             }
 
@@ -405,6 +444,13 @@ internal fun MosaicRestorationLayer(
                     consecutiveCaptureFailures += 1
                     if (consecutiveCaptureFailures >= MaxTransientCaptureFailures) {
                         val message = "無法從播放器擷取畫面供馬賽克偵測"
+                        if (!config.processOnlyWhenPaused) {
+                            Log.w(Tag, "$message；連續播放改用原始畫面")
+                            consecutiveCaptureFailures = 0
+                            useContinuousPassthrough()
+                            delay(ContinuousFailureRetryMs)
+                            continue
+                        }
                         autoDetectionTarget = null
                         detectorError = message
                         latestOnError(message)
@@ -414,6 +460,12 @@ internal fun MosaicRestorationLayer(
                 }
                 is CaptureResult.Error -> {
                     detectorProcessing = false
+                    if (!config.processOnlyWhenPaused) {
+                        Log.w(Tag, "${capture.message}；連續播放改用原始畫面")
+                        useContinuousPassthrough()
+                        delay(ContinuousFailureRetryMs)
+                        continue
+                    }
                     autoDetectionTarget = null
                     detectorError = capture.message
                     latestOnError(capture.message)
@@ -434,6 +486,11 @@ internal fun MosaicRestorationLayer(
                         capture.bitmap.recycle()
                         detectorProcessing = false
                         val message = error.message ?: "馬賽克範圍偵測失敗"
+                        if (!config.processOnlyWhenPaused) {
+                            Log.e(Tag, "$message；連續播放改用原始畫面", error)
+                            useContinuousPassthrough()
+                            return@LaunchedEffect
+                        }
                         autoDetectionTarget = null
                         detectorError = message
                         latestOnError(message)
@@ -442,6 +499,11 @@ internal fun MosaicRestorationLayer(
                         capture.bitmap.recycle()
                         detectorProcessing = false
                         val message = error.message ?: "馬賽克偵測輸出格式不符"
+                        if (!config.processOnlyWhenPaused) {
+                            Log.e(Tag, "$message；連續播放改用原始畫面", error)
+                            useContinuousPassthrough()
+                            return@LaunchedEffect
+                        }
                         autoDetectionTarget = null
                         detectorError = message
                         latestOnError(message)
@@ -450,6 +512,11 @@ internal fun MosaicRestorationLayer(
                         capture.bitmap.recycle()
                         detectorProcessing = false
                         val message = error.message ?: "馬賽克偵測輸入格式不符"
+                        if (!config.processOnlyWhenPaused) {
+                            Log.e(Tag, "$message；連續播放改用原始畫面", error)
+                            useContinuousPassthrough()
+                            return@LaunchedEffect
+                        }
                         autoDetectionTarget = null
                         detectorError = message
                         latestOnError(message)
@@ -478,11 +545,18 @@ internal fun MosaicRestorationLayer(
                     }
                     autoDetectionTarget = target
                     if (target == null) {
-                        pendingFeedback = MosaicRestorationFeedback.NoMosaicDetected
+                        if (config.processOnlyWhenPaused) {
+                            pendingFeedback = MosaicRestorationFeedback.NoMosaicDetected
+                        } else {
+                            useContinuousPassthrough()
+                        }
                     } else if (
                         pendingFeedback is MosaicRestorationFeedback.NoMosaicDetected
                     ) {
                         pendingFeedback = null
+                    }
+                    if (target != null && !config.processOnlyWhenPaused) {
+                        continuousPassthrough = false
                     }
                     lastProcessedPositionMs = detectionPositionMs
                     detectorError = null
@@ -518,6 +592,7 @@ internal fun MosaicRestorationLayer(
         restorationProcessing = false
         displayedSourceFrame = null
         restoredPreview = null
+        continuousPassthrough = !config.processOnlyWhenPaused
         captureError = null
         val readyState = restorerState as? RestorerState.Ready ?: return@LaunchedEffect
         if (!config.enabled || model == null) return@LaunchedEffect
@@ -543,6 +618,8 @@ internal fun MosaicRestorationLayer(
             if (currentMediaItem !== trackedMediaItem) {
                 displayedSourceFrame = null
                 restoredPreview = null
+                continuousPassthrough = !config.processOnlyWhenPaused
+                lastChangeFraction = null
                 pendingFeedback = null
                 clearTemporalState()
                 trackedMediaItem = currentMediaItem
@@ -572,6 +649,7 @@ internal fun MosaicRestorationLayer(
             if (currentMediaItem == null || player.playbackState == Player.STATE_IDLE) {
                 displayedSourceFrame = null
                 restoredPreview = null
+                continuousPassthrough = !config.processOnlyWhenPaused
                 clearTemporalState()
                 delay(PlayerNotReadyDelayMs)
                 continue
@@ -622,6 +700,14 @@ internal fun MosaicRestorationLayer(
             val videoSurface = playerView.videoSurfaceView
             if (videoSurface == null) {
                 val message = "播放器沒有可擷取的影像 Surface"
+                if (!config.processOnlyWhenPaused) {
+                    Log.w(Tag, "$message；連續播放改用原始畫面")
+                    displayedSourceFrame = null
+                    restoredPreview = null
+                    continuousPassthrough = true
+                    delay(ContinuousFailureRetryMs)
+                    continue
+                }
                 restoredPreview = null
                 captureError = message
                 latestOnError(message)
@@ -642,6 +728,13 @@ internal fun MosaicRestorationLayer(
             }
             if (videoSize.unappliedRotationDegrees % 360 != 0) {
                 val message = "目前不支援尚未套用旋轉資訊的影片"
+                if (!config.processOnlyWhenPaused) {
+                    Log.w(Tag, "$message；連續播放改用原始畫面")
+                    displayedSourceFrame = null
+                    restoredPreview = null
+                    continuousPassthrough = true
+                    return@LaunchedEffect
+                }
                 restoredPreview = null
                 captureError = message
                 latestOnError(message)
@@ -674,6 +767,9 @@ internal fun MosaicRestorationLayer(
                 )
             }
 
+            if (!config.processOnlyWhenPaused) {
+                continuousPassthrough = false
+            }
             frameCaptureProcessing = true
             capturedFrameCount = 0
             totalFrameCount = model.temporalFrameCount
@@ -708,6 +804,16 @@ internal fun MosaicRestorationLayer(
                     consecutiveCaptureFailures += 1
                     if (consecutiveCaptureFailures >= MaxTransientCaptureFailures) {
                         val message = "無法擷取 DeepMosaics 所需的時序影格"
+                        if (!config.processOnlyWhenPaused) {
+                            Log.w(Tag, "$message；連續播放改用原始畫面")
+                            consecutiveCaptureFailures = 0
+                            displayedSourceFrame = null
+                            restoredPreview = null
+                            continuousPassthrough = true
+                            clearTemporalState()
+                            delay(ContinuousFailureRetryMs)
+                            continue
+                        }
                         Log.w(Tag, message)
                         restoredPreview = null
                         captureError = message
@@ -718,6 +824,15 @@ internal fun MosaicRestorationLayer(
                 }
 
                 is FrameSequenceCaptureResult.Error -> {
+                    if (!config.processOnlyWhenPaused) {
+                        Log.w(Tag, "${capture.message}；連續播放改用原始畫面")
+                        displayedSourceFrame = null
+                        restoredPreview = null
+                        continuousPassthrough = true
+                        clearTemporalState()
+                        delay(ContinuousFailureRetryMs)
+                        continue
+                    }
                     restoredPreview = null
                     captureError = capture.message
                     latestOnError(capture.message)
@@ -729,9 +844,13 @@ internal fun MosaicRestorationLayer(
                     if (!config.processOnlyWhenPaused && nextSourceFrame == null) {
                         capture.frames.recycleAll()
                         val message = "連續 AI 播放缺少完整來源影格"
-                        captureError = message
-                        latestOnError(message)
-                        return@LaunchedEffect
+                        Log.w(Tag, "$message；改用原始畫面")
+                        displayedSourceFrame = null
+                        restoredPreview = null
+                        continuousPassthrough = true
+                        clearTemporalState()
+                        delay(ContinuousFailureRetryMs)
+                        continue
                     }
                     consecutiveCaptureFailures = 0
                     val previousPosition = lastProcessedPositionMs
@@ -803,6 +922,8 @@ internal fun MosaicRestorationLayer(
                         image = restored,
                         region = inferenceRegion
                     )
+                    continuousPassthrough = false
+                    lastChangeFraction = restored.changeFraction
                     pendingFeedback = MosaicRestorationFeedback.Completed(
                         inferenceDurationMs = restored.inferenceDurationMs,
                         modelChangeFraction = restored.changeFraction,
@@ -833,9 +954,11 @@ internal fun MosaicRestorationLayer(
         val bounds = surfaceBounds
         val sourceFrame = displayedSourceFrame
         val preview = restoredPreview
+        val detectorStateError = (detectorState as? DetectorState.Error)?.message
+            .takeIf { config.processOnlyWhenPaused }
         val visibleError = detectorError
             ?: captureError
-            ?: (detectorState as? DetectorState.Error)?.message
+            ?: detectorStateError
             ?: (restorerState as? RestorerState.Error)?.message
         DisposableEffect(sourceFrame) {
             onDispose {
@@ -850,7 +973,7 @@ internal fun MosaicRestorationLayer(
                 }
             }
         }
-        if (config.enabled && !config.processOnlyWhenPaused) {
+        if (config.enabled && !config.processOnlyWhenPaused && !continuousPassthrough) {
             Box(
                 modifier = Modifier
                     .fillMaxSize()
@@ -874,35 +997,13 @@ internal fun MosaicRestorationLayer(
                 )
             )
 
-            Card(
-                modifier = Modifier
-                    .align(Alignment.BottomStart)
-                    .padding(12.dp),
-                colors = CardDefaults.cardColors(
-                    containerColor = Color.Black.copy(alpha = 0.62f)
-                )
-            ) {
-                Text(
-                    text = if (autoDetectionConfig.enabled) {
-                        "DeepMosaics 處理完成 · " +
-                            "${formatMosaicInferenceDuration(preview.image.inferenceDurationMs)}" +
-                            " · 模型變化 " +
-                            formatMosaicChangeFraction(preview.image.changeFraction) +
-                            " · 混合 ${formatMosaicStrength(config.strength)}" +
-                            "（自動偵測，推測畫面）"
-                    } else {
-                        "DeepMosaics 處理完成 · " +
-                            "${formatMosaicInferenceDuration(preview.image.inferenceDurationMs)}" +
-                            " · 模型變化 " +
-                            formatMosaicChangeFraction(preview.image.changeFraction) +
-                            " · 混合 ${formatMosaicStrength(config.strength)}" +
-                            "（手動框選，推測畫面）"
-                    },
-                    color = Color.White,
-                    style = MaterialTheme.typography.labelSmall,
-                    modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp)
-                )
-            }
+        }
+
+        if (config.enabled && bounds != null && lastChangeFraction != null) {
+            LastDifferenceLabel(
+                changeFraction = requireNotNull(lastChangeFraction),
+                bounds = bounds
+            )
         }
 
         val selectedProcessingRegion = if (autoDetectionConfig.enabled) {
@@ -951,7 +1052,17 @@ internal fun MosaicRestorationLayer(
                     modifier = Modifier.padding(12.dp)
                 )
             }
-        } else if (config.enabled && activeFeedback != null) {
+        } else if (
+            config.enabled &&
+            activeFeedback != null &&
+            (
+                (config.showProcessingProgress && activeFeedback.isBusy) ||
+                    (
+                        config.processOnlyWhenPaused &&
+                            activeFeedback is MosaicRestorationFeedback.NoMosaicDetected
+                        )
+                )
+        ) {
             RestorationFeedbackCard(
                 feedback = activeFeedback,
                 modifier = Modifier
@@ -989,6 +1100,40 @@ private fun FrozenVideoFrame(
                 height = with(density) { bounds.height.toDp() }
             )
     )
+}
+
+@Composable
+private fun LastDifferenceLabel(
+    changeFraction: Float,
+    bounds: SurfaceBounds
+) {
+    val density = LocalDensity.current
+    val verticalOffset = with(density) {
+        val spacing = 6.dp.roundToPx()
+        val labelHeight = 28.dp.roundToPx()
+        (bounds.top + bounds.height + spacing)
+            .coerceAtMost(bounds.containerHeight - labelHeight - spacing)
+            .coerceAtLeast(spacing)
+    }
+    Box(
+        modifier = Modifier
+            .fillMaxWidth()
+            .offset { IntOffset(x = 0, y = verticalOffset) },
+        contentAlignment = Alignment.TopCenter
+    ) {
+        Card(
+            colors = CardDefaults.cardColors(
+                containerColor = Color.Black.copy(alpha = 0.72f)
+            )
+        ) {
+            Text(
+                text = "AI 差異 ${formatMosaicChangeFraction(changeFraction)}",
+                color = Color.White,
+                style = MaterialTheme.typography.labelSmall,
+                modifier = Modifier.padding(horizontal = 10.dp, vertical = 5.dp)
+            )
+        }
+    }
 }
 
 @Composable
@@ -1696,7 +1841,8 @@ private fun resolveSurfaceBounds(playerView: PlayerView, videoSurface: View?): S
         left = surfaceLocation[0] - playerLocation[0],
         top = surfaceLocation[1] - playerLocation[1],
         width = surface.width,
-        height = surface.height
+        height = surface.height,
+        containerHeight = playerView.height
     )
 }
 
@@ -1732,7 +1878,8 @@ private data class SurfaceBounds(
     val left: Int,
     val top: Int,
     val width: Int,
-    val height: Int
+    val height: Int,
+    val containerHeight: Int
 ) {
     fun regionRect(region: NormalizedRegion): Rect {
         val local = region.toPixelRect(width, height)
@@ -1811,6 +1958,7 @@ private const val MinimumAutoregressiveRegionOverlap = 0.55f
 private const val MinimumDetectionIntervalMs = 750L
 private const val DetectionCooldownMultiplier = 1.25f
 private const val MaxTransientCaptureFailures = 12
+private const val ContinuousFailureRetryMs = 1_000L
 private const val FeedbackResultVisibilityMs = 5_000L
 private const val SeekFrameTimeoutMs = 3_000L
 private const val SeekPositionToleranceMs = 2L

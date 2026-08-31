@@ -83,8 +83,12 @@ class PlayerViewModel(
         private const val KeyVrSubtitleStereoDepthPercent = "vr_subtitle_stereo_depth_percent"
         private const val KeySelectedDepthModel = "selected_depth_model"
         private const val KeyMosaicRestorationEnabled = "mosaic_restoration_enabled"
-        private const val KeyMosaicRestorationPausedOnly = "mosaic_restoration_paused_only"
+        private const val KeyMosaicContinuousPlaybackEnabled =
+            "mosaic_continuous_playback_enabled"
+        private const val LegacyKeyMosaicRestorationPausedOnly =
+            "mosaic_restoration_paused_only"
         private const val KeyMosaicShowProcessingRegion = "mosaic_show_processing_region"
+        private const val KeyMosaicShowProcessingProgress = "mosaic_show_processing_progress"
         private const val KeyMosaicRestorationStrength = "mosaic_restoration_strength"
         private const val KeyMosaicRegionLeft = "mosaic_region_left"
         private const val KeyMosaicRegionTop = "mosaic_region_top"
@@ -665,6 +669,19 @@ class PlayerViewModel(
         }
     }
 
+    fun setMosaicProcessingProgressVisible(visible: Boolean) {
+        val config = _uiState.value.mosaicRestorationConfig
+            .copy(showProcessingProgress = visible)
+            .sanitized()
+        persistMosaicRestorationConfig(config)
+        _uiState.update {
+            it.copy(
+                mosaicRestorationConfig = config,
+                mosaicRestorationErrorMessage = null
+            )
+        }
+    }
+
     fun setMosaicAutoDetectionEnabled(enabled: Boolean) {
         if (enabled &&
             (_uiState.value.mosaicDetectorModelStatus !is MosaicDetectorModelStatus.Ready ||
@@ -910,10 +927,13 @@ class PlayerViewModel(
 
         return MosaicRestorationConfig(
             enabled = prefs?.getBoolean(KeyMosaicRestorationEnabled, false) ?: false,
-            processOnlyWhenPaused =
-                prefs?.getBoolean(KeyMosaicRestorationPausedOnly, true) ?: true,
+            processOnlyWhenPaused = !(
+                prefs?.getBoolean(KeyMosaicContinuousPlaybackEnabled, true) ?: true
+            ),
             showProcessingRegion =
                 prefs?.getBoolean(KeyMosaicShowProcessingRegion, false) ?: false,
+            showProcessingProgress =
+                prefs?.getBoolean(KeyMosaicShowProcessingProgress, false) ?: false,
             strength = floatPreference(
                 KeyMosaicRestorationStrength,
                 MosaicRestorationConfig.DefaultStrength
@@ -931,8 +951,13 @@ class PlayerViewModel(
         val safeConfig = config.sanitized()
         settingsPrefs?.edit()?.apply {
             putBoolean(KeyMosaicRestorationEnabled, safeConfig.enabled)
-            putBoolean(KeyMosaicRestorationPausedOnly, safeConfig.processOnlyWhenPaused)
+            putBoolean(
+                KeyMosaicContinuousPlaybackEnabled,
+                !safeConfig.processOnlyWhenPaused
+            )
+            remove(LegacyKeyMosaicRestorationPausedOnly)
             putBoolean(KeyMosaicShowProcessingRegion, safeConfig.showProcessingRegion)
+            putBoolean(KeyMosaicShowProcessingProgress, safeConfig.showProcessingProgress)
             putFloat(KeyMosaicRestorationStrength, safeConfig.strength)
             putFloat(KeyMosaicRegionLeft, safeConfig.region.left)
             putFloat(KeyMosaicRegionTop, safeConfig.region.top)

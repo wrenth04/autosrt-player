@@ -264,6 +264,8 @@ fun PlayerScreen(
                         viewModel::setMosaicRestorationPausedOnly,
                     onMosaicProcessingRegionVisibleChange =
                         viewModel::setMosaicProcessingRegionVisible,
+                    onMosaicProcessingProgressVisibleChange =
+                        viewModel::setMosaicProcessingProgressVisible,
                     onMosaicRestorationStrengthChange = viewModel::setMosaicRestorationStrengthTransient,
                     onMosaicRestorationStrengthChangeFinished =
                         viewModel::persistMosaicRestorationStrength,
@@ -387,6 +389,7 @@ private fun PlayerOptionsScreen(
     onMosaicRestorationEnabledChange: (Boolean) -> Unit,
     onMosaicRestorationPausedOnlyChange: (Boolean) -> Unit,
     onMosaicProcessingRegionVisibleChange: (Boolean) -> Unit,
+    onMosaicProcessingProgressVisibleChange: (Boolean) -> Unit,
     onMosaicRestorationStrengthChange: (Float) -> Unit,
     onMosaicRestorationStrengthChangeFinished: () -> Unit,
     onEditMosaicRegion: () -> Unit,
@@ -518,6 +521,7 @@ private fun PlayerOptionsScreen(
             onEnabledChange = onMosaicRestorationEnabledChange,
             onPausedOnlyChange = onMosaicRestorationPausedOnlyChange,
             onProcessingRegionVisibleChange = onMosaicProcessingRegionVisibleChange,
+            onProcessingProgressVisibleChange = onMosaicProcessingProgressVisibleChange,
             onStrengthChange = onMosaicRestorationStrengthChange,
             onStrengthChangeFinished = onMosaicRestorationStrengthChangeFinished,
             onEditRegion = onEditMosaicRegion,
@@ -1139,6 +1143,7 @@ private fun MosaicRestorationSettingsCard(
     onEnabledChange: (Boolean) -> Unit,
     onPausedOnlyChange: (Boolean) -> Unit,
     onProcessingRegionVisibleChange: (Boolean) -> Unit,
+    onProcessingProgressVisibleChange: (Boolean) -> Unit,
     onStrengthChange: (Float) -> Unit,
     onStrengthChangeFinished: () -> Unit,
     onEditRegion: () -> Unit,
@@ -1192,6 +1197,26 @@ private fun MosaicRestorationSettingsCard(
                     onCheckedChange = onEnabledChange,
                     enabled = isDownloaded &&
                         (isFlatPlayback || uiState.mosaicRestorationConfig.enabled)
+                )
+            }
+
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.SpaceBetween,
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                Column(modifier = Modifier.weight(1f)) {
+                    Text("顯示 AI 處理進度")
+                    Text(
+                        "關閉時只保留影片下方的最後 AI 差異；錯誤訊息仍會顯示。",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                    )
+                }
+                Switch(
+                    checked = uiState.mosaicRestorationConfig.showProcessingProgress,
+                    onCheckedChange = onProcessingProgressVisibleChange,
+                    enabled = isFlatPlayback && uiState.mosaicRestorationConfig.enabled
                 )
             }
 
