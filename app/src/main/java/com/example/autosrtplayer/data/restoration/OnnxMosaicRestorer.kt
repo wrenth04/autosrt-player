@@ -18,7 +18,8 @@ import kotlinx.coroutines.withContext
 
 data class RestoredImage(
     val bitmap: Bitmap,
-    val inferenceDurationMs: Long
+    val inferenceDurationMs: Long,
+    val changeFraction: Float
 )
 
 class OnnxMosaicRestorer(
@@ -131,7 +132,12 @@ class OnnxMosaicRestorer(
                     height = model.inputSize,
                     alphaMask = alphaMask
                 ),
-                durationMs = (System.nanoTime() - startedAt) / 1_000_000L
+                durationMs = (System.nanoTime() - startedAt) / 1_000_000L,
+                changeFraction = calculateNormalizedRgbChangeFraction(
+                    original = normalizedFrames[model.temporalFrameCount / 2],
+                    restored = outputValues,
+                    alphaMask = alphaMask
+                )
             )
         }
 
@@ -142,7 +148,8 @@ class OnnxMosaicRestorer(
                 model.inputSize,
                 Bitmap.Config.ARGB_8888
             ),
-            inferenceDurationMs = inference.durationMs
+            inferenceDurationMs = inference.durationMs,
+            changeFraction = inference.changeFraction
         )
     }
 
@@ -268,7 +275,8 @@ class OnnxMosaicRestorer(
 
     private data class DeepMosaicsInference(
         val pixels: IntArray,
-        val durationMs: Long
+        val durationMs: Long,
+        val changeFraction: Float
     )
 
     companion object {

@@ -243,6 +243,8 @@ fun PlayerScreen(
                     onMosaicRestorationEnabledChange = viewModel::setMosaicRestorationEnabled,
                     onMosaicRestorationPausedOnlyChange =
                         viewModel::setMosaicRestorationPausedOnly,
+                    onMosaicProcessingRegionVisibleChange =
+                        viewModel::setMosaicProcessingRegionVisible,
                     onMosaicRestorationStrengthChange = viewModel::setMosaicRestorationStrengthTransient,
                     onMosaicRestorationStrengthChangeFinished =
                         viewModel::persistMosaicRestorationStrength,
@@ -306,6 +308,7 @@ fun PlayerScreen(
                     onToggleScreenOrientationMode = viewModel::toggleScreenOrientationMode,
                     onMosaicRegionChange = viewModel::setMosaicRestorationRegion,
                     onMosaicRegionEditingFinished = viewModel::finishMosaicRegionEditing,
+                    onEditMosaicRegion = viewModel::startMosaicRegionEditing,
                     onMosaicRestorationError = viewModel::onMosaicRestorationError,
                     onVrViewDrag = viewModel::updateVrViewAngles,
                     onVrSeekBy = { deltaMs ->
@@ -361,6 +364,7 @@ private fun PlayerOptionsScreen(
     onStartupDestinationChange: (StartupDestination) -> Unit,
     onMosaicRestorationEnabledChange: (Boolean) -> Unit,
     onMosaicRestorationPausedOnlyChange: (Boolean) -> Unit,
+    onMosaicProcessingRegionVisibleChange: (Boolean) -> Unit,
     onMosaicRestorationStrengthChange: (Float) -> Unit,
     onMosaicRestorationStrengthChangeFinished: () -> Unit,
     onEditMosaicRegion: () -> Unit,
@@ -491,6 +495,7 @@ private fun PlayerOptionsScreen(
             uiState = uiState,
             onEnabledChange = onMosaicRestorationEnabledChange,
             onPausedOnlyChange = onMosaicRestorationPausedOnlyChange,
+            onProcessingRegionVisibleChange = onMosaicProcessingRegionVisibleChange,
             onStrengthChange = onMosaicRestorationStrengthChange,
             onStrengthChangeFinished = onMosaicRestorationStrengthChangeFinished,
             onEditRegion = onEditMosaicRegion,
@@ -1111,6 +1116,7 @@ private fun MosaicRestorationSettingsCard(
     uiState: PlayerUiState,
     onEnabledChange: (Boolean) -> Unit,
     onPausedOnlyChange: (Boolean) -> Unit,
+    onProcessingRegionVisibleChange: (Boolean) -> Unit,
     onStrengthChange: (Float) -> Unit,
     onStrengthChangeFinished: () -> Unit,
     onEditRegion: () -> Unit,
@@ -1161,6 +1167,26 @@ private fun MosaicRestorationSettingsCard(
                 )
             }
 
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.SpaceBetween,
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                Column(modifier = Modifier.weight(1f)) {
+                    Text("顯示處理範圍")
+                    Text(
+                        "在影片上標示自動偵測或手動框選後，實際送入模型的正方形範圍。",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                    )
+                }
+                Switch(
+                    checked = uiState.mosaicRestorationConfig.showProcessingRegion,
+                    onCheckedChange = onProcessingRegionVisibleChange,
+                    enabled = isFlatPlayback && uiState.mosaicRestorationConfig.enabled
+                )
+            }
+
             if (!isFlatPlayback) {
                 Text(
                     "目前只支援一般播放模式；VR 模式會暫停 AI 預覽。",
@@ -1177,7 +1203,8 @@ private fun MosaicRestorationSettingsCard(
                 Column(modifier = Modifier.weight(1f)) {
                     Text("只在影片暫停時處理")
                     Text(
-                        "建議開啟；播放時不消耗模型運算，暫停後處理目前畫面一次。",
+                        "播放時不執行模型；暫停後會短暫讀取目前位置前後各兩張影格，" +
+                            "再回到原位置處理。串流必須支援搜尋。",
                         style = MaterialTheme.typography.bodySmall,
                         color = MaterialTheme.colorScheme.onSurfaceVariant
                     )
@@ -1204,6 +1231,12 @@ private fun MosaicRestorationSettingsCard(
                 Text(
                     "模型約需 0.8–1 GB 執行記憶體，手機單次處理可能需要數秒；" +
                         "建議使用 6 GB RAM 以上裝置並開啟「只在影片暫停時處理」。",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.error
+                )
+                Text(
+                    "官方模型只針對方格像素馬賽克；模糊、遮擋、貼圖或不同領域的影像" +
+                        "不會因調整參數而恢復。",
                     style = MaterialTheme.typography.bodySmall,
                     color = MaterialTheme.colorScheme.error
                 )
@@ -1451,17 +1484,16 @@ private fun MosaicRestorationSettingsCard(
                     onClick = onEditRegion,
                     enabled = isFlatPlayback &&
                         uiState.mediaItem != null &&
-                        !uiState.mosaicAutoDetectionConfig.enabled,
+                        uiState.mosaicRestorationConfig.enabled,
                     modifier = Modifier.fillMaxWidth()
                 ) {
-                    Text(
-                        if (uiState.mosaicAutoDetectionConfig.enabled) {
-                            "自動偵測已開啟"
-                        } else {
-                            "回到影片框選馬賽克區域"
-                        }
-                    )
+                    Text("回到影片手動框選處理範圍")
                 }
+                Text(
+                    "手動框選會關閉自動定位，並自動開啟「顯示處理範圍」。",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                )
             }
 
             uiState.mosaicRestorationErrorMessage?.let { message ->

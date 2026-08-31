@@ -29,6 +29,7 @@ import androidx.compose.material.icons.automirrored.filled.VolumeUp
 import androidx.compose.material.icons.filled.Bookmarks
 import androidx.compose.material.icons.filled.AutoFixHigh
 import androidx.compose.material.icons.filled.Brightness6
+import androidx.compose.material.icons.filled.CropFree
 import androidx.compose.material.icons.filled.Edit
 import androidx.compose.material.icons.filled.FastForward
 import androidx.compose.material.icons.filled.FastRewind
@@ -227,6 +228,7 @@ internal fun FullscreenPlayer(
     onToggleScreenOrientationMode: () -> Unit,
     onMosaicRegionChange: (NormalizedRegion) -> Unit,
     onMosaicRegionEditingFinished: () -> Unit,
+    onEditMosaicRegion: () -> Unit,
     onMosaicRestorationError: (String) -> Unit,
     onVrViewDrag: (Float, Float) -> Unit,
     onVrSeekBy: (Long) -> Unit,
@@ -651,22 +653,83 @@ internal fun FullscreenPlayer(
                 verticalAlignment = Alignment.CenterVertically
             ) {
                 if (!isVrMode) {
-                    val canProcessMosaic = mosaicRestorationConfig.enabled &&
-                        restorationModelFile != null &&
-                        player?.currentMediaItem != null &&
-                        !isMosaicProcessing
+                    val baseMosaicUnavailableReason = when {
+                        !mosaicRestorationConfig.enabled ->
+                            "請先到設定開啟 AI 去馬賽克"
+                        restorationModel == null || restorationModelFile == null ->
+                            "請先到設定下載 DeepMosaics 修復模型"
+                        player?.currentMediaItem == null ->
+                            "請先載入影片"
+                        else -> null
+                    }
+                    val mosaicUnavailableReason = baseMosaicUnavailableReason
+                        ?: if (mosaicAutoDetectionConfig.enabled &&
+                            mosaicDetectorModelFile == null
+                        ) {
+                            "請先到設定下載馬賽克定位模型"
+                        } else {
+                            null
+                        }
+                    val canProcessMosaic =
+                        mosaicUnavailableReason == null && !isMosaicProcessing
+                    val manualSelectionUnavailableReason = baseMosaicUnavailableReason
+                    val canSelectMosaicRegion =
+                        manualSelectionUnavailableReason == null && !isMosaicProcessing
                     IconButton(
                         onClick = {
-                            player?.pause()
-                            mosaicProcessingRequestId += 1
-                            hudState = GestureHudState(
-                                icon = Icons.Filled.AutoFixHigh,
-                                label = "DeepMosaics",
-                                valueText = "處理目前畫面"
-                            )
+                            if (manualSelectionUnavailableReason != null) {
+                                hudState = GestureHudState(
+                                    icon = Icons.Filled.CropFree,
+                                    label = "無法手動框選",
+                                    valueText = manualSelectionUnavailableReason
+                                )
+                            } else {
+                                player?.pause()
+                                onEditMosaicRegion()
+                            }
                             pingControls()
                         },
-                        enabled = canProcessMosaic,
+                        enabled = !isMosaicProcessing,
+                        modifier = Modifier
+                            .background(
+                                androidx.compose.ui.graphics.Color.Black.copy(
+                                    alpha = ControlOverlayAlpha
+                                ),
+                                shape = MaterialTheme.shapes.small
+                            )
+                            .size(48.dp)
+                    ) {
+                        Icon(
+                            imageVector = Icons.Filled.CropFree,
+                            contentDescription = manualSelectionUnavailableReason
+                                ?: "手動框選去馬賽克處理範圍",
+                            tint = if (canSelectMosaicRegion) {
+                                androidx.compose.ui.graphics.Color.White
+                            } else {
+                                androidx.compose.ui.graphics.Color.White.copy(alpha = 0.38f)
+                            }
+                        )
+                    }
+                    IconButton(
+                        onClick = {
+                            if (mosaicUnavailableReason != null) {
+                                hudState = GestureHudState(
+                                    icon = Icons.Filled.AutoFixHigh,
+                                    label = "DeepMosaics 尚未就緒",
+                                    valueText = mosaicUnavailableReason
+                                )
+                            } else {
+                                player?.pause()
+                                mosaicProcessingRequestId += 1
+                                hudState = GestureHudState(
+                                    icon = Icons.Filled.AutoFixHigh,
+                                    label = "DeepMosaics",
+                                    valueText = "已送出，請稍候"
+                                )
+                            }
+                            pingControls()
+                        },
+                        enabled = !isMosaicProcessing,
                         modifier = Modifier
                             .background(
                                 androidx.compose.ui.graphics.Color.Black.copy(
@@ -685,7 +748,8 @@ internal fun FullscreenPlayer(
                         } else {
                             Icon(
                                 imageVector = Icons.Filled.AutoFixHigh,
-                                contentDescription = "用 DeepMosaics 處理目前畫面",
+                                contentDescription = mosaicUnavailableReason
+                                    ?: "用 DeepMosaics 處理目前畫面",
                                 tint = if (canProcessMosaic) {
                                     androidx.compose.ui.graphics.Color.White
                                 } else {

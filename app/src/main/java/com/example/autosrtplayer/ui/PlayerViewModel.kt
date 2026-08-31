@@ -84,6 +84,7 @@ class PlayerViewModel(
         private const val KeySelectedDepthModel = "selected_depth_model"
         private const val KeyMosaicRestorationEnabled = "mosaic_restoration_enabled"
         private const val KeyMosaicRestorationPausedOnly = "mosaic_restoration_paused_only"
+        private const val KeyMosaicShowProcessingRegion = "mosaic_show_processing_region"
         private const val KeyMosaicRestorationStrength = "mosaic_restoration_strength"
         private const val KeyMosaicRegionLeft = "mosaic_region_left"
         private const val KeyMosaicRegionTop = "mosaic_region_top"
@@ -651,6 +652,19 @@ class PlayerViewModel(
         }
     }
 
+    fun setMosaicProcessingRegionVisible(visible: Boolean) {
+        val config = _uiState.value.mosaicRestorationConfig
+            .copy(showProcessingRegion = visible)
+            .sanitized()
+        persistMosaicRestorationConfig(config)
+        _uiState.update {
+            it.copy(
+                mosaicRestorationConfig = config,
+                mosaicRestorationErrorMessage = null
+            )
+        }
+    }
+
     fun setMosaicAutoDetectionEnabled(enabled: Boolean) {
         if (enabled &&
             (_uiState.value.mosaicDetectorModelStatus !is MosaicDetectorModelStatus.Ready ||
@@ -753,6 +767,11 @@ class PlayerViewModel(
         val model = getRestorationModel()
         val modelFile = _uiState.value.restorationModelFile
         when {
+            !_uiState.value.mosaicRestorationConfig.enabled -> {
+                _uiState.update {
+                    it.copy(mosaicRestorationErrorMessage = "請先開啟 AI 去馬賽克再框選範圍")
+                }
+            }
             _uiState.value.vrConfig.contentMode != VrContentMode.Flat -> {
                 _uiState.update {
                     it.copy(mosaicRestorationErrorMessage = "請先切換到一般播放模式再框選區域")
@@ -769,10 +788,20 @@ class PlayerViewModel(
                 }
             }
             else -> {
+                val restorationConfig = _uiState.value.mosaicRestorationConfig
+                    .copy(showProcessingRegion = true)
+                    .sanitized()
+                val autoDetectionConfig = _uiState.value.mosaicAutoDetectionConfig
+                    .copy(enabled = false)
+                    .sanitized()
+                persistMosaicRestorationConfig(restorationConfig)
+                persistMosaicAutoDetectionConfig(autoDetectionConfig)
                 _uiState.update {
                     it.copy(
                         isSettingsVisible = false,
                         isMosaicRegionEditing = true,
+                        mosaicRestorationConfig = restorationConfig,
+                        mosaicAutoDetectionConfig = autoDetectionConfig,
                         mosaicRestorationErrorMessage = null
                     )
                 }
@@ -883,6 +912,8 @@ class PlayerViewModel(
             enabled = prefs?.getBoolean(KeyMosaicRestorationEnabled, false) ?: false,
             processOnlyWhenPaused =
                 prefs?.getBoolean(KeyMosaicRestorationPausedOnly, true) ?: true,
+            showProcessingRegion =
+                prefs?.getBoolean(KeyMosaicShowProcessingRegion, false) ?: false,
             strength = floatPreference(
                 KeyMosaicRestorationStrength,
                 MosaicRestorationConfig.DefaultStrength
@@ -901,6 +932,7 @@ class PlayerViewModel(
         settingsPrefs?.edit()?.apply {
             putBoolean(KeyMosaicRestorationEnabled, safeConfig.enabled)
             putBoolean(KeyMosaicRestorationPausedOnly, safeConfig.processOnlyWhenPaused)
+            putBoolean(KeyMosaicShowProcessingRegion, safeConfig.showProcessingRegion)
             putFloat(KeyMosaicRestorationStrength, safeConfig.strength)
             putFloat(KeyMosaicRegionLeft, safeConfig.region.left)
             putFloat(KeyMosaicRegionTop, safeConfig.region.top)

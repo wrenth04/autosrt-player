@@ -1,5 +1,6 @@
 package com.example.autosrtplayer.data.restoration
 
+import kotlin.math.abs
 import kotlin.math.min
 import kotlin.math.roundToInt
 
@@ -41,6 +42,41 @@ internal fun buildDeepMosaicsTemporalStream(
                 )
             }
         }
+    }
+}
+
+internal fun calculateNormalizedRgbChangeFraction(
+    original: FloatArray,
+    restored: FloatArray,
+    alphaMask: FloatArray? = null
+): Float {
+    require(original.size == restored.size && original.size % 3 == 0) {
+        "RGB tensor lengths must match"
+    }
+    val pixelCount = original.size / 3
+    require(alphaMask == null || alphaMask.size == pixelCount) {
+        "Alpha mask length is invalid"
+    }
+
+    var weightedDifference = 0f
+    var totalWeight = 0f
+    for (pixelIndex in 0 until pixelCount) {
+        val weight = alphaMask?.get(pixelIndex)?.coerceIn(0f, 1f) ?: 1f
+        if (weight == 0f) continue
+        for (channel in 0 until 3) {
+            val index = channel * pixelCount + pixelIndex
+            require(original[index].isFinite() && restored[index].isFinite()) {
+                "RGB tensor contains a non-finite value"
+            }
+            weightedDifference +=
+                (abs(restored[index] - original[index]).coerceAtMost(2f) / 2f) * weight
+            totalWeight += weight
+        }
+    }
+    return if (totalWeight > 0f) {
+        (weightedDifference / totalWeight).coerceIn(0f, 1f)
+    } else {
+        0f
     }
 }
 

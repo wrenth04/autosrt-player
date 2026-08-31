@@ -18,18 +18,24 @@ import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.offset
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.width
 import androidx.compose.material3.Button
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
+import androidx.compose.material3.CircularProgressIndicator
+import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.produceState
 import androidx.compose.runtime.remember
@@ -48,6 +54,7 @@ import androidx.compose.ui.unit.IntOffset
 import androidx.compose.ui.unit.dp
 import androidx.media3.common.Player
 import androidx.media3.exoplayer.ExoPlayer
+import androidx.media3.exoplayer.SeekParameters
 import androidx.media3.ui.PlayerView
 import ai.onnxruntime.OrtException
 import androidx.lifecycle.Lifecycle
@@ -67,11 +74,14 @@ import kotlin.math.roundToInt
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.NonCancellable
+import kotlinx.coroutines.currentCoroutineContext
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.isActive
 import kotlinx.coroutines.suspendCancellableCoroutine
 import kotlinx.coroutines.withContext
+import kotlinx.coroutines.withTimeoutOrNull
 
+@androidx.media3.common.util.UnstableApi
 @Composable
 internal fun MosaicRestorationLayer(
     playerView: PlayerView,
@@ -99,10 +109,18 @@ internal fun MosaicRestorationLayer(
     var captureError by remember { mutableStateOf<String?>(null) }
     var detectorError by remember { mutableStateOf<String?>(null) }
     var detectorProcessing by remember { mutableStateOf(false) }
+    var frameCaptureProcessing by remember { mutableStateOf(false) }
+    var capturedFrameCount by remember { mutableIntStateOf(0) }
+    var totalFrameCount by remember { mutableIntStateOf(0) }
     var restorationProcessing by remember { mutableStateOf(false) }
+    var pendingFeedback by remember {
+        mutableStateOf<MosaicRestorationFeedback?>(null)
+    }
 
-    LaunchedEffect(detectorProcessing, restorationProcessing) {
-        latestOnProcessingChange(detectorProcessing || restorationProcessing)
+    LaunchedEffect(processingRequestId) {
+        if (processingRequestId > 0L) {
+            pendingFeedback = MosaicRestorationFeedback.Preparing
+        }
     }
     DisposableEffect(Unit) {
         onDispose {
@@ -129,6 +147,7 @@ internal fun MosaicRestorationLayer(
         if (config.processOnlyWhenPaused && playerIsPlaying) {
             restoredPreview = null
             autoDetectionTarget = null
+            pendingFeedback = null
         }
     }
 
@@ -149,6 +168,7 @@ internal fun MosaicRestorationLayer(
             return@produceState
         }
 
+        value = RestorerState.Loading
         val restorer = try {
             withContext(NonCancellable + Dispatchers.IO) {
                 OnnxMosaicRestorer(model, modelFile)
@@ -199,6 +219,7 @@ internal fun MosaicRestorationLayer(
             return@produceState
         }
 
+        value = DetectorState.Loading
         val detector = try {
             withContext(NonCancellable + Dispatchers.IO) {
                 OnnxMosaicDetector(detectorModelFile)
@@ -229,6 +250,45 @@ internal fun MosaicRestorationLayer(
         value = DetectorState.Ready(detector)
         awaitDispose {
             detector.close()
+        }
+    }
+
+    val isRestorerLoading = restorerState is RestorerState.Loading
+    val isDetectorLoading = detectorState is DetectorState.Loading
+    val activeFeedback = resolveMosaicRestorationFeedback(
+        pendingFeedback = pendingFeedback,
+        isRestorerLoading = isRestorerLoading,
+        isDetectorLoading = isDetectorLoading,
+        isDetecting = detectorProcessing,
+        isCapturingFrames = frameCaptureProcessing,
+        capturedFrameCount = capturedFrameCount,
+        totalFrameCount = totalFrameCount,
+        isRestoring = restorationProcessing
+    )
+
+    LaunchedEffect(
+        detectorProcessing,
+        frameCaptureProcessing,
+        restorationProcessing,
+        isRestorerLoading,
+        isDetectorLoading
+    ) {
+        latestOnProcessingChange(
+            detectorProcessing ||
+                frameCaptureProcessing ||
+                restorationProcessing ||
+                isRestorerLoading ||
+                isDetectorLoading
+        )
+    }
+
+    LaunchedEffect(pendingFeedback) {
+        val feedback = pendingFeedback
+        if (feedback?.isTemporaryResult == true) {
+            delay(FeedbackResultVisibilityMs)
+            if (pendingFeedback == feedback) {
+                pendingFeedback = null
+            }
         }
     }
 
@@ -267,6 +327,7 @@ internal fun MosaicRestorationLayer(
             if (currentMediaItem !== trackedMediaItem) {
                 regionTracker.reset()
                 autoDetectionTarget = null
+                pendingFeedback = null
                 lastProcessedPositionMs = null
                 trackedMediaItem = currentMediaItem
             }
@@ -293,6 +354,10 @@ internal fun MosaicRestorationLayer(
                     autoDetectionTarget = null
                     lastProcessedPositionMs = null
                 }
+                delay(PlayerNotReadyDelayMs)
+                continue
+            }
+            if (frameCaptureProcessing || restorationProcessing) {
                 delay(PlayerNotReadyDelayMs)
                 continue
             }
@@ -374,7 +439,7 @@ internal fun MosaicRestorationLayer(
                     }
                     val detected = detection.region?.toNormalizedRegion()
                     val trackedRegion = regionTracker.update(detected)
-                    autoDetectionTarget = when {
+                    val target = when {
                         trackedRegion == null -> null
                         detection.mask != null && detected != null -> {
                             AutoDetectionTarget(
@@ -383,6 +448,12 @@ internal fun MosaicRestorationLayer(
                             )
                         }
                         else -> null
+                    }
+                    autoDetectionTarget = target
+                    pendingFeedback = if (target == null) {
+                        MosaicRestorationFeedback.NoMosaicDetected
+                    } else {
+                        MosaicRestorationFeedback.Preparing
                     }
                     lastProcessedPositionMs = player.currentPosition
                     detectorError = null
@@ -411,6 +482,9 @@ internal fun MosaicRestorationLayer(
         model,
         restorerState
     ) {
+        frameCaptureProcessing = false
+        capturedFrameCount = 0
+        totalFrameCount = 0
         restorationProcessing = false
         restoredPreview = null
         captureError = null
@@ -437,6 +511,7 @@ internal fun MosaicRestorationLayer(
             val currentMediaItem = player.currentMediaItem
             if (currentMediaItem !== trackedMediaItem) {
                 restoredPreview = null
+                pendingFeedback = null
                 clearTemporalState()
                 trackedMediaItem = currentMediaItem
             }
@@ -537,21 +612,33 @@ internal fun MosaicRestorationLayer(
                 )
             }
 
-            restorationProcessing = true
-            when (
-                val capture = captureVideoFrameSequence(
+            frameCaptureProcessing = true
+            capturedFrameCount = 0
+            totalFrameCount = model.temporalFrameCount
+            val capture = try {
+                captureVideoFrameSequence(
+                    player = player,
                     videoSurface = videoSurface,
                     sourceRect = sourceRect,
                     textureSourceRect = textureSourceRect,
                     destinationSize = model.inputSize,
                     frameCount = model.temporalFrameCount,
                     handler = mainHandler,
-                    isPlaybackAdvancing = { player.isPlaying },
-                    currentPositionMs = { player.currentPosition }
+                    frameIntervalMs = calculateDeepMosaicsFrameIntervalMs(
+                        player.videoFormat?.frameRate
+                    ),
+                    onFrameCaptured = { captured, total ->
+                        capturedFrameCount = captured
+                        totalFrameCount = total
+                    }
                 )
-            ) {
+            } catch (error: CancellationException) {
+                frameCaptureProcessing = false
+                throw error
+            }
+            frameCaptureProcessing = false
+            when (capture) {
                 FrameSequenceCaptureResult.NoFrame -> {
-                    restorationProcessing = false
                     consecutiveCaptureFailures += 1
                     if (consecutiveCaptureFailures >= MaxTransientCaptureFailures) {
                         Log.w(Tag, "Video surface has not produced a capturable frame yet")
@@ -561,7 +648,6 @@ internal fun MosaicRestorationLayer(
                 }
 
                 is FrameSequenceCaptureResult.Error -> {
-                    restorationProcessing = false
                     restoredPreview = null
                     captureError = capture.message
                     latestOnError(capture.message)
@@ -582,6 +668,7 @@ internal fun MosaicRestorationLayer(
                         readyState.restorer.reset()
                         temporalStateActive = false
                     }
+                    restorationProcessing = true
                     val restored = try {
                         readyState.restorer.restore(
                             frames = capture.frames,
@@ -629,6 +716,11 @@ internal fun MosaicRestorationLayer(
                         image = restored,
                         region = inferenceRegion
                     )
+                    pendingFeedback = MosaicRestorationFeedback.Completed(
+                        inferenceDurationMs = restored.inferenceDurationMs,
+                        visibleChangeFraction =
+                            (restored.changeFraction * config.strength).coerceIn(0f, 1f)
+                    )
                     captureError = null
                     lastProcessedPositionMs = capture.centerPositionMs
                     lastInferenceRegion = inferenceRegion
@@ -646,6 +738,10 @@ internal fun MosaicRestorationLayer(
     Box(modifier = modifier) {
         val bounds = surfaceBounds
         val preview = restoredPreview
+        val visibleError = detectorError
+            ?: captureError
+            ?: (detectorState as? DetectorState.Error)?.message
+            ?: (restorerState as? RestorerState.Error)?.message
         DisposableEffect(preview?.image?.bitmap) {
             val bitmap = preview?.image?.bitmap
             onDispose {
@@ -675,9 +771,21 @@ internal fun MosaicRestorationLayer(
             ) {
                 Text(
                     text = if (autoDetectionConfig.enabled) {
-                        "DeepMosaics 自動偵測修復（推測畫面）"
+                        "DeepMosaics 處理完成 · " +
+                            "${formatMosaicInferenceDuration(preview.image.inferenceDurationMs)}" +
+                            " · 模型變化 " +
+                            formatMosaicChangeFraction(
+                                preview.image.changeFraction * config.strength
+                            ) +
+                            "（自動偵測，推測畫面）"
                     } else {
-                        "DeepMosaics 局部修復（推測畫面）"
+                        "DeepMosaics 處理完成 · " +
+                            "${formatMosaicInferenceDuration(preview.image.inferenceDurationMs)}" +
+                            " · 模型變化 " +
+                            formatMosaicChangeFraction(
+                                preview.image.changeFraction * config.strength
+                            ) +
+                            "（手動框選，推測畫面）"
                     },
                     color = Color.White,
                     style = MaterialTheme.typography.labelSmall,
@@ -686,10 +794,37 @@ internal fun MosaicRestorationLayer(
             }
         }
 
-        val visibleError = detectorError
-            ?: captureError
-            ?: (detectorState as? DetectorState.Error)?.message
-            ?: (restorerState as? RestorerState.Error)?.message
+        val selectedProcessingRegion = if (autoDetectionConfig.enabled) {
+            autoDetectionTarget?.region
+        } else {
+            config.region.sanitized()
+        }
+        val videoSize = player.videoSize
+        val displayedProcessingRegion = preview?.region ?: selectedProcessingRegion?.let { region ->
+            if (videoSize.width > 0 && videoSize.height > 0) {
+                calculateSquareRestorationRegion(
+                    region = region,
+                    videoWidth = videoSize.width,
+                    videoHeight = videoSize.height
+                )
+            } else {
+                region
+            }
+        }
+        if (config.enabled &&
+            config.showProcessingRegion &&
+            bounds != null &&
+            displayedProcessingRegion != null &&
+            !isRegionEditing
+        ) {
+            ProcessingRegionIndicator(
+                bounds = bounds,
+                region = displayedProcessingRegion,
+                isAutomatic = autoDetectionConfig.enabled,
+                modifier = Modifier.fillMaxSize()
+            )
+        }
+
         if (config.enabled && visibleError != null) {
             Card(
                 modifier = Modifier
@@ -705,6 +840,13 @@ internal fun MosaicRestorationLayer(
                     modifier = Modifier.padding(12.dp)
                 )
             }
+        } else if (config.enabled && activeFeedback != null) {
+            RestorationFeedbackCard(
+                feedback = activeFeedback,
+                modifier = Modifier
+                    .align(Alignment.BottomCenter)
+                    .padding(20.dp)
+            )
         }
 
         if (isRegionEditing) {
@@ -715,6 +857,113 @@ internal fun MosaicRestorationLayer(
                 onEditingFinished = onEditingFinished,
                 modifier = Modifier.fillMaxSize()
             )
+        }
+    }
+}
+
+@Composable
+private fun ProcessingRegionIndicator(
+    bounds: SurfaceBounds,
+    region: NormalizedRegion,
+    isAutomatic: Boolean,
+    modifier: Modifier = Modifier
+) {
+    val density = LocalDensity.current
+    val target = bounds.regionRect(region)
+    val color = if (isAutomatic) Color(0xffffd54f) else Color(0xff64ddff)
+    val labelOffsetY = with(density) {
+        (target.top - 34.dp.roundToPx()).coerceAtLeast(0)
+    }
+
+    Box(modifier = modifier) {
+        Canvas(modifier = Modifier.fillMaxSize()) {
+            drawRect(
+                color = color.copy(alpha = 0.10f),
+                topLeft = Offset(target.left.toFloat(), target.top.toFloat()),
+                size = Size(target.width().toFloat(), target.height().toFloat())
+            )
+            drawRect(
+                color = color,
+                topLeft = Offset(target.left.toFloat(), target.top.toFloat()),
+                size = Size(target.width().toFloat(), target.height().toFloat()),
+                style = androidx.compose.ui.graphics.drawscope.Stroke(width = 3.dp.toPx())
+            )
+        }
+        Card(
+            modifier = Modifier.offset {
+                IntOffset(target.left, labelOffsetY)
+            },
+            colors = CardDefaults.cardColors(
+                containerColor = Color.Black.copy(alpha = 0.78f)
+            )
+        ) {
+            Text(
+                text = if (isAutomatic) "自動偵測處理範圍" else "手動處理範圍",
+                color = color,
+                style = MaterialTheme.typography.labelSmall,
+                modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp)
+            )
+        }
+    }
+}
+
+@Composable
+private fun RestorationFeedbackCard(
+    feedback: MosaicRestorationFeedback,
+    modifier: Modifier = Modifier
+) {
+    val isCompleted = feedback is MosaicRestorationFeedback.Completed
+    val isNoMosaic = feedback is MosaicRestorationFeedback.NoMosaicDetected
+    val hasNoVisibleChange =
+        feedback is MosaicRestorationFeedback.Completed && !feedback.hasVisibleChange
+    val containerColor = when {
+        hasNoVisibleChange -> MaterialTheme.colorScheme.secondaryContainer.copy(alpha = 0.94f)
+        isCompleted -> MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.94f)
+        isNoMosaic -> MaterialTheme.colorScheme.secondaryContainer.copy(alpha = 0.94f)
+        else -> Color.Black.copy(alpha = 0.78f)
+    }
+    val contentColor = when {
+        hasNoVisibleChange -> MaterialTheme.colorScheme.onSecondaryContainer
+        isCompleted -> MaterialTheme.colorScheme.onPrimaryContainer
+        isNoMosaic -> MaterialTheme.colorScheme.onSecondaryContainer
+        else -> Color.White
+    }
+    val progress = feedback.progressFraction
+
+    Card(
+        modifier = modifier.width(320.dp),
+        colors = CardDefaults.cardColors(containerColor = containerColor)
+    ) {
+        Column(
+            modifier = Modifier.padding(horizontal = 14.dp, vertical = 10.dp),
+        ) {
+            Row(
+                horizontalArrangement = Arrangement.spacedBy(10.dp),
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                if (feedback.isBusy) {
+                    CircularProgressIndicator(
+                        modifier = Modifier.size(18.dp),
+                        color = contentColor,
+                        strokeWidth = 2.dp
+                    )
+                }
+                Text(
+                    text = feedback.displayMessage(),
+                    color = contentColor,
+                    style = MaterialTheme.typography.bodyMedium
+                )
+            }
+            if (feedback.isBusy && progress != null) {
+                LinearProgressIndicator(
+                    progress = { progress.coerceIn(0f, 1f) },
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(top = 8.dp),
+                    color = contentColor,
+                    trackColor = contentColor.copy(alpha = 0.25f)
+                )
+            }
         }
     }
 }
@@ -917,49 +1166,40 @@ private suspend fun captureVideoRegion(
 }
 
 private suspend fun captureVideoFrameSequence(
+    player: ExoPlayer,
     videoSurface: View,
     sourceRect: Rect,
     textureSourceRect: Rect,
     destinationSize: Int,
     frameCount: Int,
     handler: Handler,
-    isPlaybackAdvancing: () -> Boolean,
-    currentPositionMs: () -> Long
+    frameIntervalMs: Long,
+    onFrameCaptured: (captured: Int, total: Int) -> Unit
 ): FrameSequenceCaptureResult {
     require(destinationSize > 0) { "Destination size must be positive" }
     require(frameCount > 0 && frameCount % 2 == 1) {
         "Temporal frame count must be a positive odd number"
     }
+    require(frameIntervalMs > 0L) { "Frame interval must be positive" }
+
+    if (!player.isPlaying) {
+        return capturePausedVideoFrameSequence(
+            player = player,
+            videoSurface = videoSurface,
+            sourceRect = sourceRect,
+            textureSourceRect = textureSourceRect,
+            destinationSize = destinationSize,
+            frameCount = frameCount,
+            frameIntervalMs = frameIntervalMs,
+            handler = handler,
+            onFrameCaptured = onFrameCaptured
+        )
+    }
 
     val frames = ArrayList<Bitmap>(frameCount)
     var transferred = false
-    var centerPosition = currentPositionMs()
+    var centerPosition = player.currentPosition
     try {
-        if (!isPlaybackAdvancing()) {
-            return when (
-                val capture = captureVideoRegion(
-                    videoSurface = videoSurface,
-                    sourceRect = sourceRect,
-                    textureSourceRect = textureSourceRect,
-                    destinationWidth = destinationSize,
-                    destinationHeight = destinationSize,
-                    handler = handler
-                )
-            ) {
-                CaptureResult.NoFrame -> FrameSequenceCaptureResult.NoFrame
-                is CaptureResult.Error -> FrameSequenceCaptureResult.Error(capture.message)
-                is CaptureResult.Success -> {
-                    frames += capture.bitmap
-                    centerPosition = currentPositionMs()
-                    transferred = true
-                    FrameSequenceCaptureResult.Success(
-                        frames = List(frameCount) { capture.bitmap },
-                        centerPositionMs = centerPosition
-                    )
-                }
-            }
-        }
-
         repeat(frameCount) { index ->
             when (
                 val capture = captureVideoRegion(
@@ -977,14 +1217,18 @@ private suspend fun captureVideoFrameSequence(
                 }
                 is CaptureResult.Success -> {
                     frames += capture.bitmap
+                    onFrameCaptured(frames.size, frameCount)
                     if (index == frameCount / 2) {
-                        centerPosition = currentPositionMs()
+                        centerPosition = player.currentPosition
                     }
                 }
             }
 
-            if (index < frameCount - 1 && isPlaybackAdvancing()) {
-                delay(TemporalSampleIntervalMs)
+            if (index < frameCount - 1) {
+                if (!player.isPlaying) {
+                    return FrameSequenceCaptureResult.NoFrame
+                }
+                delay(frameIntervalMs)
             }
         }
 
@@ -998,6 +1242,154 @@ private suspend fun captureVideoFrameSequence(
             frames.recycleAll()
         }
     }
+}
+
+private suspend fun capturePausedVideoFrameSequence(
+    player: ExoPlayer,
+    videoSurface: View,
+    sourceRect: Rect,
+    textureSourceRect: Rect,
+    destinationSize: Int,
+    frameCount: Int,
+    frameIntervalMs: Long,
+    handler: Handler,
+    onFrameCaptured: (captured: Int, total: Int) -> Unit
+): FrameSequenceCaptureResult {
+    if (!player.isCurrentMediaItemSeekable) {
+        return FrameSequenceCaptureResult.Error(
+            "此串流不支援搜尋，無法在暫停時擷取前後影格；" +
+                "請關閉「只在影片暫停時處理」後再試"
+        )
+    }
+
+    val centerPositionMs = player.currentPosition.coerceAtLeast(0L)
+    val durationMs = player.duration.takeIf { it > 0L }
+    val samplePositions = calculateDeepMosaicsSamplePositions(
+        centerPositionMs = centerPositionMs,
+        durationMs = durationMs,
+        frameIntervalMs = frameIntervalMs,
+        frameCount = frameCount
+    )
+    val frames = ArrayList<Bitmap>(frameCount)
+    val originalSeekParameters = player.seekParameters
+    var transferred = false
+    var issuedSeek = false
+
+    try {
+        player.setSeekParameters(SeekParameters.EXACT)
+        samplePositions.forEachIndexed { index, positionMs ->
+            if (index > 0 && positionMs == samplePositions[index - 1]) {
+                frames += frames.last()
+                onFrameCaptured(frames.size, frameCount)
+                return@forEachIndexed
+            }
+
+            if (player.currentPosition != positionMs) {
+                issuedSeek = true
+                if (!seekToPausedVideoFrame(player, positionMs)) {
+                    return FrameSequenceCaptureResult.Error(
+                        "無法讀取影片前後影格；請確認串流可搜尋，" +
+                            "或關閉「只在影片暫停時處理」後再試"
+                    )
+                }
+            }
+
+            when (
+                val capture = captureVideoRegionWithRetries(
+                    videoSurface = videoSurface,
+                    sourceRect = sourceRect,
+                    textureSourceRect = textureSourceRect,
+                    destinationSize = destinationSize,
+                    handler = handler
+                )
+            ) {
+                CaptureResult.NoFrame -> {
+                    return FrameSequenceCaptureResult.Error(
+                        "影片前後影格尚未準備完成，請稍後再按一次魔法棒"
+                    )
+                }
+                is CaptureResult.Error -> {
+                    return FrameSequenceCaptureResult.Error(capture.message)
+                }
+                is CaptureResult.Success -> {
+                    frames += capture.bitmap
+                    onFrameCaptured(frames.size, frameCount)
+                }
+            }
+        }
+
+        if (issuedSeek && player.currentPosition != centerPositionMs) {
+            if (!seekToPausedVideoFrame(player, centerPositionMs)) {
+                return FrameSequenceCaptureResult.Error(
+                    "已擷取時序影格，但播放器無法回到原本位置"
+                )
+            }
+        }
+
+        transferred = true
+        return FrameSequenceCaptureResult.Success(
+            frames = frames,
+            centerPositionMs = centerPositionMs
+        )
+    } finally {
+        if (issuedSeek && player.currentPosition != centerPositionMs) {
+            player.seekTo(centerPositionMs)
+        }
+        player.setSeekParameters(originalSeekParameters)
+        if (!transferred) {
+            frames.recycleAll()
+        }
+    }
+}
+
+private suspend fun seekToPausedVideoFrame(
+    player: ExoPlayer,
+    positionMs: Long
+): Boolean {
+    player.seekTo(positionMs)
+    return withTimeoutOrNull(SeekFrameTimeoutMs) {
+        while (currentCoroutineContext().isActive) {
+            if (player.playerError != null) {
+                return@withTimeoutOrNull false
+            }
+            val frameReady = (
+                player.playbackState == Player.STATE_READY ||
+                    player.playbackState == Player.STATE_ENDED
+                ) && abs(player.currentPosition - positionMs) <= SeekPositionToleranceMs
+            if (frameReady) {
+                delay(SeekFrameRenderDelayMs)
+                return@withTimeoutOrNull player.playerError == null
+            }
+            delay(SeekFramePollIntervalMs)
+        }
+        false
+    } ?: false
+}
+
+private suspend fun captureVideoRegionWithRetries(
+    videoSurface: View,
+    sourceRect: Rect,
+    textureSourceRect: Rect,
+    destinationSize: Int,
+    handler: Handler
+): CaptureResult {
+    repeat(PausedFrameCaptureAttempts) { attempt ->
+        val capture = captureVideoRegion(
+            videoSurface = videoSurface,
+            sourceRect = sourceRect,
+            textureSourceRect = textureSourceRect,
+            destinationWidth = destinationSize,
+            destinationHeight = destinationSize,
+            handler = handler
+        )
+        if (capture != CaptureResult.NoFrame) {
+            return capture
+        }
+        if (attempt < PausedFrameCaptureAttempts - 1) {
+            delay(PausedFrameCaptureRetryDelayMs)
+        }
+    }
+    return CaptureResult.NoFrame
 }
 
 private suspend fun captureVideoFrame(
@@ -1180,12 +1572,14 @@ private fun List<Bitmap>.recycleAll() {
 
 private sealed interface RestorerState {
     data object Unavailable : RestorerState
+    data object Loading : RestorerState
     data class Ready(val restorer: OnnxMosaicRestorer) : RestorerState
     data class Error(val message: String) : RestorerState
 }
 
 private sealed interface DetectorState {
     data object Unavailable : DetectorState
+    data object Loading : DetectorState
     data class Ready(val detector: OnnxMosaicDetector) : DetectorState
     data class Error(val message: String) : DetectorState
 }
@@ -1197,9 +1591,15 @@ private const val PlayerNotReadyDelayMs = 250L
 private const val PausedPreviewDelayMs = 500L
 private const val MinimumPreviewIntervalMs = 180L
 private const val InferenceCooldownMultiplier = 0.25f
-private const val TemporalSampleIntervalMs = 100L
 private const val MaximumAutoregressiveGapMs = 750L
 private const val MinimumAutoregressiveRegionOverlap = 0.55f
 private const val MinimumDetectionIntervalMs = 750L
 private const val DetectionCooldownMultiplier = 1.25f
 private const val MaxTransientCaptureFailures = 12
+private const val FeedbackResultVisibilityMs = 5_000L
+private const val SeekFrameTimeoutMs = 8_000L
+private const val SeekPositionToleranceMs = 40L
+private const val SeekFrameRenderDelayMs = 120L
+private const val SeekFramePollIntervalMs = 25L
+private const val PausedFrameCaptureAttempts = 3
+private const val PausedFrameCaptureRetryDelayMs = 80L

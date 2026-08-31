@@ -43,6 +43,35 @@ class DeepMosaicsTensorCodecTest {
     }
 
     @Test
+    fun `change fraction measures visible normalized RGB difference`() {
+        val original = floatArrayOf(
+            -1f, -1f,
+            -1f, -1f,
+            -1f, -1f
+        )
+        val restored = floatArrayOf(
+            1f, -1f,
+            1f, -1f,
+            1f, -1f
+        )
+
+        assertEquals(
+            1f,
+            calculateNormalizedRgbChangeFraction(
+                original = original,
+                restored = restored,
+                alphaMask = floatArrayOf(1f, 0f)
+            ),
+            0.001f
+        )
+        assertEquals(
+            0.5f,
+            calculateNormalizedRgbChangeFraction(original, restored),
+            0.001f
+        )
+    }
+
+    @Test
     fun `decoded output is opaque in center and transparent at edge`() {
         val pixelCount = 9
         val values = FloatArray(pixelCount * 3)

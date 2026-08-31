@@ -61,6 +61,7 @@ data class NormalizedRegion(
 data class MosaicRestorationConfig(
     val enabled: Boolean = false,
     val processOnlyWhenPaused: Boolean = true,
+    val showProcessingRegion: Boolean = false,
     val strength: Float = DefaultStrength,
     val region: NormalizedRegion = NormalizedRegion()
 ) {
@@ -73,7 +74,7 @@ data class MosaicRestorationConfig(
 
     companion object {
         const val MinStrength = 0.1f
-        const val DefaultStrength = 0.8f
+        const val DefaultStrength = 1f
         const val MaxStrength = 1f
     }
 }

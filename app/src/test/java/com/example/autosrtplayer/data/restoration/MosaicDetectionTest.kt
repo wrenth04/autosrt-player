@@ -101,6 +101,25 @@ class MosaicDetectionTest {
     }
 
     @Test
+    fun `default crop expansion matches DeepMosaics youknow model`() {
+        val width = 10
+        val probabilities = FloatArray(width * 10)
+        probabilities.fillRect(width, 4..5, 4..5, 0.9f)
+
+        val region = requireNotNull(
+            findLargestMosaicRegion(
+                probabilities = probabilities,
+                width = width,
+                height = 10,
+                threshold = 0.5f
+            )
+        )
+
+        assertEquals(0.3f, region.right - region.left, 0.001f)
+        assertEquals(0.3f, region.bottom - region.top, 0.001f)
+    }
+
+    @Test
     fun `detector model spec requires valid https URL and sha`() {
         val validSha = "ab".repeat(32)
         assertNull(

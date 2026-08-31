@@ -2,6 +2,7 @@ package com.example.autosrtplayer.ui.restoration
 
 import com.example.autosrtplayer.data.restoration.RestorationModel
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
 import org.junit.Test
@@ -144,6 +145,17 @@ class MosaicRestorationConfigTest {
     @Test
     fun `restoration defaults to paused processing`() {
         assertTrue(MosaicRestorationConfig().processOnlyWhenPaused)
+        assertEquals(1f, MosaicRestorationConfig.DefaultStrength, 0f)
+    }
+
+    @Test
+    fun `processing range overlay defaults to hidden`() {
+        assertFalse(MosaicRestorationConfig().showProcessingRegion)
+        assertTrue(
+            MosaicRestorationConfig(showProcessingRegion = true)
+                .sanitized()
+                .showProcessingRegion
+        )
     }
 
     @Test
@@ -189,6 +201,37 @@ class MosaicRestorationConfigTest {
                 NormalizedRegion(0.8f, 0.8f, 1f, 1f)
             ),
             0.001f
+        )
+    }
+
+    @Test
+    fun `temporal sampling follows official three frame stride`() {
+        assertEquals(125L, calculateDeepMosaicsFrameIntervalMs(24f))
+        assertEquals(100L, calculateDeepMosaicsFrameIntervalMs(30f))
+        assertEquals(50L, calculateDeepMosaicsFrameIntervalMs(60f))
+        assertEquals(100L, calculateDeepMosaicsFrameIntervalMs(null))
+
+        assertEquals(
+            listOf(300L, 400L, 500L, 600L, 700L),
+            calculateDeepMosaicsSamplePositions(
+                centerPositionMs = 500L,
+                durationMs = 1_000L,
+                frameIntervalMs = 100L,
+                frameCount = 5
+            )
+        )
+    }
+
+    @Test
+    fun `temporal sampling repeats boundary frames without leaving media`() {
+        assertEquals(
+            listOf(0L, 0L, 50L, 150L, 249L),
+            calculateDeepMosaicsSamplePositions(
+                centerPositionMs = 50L,
+                durationMs = 250L,
+                frameIntervalMs = 100L,
+                frameCount = 5
+            )
         )
     }
 

@@ -18,7 +18,7 @@ fun findLargestMosaicRegion(
     threshold: Float,
     minimumAreaFraction: Float = 0.0015f,
     maximumAreaFraction: Float = 0.75f,
-    expansionFactor: Float = 1.35f
+    expansionFactor: Float = 1.5f
 ): DetectedMosaicRegion? {
     require(width > 0 && height > 0) { "Mask dimensions must be positive" }
     require(probabilities.size == width * height) { "Mask length does not match its dimensions" }
