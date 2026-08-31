@@ -1,6 +1,8 @@
 package com.example.autosrtplayer.ui
 
+import android.graphics.Bitmap
 import android.graphics.BitmapFactory
+import android.util.LruCache
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement
@@ -12,8 +14,8 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.aspectRatio
 import androidx.compose.foundation.layout.width
-import androidx.compose.foundation.rememberScrollState
-import androidx.compose.foundation.verticalScroll
+import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.ArrowBack
@@ -32,14 +34,15 @@ import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.produceState
-import androidx.compose.runtime.remember
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.graphics.ImageBitmap
 import androidx.compose.ui.graphics.asImageBitmap
 import androidx.compose.ui.layout.ContentScale
+import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.ui.unit.dp
@@ -68,7 +71,6 @@ internal fun FavoritesScreen(
     Column(
         modifier = Modifier
             .fillMaxSize()
-            .verticalScroll(rememberScrollState())
             .padding(16.dp),
         verticalArrangement = Arrangement.spacedBy(8.dp)
     ) {
@@ -113,46 +115,47 @@ internal fun FavoritesScreen(
             }
         }
 
-        Card(modifier = Modifier.fillMaxWidth()) {
-            Column(
-                modifier = Modifier.padding(12.dp),
-                verticalArrangement = Arrangement.spacedBy(8.dp)
+        if (items.isEmpty()) {
+            Card(modifier = Modifier.fillMaxWidth()) {
+                Text(
+                    text = "尚未加入我的最愛",
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    style = MaterialTheme.typography.bodySmall,
+                    modifier = Modifier.padding(12.dp)
+                )
+            }
+        } else {
+            LazyColumn(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .weight(1f, fill = false),
+                verticalArrangement = Arrangement.spacedBy(6.dp)
             ) {
-                if (items.isEmpty()) {
-                    Text(
-                        text = "尚未加入我的最愛",
-                        color = MaterialTheme.colorScheme.onSurfaceVariant,
-                        style = MaterialTheme.typography.bodySmall
-                    )
-                } else {
-                    Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
-                        items.forEach { item ->
-                            Card(modifier = Modifier.fillMaxWidth()) {
-                                Row(
-                                    modifier = Modifier
-                                        .fillMaxWidth()
-                                        .padding(horizontal = 12.dp, vertical = 6.dp),
-                                    horizontalArrangement = Arrangement.spacedBy(6.dp),
-                                    verticalAlignment = Alignment.CenterVertically
-                                ) {
-                                    FavoriteCoverImage(
-                                        imageUrl = favoriteCoverUrl(item.id),
-                                        contentDescription = item.id,
-                                        modifier = Modifier
-                                            .width(80.dp)
-                                            .aspectRatio(4f / 3f)
-                                    )
-                                    Text(
-                                        text = item.id,
-                                        modifier = Modifier.weight(1f)
-                                    )
-                                    TextButton(onClick = { onItemClick(item.id) }) {
-                                        Text("▶")
-                                    }
-                                    TextButton(onClick = { onRemoveClick(item.id) }) {
-                                        Text("✕")
-                                    }
-                                }
+                items(items, key = { it.id }) { item ->
+                    Card(modifier = Modifier.fillMaxWidth()) {
+                        Row(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .padding(horizontal = 12.dp, vertical = 6.dp),
+                            horizontalArrangement = Arrangement.spacedBy(6.dp),
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            FavoriteCoverImage(
+                                imageUrl = favoriteCoverUrl(item.id),
+                                contentDescription = item.id,
+                                modifier = Modifier
+                                    .width(80.dp)
+                                    .aspectRatio(4f / 3f)
+                            )
+                            Text(
+                                text = item.id,
+                                modifier = Modifier.weight(1f)
+                            )
+                            TextButton(onClick = { onItemClick(item.id) }) {
+                                Text("▶")
+                            }
+                            TextButton(onClick = { onRemoveClick(item.id) }) {
+                                Text("✕")
                             }
                         }
                     }
@@ -209,24 +212,50 @@ private fun favoriteCoverUrl(id: String): String {
     return "https://fourhoi.com/$cleanCode/cover-n.jpg"
 }
 
+private val coverHttpClient: OkHttpClient by lazy { OkHttpClient() }
+
+private val coverBitmapCache = object : LruCache<String, ImageBitmap>(16 * 1024 * 1024) {
+    override fun sizeOf(key: String, value: ImageBitmap): Int = value.width * value.height * 4
+}
+
+private fun decodeSampledBitmap(bytes: ByteArray, targetWidthPx: Int): Bitmap? {
+    val bounds = BitmapFactory.Options().apply { inJustDecodeBounds = true }
+    BitmapFactory.decodeByteArray(bytes, 0, bytes.size, bounds)
+    if (bounds.outWidth <= 0 || bounds.outHeight <= 0) return null
+    var sampleSize = 1
+    while (bounds.outWidth / (sampleSize * 2) >= targetWidthPx) {
+        sampleSize *= 2
+    }
+    val options = BitmapFactory.Options().apply { inSampleSize = sampleSize }
+    return BitmapFactory.decodeByteArray(bytes, 0, bytes.size, options)
+}
+
 @Composable
 private fun FavoriteCoverImage(
     imageUrl: String,
     contentDescription: String,
     modifier: Modifier = Modifier
 ) {
-    val client = remember { OkHttpClient() }
-    val bitmapState = produceState<androidx.compose.ui.graphics.ImageBitmap?>(initialValue = null, imageUrl) {
-        value = withContext(Dispatchers.IO) {
+    val targetWidthPx = with(LocalDensity.current) { 80.dp.roundToPx() }
+    val bitmapState = produceState<ImageBitmap?>(initialValue = null, imageUrl) {
+        val cached = coverBitmapCache.get(imageUrl)
+        if (cached != null) {
+            value = cached
+            return@produceState
+        }
+        val loaded = withContext(Dispatchers.IO) {
             runCatching {
                 val request = Request.Builder().url(imageUrl).build()
-                client.newCall(request).execute().use { response ->
+                coverHttpClient.newCall(request).execute().use { response ->
                     if (!response.isSuccessful) return@runCatching null
-                    response.body?.byteStream()?.use { input ->
-                        BitmapFactory.decodeStream(input)?.asImageBitmap()
-                    }
+                    val bytes = response.body?.bytes() ?: return@runCatching null
+                    decodeSampledBitmap(bytes, targetWidthPx)?.asImageBitmap()
                 }
             }.getOrNull()
+        }
+        if (loaded != null) {
+            coverBitmapCache.put(imageUrl, loaded)
+            value = loaded
         }
     }
 

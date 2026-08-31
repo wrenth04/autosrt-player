@@ -101,7 +101,7 @@ class VrPlaybackConfigTest {
     }
 
     @Test
-    fun `FlatScreen accepts monoscopic and packed 3D source layouts`() {
+    fun `FlatScreen accepts only monoscopic source layout`() {
         val valid = VrPlaybackConfig(
             contentMode = VrContentMode.Vr,
             projection = VrProjection.FlatScreen,
@@ -109,19 +109,8 @@ class VrPlaybackConfigTest {
         )
         assertTrue(valid.isValid())
 
-        val sbs = VrPlaybackConfig(
-            contentMode = VrContentMode.Vr,
-            projection = VrProjection.FlatScreen,
-            sourceLayout = VrSourceLayout.SideBySide
-        )
-        assertTrue(sbs.isValid())
-
-        val topBottom = VrPlaybackConfig(
-            contentMode = VrContentMode.Vr,
-            projection = VrProjection.FlatScreen,
-            sourceLayout = VrSourceLayout.TopBottom
-        )
-        assertTrue(topBottom.isValid())
+        assertFalse(valid.copy(sourceLayout = VrSourceLayout.SideBySide).isValid())
+        assertFalse(valid.copy(sourceLayout = VrSourceLayout.TopBottom).isValid())
     }
 
     @Test
