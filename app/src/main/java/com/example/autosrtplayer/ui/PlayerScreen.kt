@@ -29,6 +29,7 @@ import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
+import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Slider
@@ -46,6 +47,7 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.platform.LocalUriHandler
 import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.unit.dp
 import androidx.core.view.WindowCompat
@@ -54,6 +56,7 @@ import androidx.core.view.WindowInsetsControllerCompat
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.lifecycle.viewmodel.compose.viewModel
 import androidx.media3.common.util.UnstableApi
+import com.example.autosrtplayer.data.restoration.RestorationModelStatus
 
 @UnstableApi
 @Composable
@@ -235,6 +238,13 @@ fun PlayerScreen(
                     onToggleFavorite = viewModel::toggleCurrentFavorite,
                     onBack = viewModel::closeSettings,
                     onStartupDestinationChange = viewModel::setStartupDestination,
+                    onMosaicRestorationEnabledChange = viewModel::setMosaicRestorationEnabled,
+                    onMosaicRestorationStrengthChange = viewModel::setMosaicRestorationStrengthTransient,
+                    onMosaicRestorationStrengthChangeFinished =
+                        viewModel::persistMosaicRestorationStrength,
+                    onEditMosaicRegion = viewModel::startMosaicRegionEditing,
+                    onDownloadRestorationModel = viewModel::downloadRestorationModel,
+                    onDeleteRestorationModel = viewModel::deleteRestorationModel,
                     onVrContentModeChange = viewModel::setVrContentMode,
                     onVrFieldOfViewChange = viewModel::setVrFieldOfView,
                     onVrSourceLayoutChange = viewModel::setVrSourceLayout,
@@ -262,6 +272,10 @@ fun PlayerScreen(
                     player = player,
                     playbackSpeed = uiState.playbackSpeed,
                     screenOrientationMode = uiState.screenOrientationMode,
+                    mosaicRestorationConfig = uiState.mosaicRestorationConfig,
+                    restorationModel = viewModel.getRestorationModel(),
+                    restorationModelFile = uiState.restorationModelFile,
+                    isMosaicRegionEditing = uiState.isMosaicRegionEditing,
                     vrConfig = uiState.vrConfig,
                     vrViewAngles = uiState.vrViewAngles,
                     isVrHeadTrackingEnabled = uiState.isVrHeadTrackingEnabled,
@@ -277,6 +291,9 @@ fun PlayerScreen(
                     errorMessage = uiState.errorMessage,
                     onPlaybackSpeedChange = viewModel::setPlaybackSpeed,
                     onToggleScreenOrientationMode = viewModel::toggleScreenOrientationMode,
+                    onMosaicRegionChange = viewModel::setMosaicRestorationRegion,
+                    onMosaicRegionEditingFinished = viewModel::finishMosaicRegionEditing,
+                    onMosaicRestorationError = viewModel::onMosaicRestorationError,
                     onVrViewDrag = viewModel::updateVrViewAngles,
                     onVrSeekBy = { deltaMs ->
                         player.let {
@@ -329,6 +346,12 @@ private fun PlayerOptionsScreen(
     onToggleFavorite: () -> Unit,
     onBack: () -> Unit,
     onStartupDestinationChange: (StartupDestination) -> Unit,
+    onMosaicRestorationEnabledChange: (Boolean) -> Unit,
+    onMosaicRestorationStrengthChange: (Float) -> Unit,
+    onMosaicRestorationStrengthChangeFinished: () -> Unit,
+    onEditMosaicRegion: () -> Unit,
+    onDownloadRestorationModel: () -> Unit,
+    onDeleteRestorationModel: () -> Unit,
     onVrContentModeChange: (VrContentMode) -> Unit,
     onVrFieldOfViewChange: (VrFieldOfView) -> Unit,
     onVrSourceLayoutChange: (VrSourceLayout) -> Unit,
@@ -444,6 +467,16 @@ private fun PlayerOptionsScreen(
                 Text("最愛 (${uiState.favoriteItems.size})")
             }
         }
+
+        MosaicRestorationSettingsCard(
+            uiState = uiState,
+            onEnabledChange = onMosaicRestorationEnabledChange,
+            onStrengthChange = onMosaicRestorationStrengthChange,
+            onStrengthChangeFinished = onMosaicRestorationStrengthChangeFinished,
+            onEditRegion = onEditMosaicRegion,
+            onDownloadModel = onDownloadRestorationModel,
+            onDeleteModel = onDeleteRestorationModel
+        )
 
         Card(modifier = Modifier.fillMaxWidth()) {
             Column(
@@ -1045,6 +1078,176 @@ private fun PlayerOptionsScreen(
         }
 
         Spacer(modifier = Modifier.height(12.dp))
+    }
+}
+
+@Composable
+private fun MosaicRestorationSettingsCard(
+    uiState: PlayerUiState,
+    onEnabledChange: (Boolean) -> Unit,
+    onStrengthChange: (Float) -> Unit,
+    onStrengthChangeFinished: () -> Unit,
+    onEditRegion: () -> Unit,
+    onDownloadModel: () -> Unit,
+    onDeleteModel: () -> Unit
+) {
+    val model = uiState.availableRestorationModels.firstOrNull()
+    val status = model?.let { uiState.restorationModelStatuses[it.id] }
+        ?: RestorationModelStatus.NotDownloaded
+    val isDownloaded = status is RestorationModelStatus.Downloaded
+    val isFlatPlayback = uiState.vrConfig.contentMode == VrContentMode.Flat
+    val uriHandler = LocalUriHandler.current
+
+    Card(modifier = Modifier.fillMaxWidth()) {
+        Column(
+            modifier = Modifier.padding(12.dp),
+            verticalArrangement = Arrangement.spacedBy(10.dp)
+        ) {
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.SpaceBetween,
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                Column(modifier = Modifier.weight(1f)) {
+                    Text("AI 局部修復預覽", style = MaterialTheme.typography.titleMedium)
+                    Text(
+                        "弱化框內的方塊感；AI 只會推測細節，無法找回原始像素。",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                    )
+                }
+                Switch(
+                    checked = uiState.mosaicRestorationConfig.enabled,
+                    onCheckedChange = onEnabledChange,
+                    enabled = isDownloaded &&
+                        (isFlatPlayback || uiState.mosaicRestorationConfig.enabled)
+                )
+            }
+
+            if (!isFlatPlayback) {
+                Text(
+                    "目前只支援一般播放模式；VR 模式會暫停 AI 預覽。",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                )
+            }
+
+            if (model == null) {
+                Text(
+                    "找不到相容的 AI 修復模型設定。",
+                    color = MaterialTheme.colorScheme.error
+                )
+            } else {
+                Text(model.name)
+                Text(
+                    "模型不包含在 App，需另外下載 ${String.format("%.1f", model.fileSizeMb)} MB。" +
+                        " 授權：${model.license}",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                )
+
+                when (status) {
+                    RestorationModelStatus.Verifying -> {
+                        LinearProgressIndicator(modifier = Modifier.fillMaxWidth())
+                        Text(
+                            "正在驗證已下載的模型…",
+                            style = MaterialTheme.typography.bodySmall
+                        )
+                    }
+
+                    RestorationModelStatus.NotDownloaded -> {
+                        Button(
+                            onClick = onDownloadModel,
+                            modifier = Modifier.fillMaxWidth()
+                        ) {
+                            Text("下載並驗證模型")
+                        }
+                    }
+
+                    is RestorationModelStatus.Downloading -> {
+                        LinearProgressIndicator(
+                            progress = { status.progress },
+                            modifier = Modifier.fillMaxWidth()
+                        )
+                        Text(
+                            "下載中 ${(status.progress * 100).toInt()}%",
+                            style = MaterialTheme.typography.bodySmall
+                        )
+                    }
+
+                    RestorationModelStatus.Downloaded -> {
+                        Row(
+                            modifier = Modifier.fillMaxWidth(),
+                            horizontalArrangement = Arrangement.SpaceBetween,
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            Text(
+                                "模型已下載並通過 SHA-256 驗證",
+                                style = MaterialTheme.typography.bodySmall
+                            )
+                            TextButton(onClick = onDeleteModel) {
+                                Text("刪除模型")
+                            }
+                        }
+                    }
+
+                    is RestorationModelStatus.Error -> {
+                        Text(
+                            "模型錯誤：${status.message}",
+                            color = MaterialTheme.colorScheme.error,
+                            style = MaterialTheme.typography.bodySmall
+                        )
+                        Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                            Button(
+                                onClick = onDownloadModel,
+                                modifier = Modifier.weight(1f)
+                            ) {
+                                Text("重新下載")
+                            }
+                            TextButton(
+                                onClick = onDeleteModel,
+                                modifier = Modifier.weight(1f)
+                            ) {
+                                Text("刪除檔案")
+                            }
+                        }
+                    }
+                }
+
+                TextButton(
+                    onClick = { uriHandler.openUri(model.modelCardUrl) }
+                ) {
+                    Text("查看模型來源與授權")
+                }
+            }
+
+            if (isDownloaded) {
+                Text("預覽混合強度 ${(uiState.mosaicRestorationConfig.strength * 100).toInt()}%")
+                Slider(
+                    value = uiState.mosaicRestorationConfig.strength,
+                    onValueChange = onStrengthChange,
+                    onValueChangeFinished = onStrengthChangeFinished,
+                    valueRange = com.example.autosrtplayer.ui.restoration.MosaicRestorationConfig.MinStrength..
+                        com.example.autosrtplayer.ui.restoration.MosaicRestorationConfig.MaxStrength,
+                    modifier = Modifier.fillMaxWidth()
+                )
+                Button(
+                    onClick = onEditRegion,
+                    enabled = isFlatPlayback && uiState.mediaItem != null,
+                    modifier = Modifier.fillMaxWidth()
+                ) {
+                    Text("回到影片框選馬賽克區域")
+                }
+            }
+
+            uiState.mosaicRestorationErrorMessage?.let { message ->
+                Text(
+                    message,
+                    color = MaterialTheme.colorScheme.error,
+                    style = MaterialTheme.typography.bodySmall
+                )
+            }
+        }
     }
 }
 

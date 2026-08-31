@@ -84,8 +84,13 @@ import androidx.media3.exoplayer.ExoPlayer
 import androidx.media3.ui.AspectRatioFrameLayout
 import androidx.media3.ui.CaptionStyleCompat
 import androidx.media3.ui.PlayerView
+import com.example.autosrtplayer.data.restoration.RestorationModel
+import com.example.autosrtplayer.ui.restoration.MosaicRestorationConfig
+import com.example.autosrtplayer.ui.restoration.MosaicRestorationLayer
+import com.example.autosrtplayer.ui.restoration.NormalizedRegion
 import com.example.autosrtplayer.ui.vr.VrPlayerSurface
 import com.example.autosrtplayer.ui.vr.VrSubtitleOverlay
+import java.io.File
 import kotlinx.coroutines.delay
 import kotlin.math.abs
 import kotlin.math.roundToInt
@@ -197,6 +202,10 @@ internal fun FullscreenPlayer(
     player: ExoPlayer?,
     playbackSpeed: Float,
     screenOrientationMode: ScreenOrientationMode,
+    mosaicRestorationConfig: MosaicRestorationConfig,
+    restorationModel: RestorationModel?,
+    restorationModelFile: File?,
+    isMosaicRegionEditing: Boolean,
     vrConfig: VrPlaybackConfig,
     vrViewAngles: VrViewAngles,
     isVrHeadTrackingEnabled: Boolean,
@@ -212,6 +221,9 @@ internal fun FullscreenPlayer(
     errorMessage: String?,
     onPlaybackSpeedChange: (Float) -> Unit,
     onToggleScreenOrientationMode: () -> Unit,
+    onMosaicRegionChange: (NormalizedRegion) -> Unit,
+    onMosaicRegionEditingFinished: () -> Unit,
+    onMosaicRestorationError: (String) -> Unit,
     onVrViewDrag: (Float, Float) -> Unit,
     onVrSeekBy: (Long) -> Unit,
     onVrFlatScreenSizeChange: (Float) -> Unit,
@@ -238,6 +250,7 @@ internal fun FullscreenPlayer(
     val displayedPositionMs = if (isScrubbing) scrubPositionMs else progressState.currentPositionMs
     val latestPlayer by rememberUpdatedState(player)
     val density = LocalDensity.current
+    val context = LocalContext.current
 
     fun pingControls() {
         controlsInteractionTick += 1
@@ -283,6 +296,13 @@ internal fun FullscreenPlayer(
         if (controlsVisible && !isScrubbing) {
             delay(FullscreenControlsAutoHideMs)
             controlsVisible = false
+        }
+    }
+
+    LaunchedEffect(isMosaicRegionEditing) {
+        if (isMosaicRegionEditing) {
+            controlsVisible = false
+            isScrubbing = false
         }
     }
 
@@ -352,21 +372,46 @@ internal fun FullscreenPlayer(
                     )
                 }
             } else {
-                AndroidView(
-                    factory = { viewContext ->
-                        PlayerView(viewContext).apply {
-                            this.player = player
-                            useController = false
-                            resizeMode = AspectRatioFrameLayout.RESIZE_MODE_FIT
-                            applySubtitleStyle()
-                        }
-                    },
-                    modifier = Modifier.fillMaxSize(),
-                    update = {
-                        it.player = player
-                        it.applySubtitleStyle()
+                val flatPlayerView = remember(context, player) {
+                    PlayerView(context).apply {
+                        this.player = player
+                        useController = false
+                        resizeMode = AspectRatioFrameLayout.RESIZE_MODE_FIT
+                        applySubtitleStyle()
                     }
-                )
+                }
+                DisposableEffect(flatPlayerView, player) {
+                    flatPlayerView.player = player
+                    onDispose {
+                        flatPlayerView.player = null
+                    }
+                }
+
+                Box(modifier = Modifier.fillMaxSize()) {
+                    AndroidView(
+                        factory = { flatPlayerView },
+                        modifier = Modifier.fillMaxSize(),
+                        update = {
+                            it.player = player
+                            it.applySubtitleStyle()
+                        }
+                    )
+
+                    if (mosaicRestorationConfig.enabled || isMosaicRegionEditing) {
+                        MosaicRestorationLayer(
+                            playerView = flatPlayerView,
+                            player = player,
+                            config = mosaicRestorationConfig,
+                            model = restorationModel,
+                            modelFile = restorationModelFile,
+                            isRegionEditing = isMosaicRegionEditing,
+                            onRegionChange = onMosaicRegionChange,
+                            onEditingFinished = onMosaicRegionEditingFinished,
+                            onError = onMosaicRestorationError,
+                            modifier = Modifier.fillMaxSize()
+                        )
+                    }
+                }
             }
         }
 
@@ -378,7 +423,7 @@ internal fun FullscreenPlayer(
             )
         }
 
-        if (!controlsVisible && !isVrMode) {
+        if (!controlsVisible && !isVrMode && !isMosaicRegionEditing) {
             Row(
                 modifier = Modifier
                     .align(Alignment.Center)
@@ -473,7 +518,7 @@ internal fun FullscreenPlayer(
             }
         }
 
-        if (controlsVisible) {
+        if (controlsVisible && !isMosaicRegionEditing) {
             IconButton(
                 onClick = {
                     player?.let {
@@ -723,9 +768,7 @@ internal fun FullscreenPlayer(
                 }
             }
         }
-
         errorMessage?.let { message ->
-            val context = LocalContext.current
             Card(
                 modifier = Modifier
                     .align(Alignment.BottomCenter)

@@ -17,7 +17,12 @@ import com.example.autosrtplayer.data.playlist.MissavPlaylistBuilder
 import com.example.autosrtplayer.data.playlist.PlaylistParser
 import com.example.autosrtplayer.data.playlist.PlaylistRepository
 import com.example.autosrtplayer.data.playlist.SubtitleRepository
+import com.example.autosrtplayer.data.restoration.RestorationModel
+import com.example.autosrtplayer.data.restoration.RestorationModelRepository
+import com.example.autosrtplayer.data.restoration.RestorationModelStatus
 import com.example.autosrtplayer.data.todayhot.TodayHotRepository
+import com.example.autosrtplayer.ui.restoration.MosaicRestorationConfig
+import com.example.autosrtplayer.ui.restoration.NormalizedRegion
 import com.example.autosrtplayer.ui.vr.depth.DepthModel
 import com.example.autosrtplayer.ui.vr.depth.DepthModelRepository
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -73,6 +78,12 @@ class PlayerViewModel(
         private const val KeyVrDepthStereoEnabled = "vr_depth_stereo_enabled"
         private const val KeyVrSubtitleStereoDepthPercent = "vr_subtitle_stereo_depth_percent"
         private const val KeySelectedDepthModel = "selected_depth_model"
+        private const val KeyMosaicRestorationEnabled = "mosaic_restoration_enabled"
+        private const val KeyMosaicRestorationStrength = "mosaic_restoration_strength"
+        private const val KeyMosaicRegionLeft = "mosaic_region_left"
+        private const val KeyMosaicRegionTop = "mosaic_region_top"
+        private const val KeyMosaicRegionRight = "mosaic_region_right"
+        private const val KeyMosaicRegionBottom = "mosaic_region_bottom"
         private const val KeyPatToken = "pat_token"
         private const val KeyPatTokenEnabled = "pat_token_enabled"
     }
@@ -88,6 +99,7 @@ class PlayerViewModel(
     private var autoFullscreenPending: Boolean = false
     private var sourceResolveRequestCounter: Long = 0
     private var depthModelRepository: DepthModelRepository? = null
+    private var restorationModelRepository: RestorationModelRepository? = null
 
     fun initialize(context: Context) {
         appContext = context.applicationContext
@@ -106,6 +118,12 @@ class PlayerViewModel(
                 ?.getBoolean(KeyVrHeadTrackingEnabled, false) ?: false
             val selectedDepthModelId = settingsPrefs
                 ?.getString(KeySelectedDepthModel, null)
+            val restorationRepository = RestorationModelRepository(
+                context = requireNotNull(appContext),
+                httpClient = sharedHttpClient
+            )
+            restorationModelRepository = restorationRepository
+            val mosaicRestorationConfig = loadMosaicRestorationConfig(settingsPrefs)
             val patToken = settingsPrefs?.getString(KeyPatToken, "").orEmpty()
             val isPatTokenEnabled = settingsPrefs?.getBoolean(KeyPatTokenEnabled, false) ?: false
 
@@ -120,6 +138,9 @@ class PlayerViewModel(
                     favoriteItems = favoriteItems,
                     startupDestination = startupDestination,
                     screenOrientationMode = screenOrientationMode,
+                    mosaicRestorationConfig = mosaicRestorationConfig,
+                    availableRestorationModels = RestorationModel.availableModels(),
+                    restorationModelStatuses = restorationRepository.modelStatuses.value,
                     vrConfig = vrConfig,
                     isVrHeadTrackingEnabled = isVrHeadTrackingEnabled,
                     selectedDepthModelId = selectedDepthModelId,
@@ -134,6 +155,41 @@ class PlayerViewModel(
                 depthModelRepository?.modelStatuses?.collect { statuses ->
                     _uiState.update { it.copy(depthModelStatuses = statuses) }
                 }
+            }
+            viewModelScope.launch {
+                restorationRepository.modelStatuses.collect { statuses ->
+                    val status = statuses[RestorationModel.DefaultModelId]
+                    val model = restorationRepository.getModel(RestorationModel.DefaultModelId)
+                    val modelFile = if (status is RestorationModelStatus.Downloaded && model != null) {
+                        restorationRepository.getModelFile(model)
+                    } else {
+                        null
+                    }
+                    var configToPersist: MosaicRestorationConfig? = null
+                    _uiState.update {
+                        val shouldDisable = it.mosaicRestorationConfig.enabled &&
+                            (status is RestorationModelStatus.NotDownloaded ||
+                                status is RestorationModelStatus.Error)
+                        val updatedConfig = if (shouldDisable) {
+                            it.mosaicRestorationConfig.copy(enabled = false).also { config ->
+                                configToPersist = config
+                            }
+                        } else {
+                            it.mosaicRestorationConfig
+                        }
+                        it.copy(
+                            restorationModelStatuses = statuses,
+                            restorationModelFile = modelFile,
+                            mosaicRestorationConfig = updatedConfig,
+                            isMosaicRegionEditing =
+                                if (modelFile == null) false else it.isMosaicRegionEditing
+                        )
+                    }
+                    configToPersist?.let(::persistMosaicRestorationConfig)
+                }
+            }
+            viewModelScope.launch {
+                restorationRepository.refreshModelStatuses()
             }
 
             when (startupDestination) {
@@ -210,7 +266,8 @@ class PlayerViewModel(
             it.copy(
                 isSettingsVisible = true,
                 isFavoritesVisible = false,
-                isTodayHotVisible = false
+                isTodayHotVisible = false,
+                isMosaicRegionEditing = false
             )
         }
     }
@@ -258,7 +315,13 @@ class PlayerViewModel(
         }
 
         persistVrConfig(newConfig)
-        _uiState.update { it.copy(vrConfig = newConfig, vrViewAngles = newConfig.defaultViewAngles()) }
+        _uiState.update {
+            it.copy(
+                vrConfig = newConfig,
+                vrViewAngles = newConfig.defaultViewAngles(),
+                isMosaicRegionEditing = false
+            )
+        }
     }
 
     fun setVrFieldOfView(fov: VrFieldOfView) {
@@ -472,6 +535,203 @@ class PlayerViewModel(
     fun getSelectedDepthModelFile(): java.io.File? {
         val model = getSelectedDepthModel() ?: return null
         return depthModelRepository?.getModelFile(model)
+    }
+
+    fun setMosaicRestorationEnabled(enabled: Boolean) {
+        if (enabled) {
+            if (_uiState.value.vrConfig.contentMode != VrContentMode.Flat) {
+                _uiState.update {
+                    it.copy(mosaicRestorationErrorMessage = "AI 局部修復目前只支援一般播放模式")
+                }
+                return
+            }
+            val model = getRestorationModel()
+            val modelFile = _uiState.value.restorationModelFile
+            if (model == null || modelFile == null) {
+                _uiState.update {
+                    it.copy(mosaicRestorationErrorMessage = "請先下載並驗證 AI 修復模型")
+                }
+                return
+            }
+        }
+
+        val config = _uiState.value.mosaicRestorationConfig.copy(enabled = enabled).sanitized()
+        persistMosaicRestorationConfig(config)
+        _uiState.update {
+            it.copy(
+                mosaicRestorationConfig = config,
+                isMosaicRegionEditing = if (enabled) it.isMosaicRegionEditing else false,
+                mosaicRestorationErrorMessage = null
+            )
+        }
+    }
+
+    fun setMosaicRestorationStrengthTransient(strength: Float) {
+        val config = _uiState.value.mosaicRestorationConfig
+            .copy(strength = strength)
+            .sanitized()
+        _uiState.update { it.copy(mosaicRestorationConfig = config) }
+    }
+
+    fun persistMosaicRestorationStrength() {
+        persistMosaicRestorationConfig(_uiState.value.mosaicRestorationConfig)
+    }
+
+    fun startMosaicRegionEditing() {
+        val model = getRestorationModel()
+        val modelFile = _uiState.value.restorationModelFile
+        when {
+            _uiState.value.vrConfig.contentMode != VrContentMode.Flat -> {
+                _uiState.update {
+                    it.copy(mosaicRestorationErrorMessage = "請先切換到一般播放模式再框選區域")
+                }
+            }
+            _uiState.value.mediaItem == null -> {
+                _uiState.update {
+                    it.copy(mosaicRestorationErrorMessage = "請先載入影片再框選區域")
+                }
+            }
+            model == null || modelFile == null -> {
+                _uiState.update {
+                    it.copy(mosaicRestorationErrorMessage = "請先下載並驗證 AI 修復模型")
+                }
+            }
+            else -> {
+                _uiState.update {
+                    it.copy(
+                        isSettingsVisible = false,
+                        isMosaicRegionEditing = true,
+                        mosaicRestorationErrorMessage = null
+                    )
+                }
+            }
+        }
+    }
+
+    fun finishMosaicRegionEditing() {
+        _uiState.update { it.copy(isMosaicRegionEditing = false) }
+    }
+
+    fun setMosaicRestorationRegion(region: NormalizedRegion) {
+        val config = _uiState.value.mosaicRestorationConfig
+            .copy(region = region)
+            .sanitized()
+        persistMosaicRestorationConfig(config)
+        _uiState.update {
+            it.copy(
+                mosaicRestorationConfig = config,
+                mosaicRestorationErrorMessage = null
+            )
+        }
+    }
+
+    fun downloadRestorationModel() {
+        val repository = restorationModelRepository
+        val model = getRestorationModel()
+        if (repository == null || model == null) {
+            _uiState.update {
+                it.copy(mosaicRestorationErrorMessage = "AI 修復模型目錄尚未初始化")
+            }
+            return
+        }
+
+        _uiState.update { it.copy(mosaicRestorationErrorMessage = null) }
+        viewModelScope.launch {
+            repository.downloadModel(model)
+                .onSuccess {
+                    _uiState.update { state ->
+                        state.copy(mosaicRestorationErrorMessage = null)
+                    }
+                }
+                .onFailure { error ->
+                    _uiState.update { state ->
+                        state.copy(
+                            mosaicRestorationErrorMessage =
+                                error.message ?: "AI 修復模型下載失敗"
+                        )
+                    }
+                }
+        }
+    }
+
+    fun deleteRestorationModel() {
+        val repository = restorationModelRepository
+        val model = getRestorationModel()
+        if (repository == null || model == null) {
+            _uiState.update {
+                it.copy(mosaicRestorationErrorMessage = "AI 修復模型目錄尚未初始化")
+            }
+            return
+        }
+
+        val disabledConfig = _uiState.value.mosaicRestorationConfig.copy(enabled = false)
+        persistMosaicRestorationConfig(disabledConfig)
+        _uiState.update {
+            it.copy(
+                mosaicRestorationConfig = disabledConfig,
+                isMosaicRegionEditing = false,
+                mosaicRestorationErrorMessage = null
+            )
+        }
+        viewModelScope.launch {
+            repository.deleteModel(model)
+                .onFailure { error ->
+                    _uiState.update { state ->
+                        state.copy(
+                            mosaicRestorationErrorMessage =
+                                error.message ?: "AI 修復模型刪除失敗"
+                        )
+                    }
+                }
+        }
+    }
+
+    fun getRestorationModel(): RestorationModel? {
+        return restorationModelRepository?.getModel(RestorationModel.DefaultModelId)
+    }
+
+    fun onMosaicRestorationError(message: String) {
+        _uiState.update {
+            if (it.mosaicRestorationErrorMessage == message) {
+                it
+            } else {
+                it.copy(mosaicRestorationErrorMessage = message)
+            }
+        }
+    }
+
+    private fun loadMosaicRestorationConfig(
+        prefs: SharedPreferences?
+    ): MosaicRestorationConfig {
+        fun floatPreference(key: String, default: Float): Float = runCatching {
+            prefs?.getFloat(key, default) ?: default
+        }.getOrDefault(default)
+
+        return MosaicRestorationConfig(
+            enabled = prefs?.getBoolean(KeyMosaicRestorationEnabled, false) ?: false,
+            strength = floatPreference(
+                KeyMosaicRestorationStrength,
+                MosaicRestorationConfig.DefaultStrength
+            ),
+            region = NormalizedRegion(
+                left = floatPreference(KeyMosaicRegionLeft, 0.35f),
+                top = floatPreference(KeyMosaicRegionTop, 0.35f),
+                right = floatPreference(KeyMosaicRegionRight, 0.65f),
+                bottom = floatPreference(KeyMosaicRegionBottom, 0.65f)
+            )
+        ).sanitized()
+    }
+
+    private fun persistMosaicRestorationConfig(config: MosaicRestorationConfig) {
+        val safeConfig = config.sanitized()
+        settingsPrefs?.edit()?.apply {
+            putBoolean(KeyMosaicRestorationEnabled, safeConfig.enabled)
+            putFloat(KeyMosaicRestorationStrength, safeConfig.strength)
+            putFloat(KeyMosaicRegionLeft, safeConfig.region.left)
+            putFloat(KeyMosaicRegionTop, safeConfig.region.top)
+            putFloat(KeyMosaicRegionRight, safeConfig.region.right)
+            putFloat(KeyMosaicRegionBottom, safeConfig.region.bottom)
+        }?.apply()
     }
 
     private fun loadVrConfig(prefs: SharedPreferences?): VrPlaybackConfig {
