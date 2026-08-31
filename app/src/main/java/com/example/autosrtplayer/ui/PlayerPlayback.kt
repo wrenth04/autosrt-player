@@ -5,6 +5,7 @@ import android.content.Context
 import android.content.ClipboardManager
 import android.graphics.Color as AndroidColor
 import android.media.AudioManager
+import android.view.View
 import android.view.WindowManager
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.background
@@ -52,6 +53,7 @@ import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
+import androidx.compose.material3.IconToggleButton
 import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedTextField
@@ -82,10 +84,12 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.viewinterop.AndroidView
 import androidx.media3.common.C
 import androidx.media3.common.Player
+import androidx.media3.common.text.CueGroup
 import androidx.media3.exoplayer.ExoPlayer
 import androidx.media3.ui.AspectRatioFrameLayout
 import androidx.media3.ui.CaptionStyleCompat
 import androidx.media3.ui.PlayerView
+import androidx.media3.ui.SubtitleView
 import com.example.autosrtplayer.data.restoration.RestorationModel
 import com.example.autosrtplayer.ui.restoration.MosaicAutoDetectionConfig
 import com.example.autosrtplayer.ui.restoration.MosaicRestorationConfig
@@ -203,6 +207,7 @@ internal fun InlinePlayer(
 internal fun FullscreenPlayer(
     activity: Activity?,
     player: ExoPlayer?,
+    playerIsPlaying: Boolean,
     playbackSpeed: Float,
     screenOrientationMode: ScreenOrientationMode,
     mosaicRestorationConfig: MosaicRestorationConfig,
@@ -210,6 +215,7 @@ internal fun FullscreenPlayer(
     restorationModel: RestorationModel?,
     restorationModelFile: File?,
     mosaicDetectorModelFile: File?,
+    isMosaicCleanupActive: Boolean,
     isMosaicRegionEditing: Boolean,
     vrConfig: VrPlaybackConfig,
     vrViewAngles: VrViewAngles,
@@ -228,6 +234,7 @@ internal fun FullscreenPlayer(
     onToggleScreenOrientationMode: () -> Unit,
     onMosaicRegionChange: (NormalizedRegion) -> Unit,
     onMosaicRegionEditingFinished: () -> Unit,
+    onMosaicCleanupActiveChange: (Boolean) -> Unit,
     onEditMosaicRegion: () -> Unit,
     onMosaicRestorationError: (String) -> Unit,
     onVrViewDrag: (Float, Float) -> Unit,
@@ -255,6 +262,9 @@ internal fun FullscreenPlayer(
     var sourceDraft by rememberSaveable { mutableStateOf("") }
     var mosaicProcessingRequestId by remember(player) { mutableLongStateOf(0L) }
     var isMosaicProcessing by remember(player) { mutableStateOf(false) }
+    val activeMosaicRestorationConfig = mosaicRestorationConfig.copy(
+        enabled = mosaicRestorationConfig.enabled && isMosaicCleanupActive
+    )
     val displayedPositionMs = if (isScrubbing) scrubPositionMs else progressState.currentPositionMs
     val latestPlayer by rememberUpdatedState(player)
     val density = LocalDensity.current
@@ -311,6 +321,20 @@ internal fun FullscreenPlayer(
         if (isMosaicRegionEditing) {
             controlsVisible = false
             isScrubbing = false
+        }
+    }
+
+    LaunchedEffect(
+        player,
+        isMosaicCleanupActive,
+        mosaicRestorationConfig.processOnlyWhenPaused
+    ) {
+        if (player != null && isMosaicCleanupActive) {
+            if (mosaicRestorationConfig.processOnlyWhenPaused) {
+                player.pause()
+            } else {
+                player.play()
+            }
         }
     }
 
@@ -386,6 +410,7 @@ internal fun FullscreenPlayer(
                         useController = false
                         resizeMode = AspectRatioFrameLayout.RESIZE_MODE_FIT
                         applySubtitleStyle()
+                        subtitleView?.visibility = View.GONE
                     }
                 }
                 DisposableEffect(flatPlayerView, player) {
@@ -402,14 +427,15 @@ internal fun FullscreenPlayer(
                         update = {
                             it.player = player
                             it.applySubtitleStyle()
+                            it.subtitleView?.visibility = View.GONE
                         }
                     )
 
-                    if (mosaicRestorationConfig.enabled || isMosaicRegionEditing) {
+                    if (activeMosaicRestorationConfig.enabled || isMosaicRegionEditing) {
                         MosaicRestorationLayer(
                             playerView = flatPlayerView,
                             player = player,
-                            config = mosaicRestorationConfig,
+                            config = activeMosaicRestorationConfig,
                             autoDetectionConfig = mosaicAutoDetectionConfig,
                             model = restorationModel,
                             modelFile = restorationModelFile,
@@ -420,6 +446,15 @@ internal fun FullscreenPlayer(
                             onRegionChange = onMosaicRegionChange,
                             onEditingFinished = onMosaicRegionEditingFinished,
                             onError = onMosaicRestorationError,
+                            modifier = Modifier.fillMaxSize()
+                        )
+                    }
+
+                    if (!isMosaicRegionEditing) {
+                        FlatSubtitleOverlay(
+                            player = player,
+                            freezeCues = isMosaicProcessing &&
+                                mosaicRestorationConfig.processOnlyWhenPaused,
                             modifier = Modifier.fillMaxSize()
                         )
                     }
@@ -544,10 +579,13 @@ internal fun FullscreenPlayer(
                     .size(CenterButtonSize.dp)
                     .alpha(controlsContentAlpha)
             ) {
-                val isPlaying = player?.isPlaying == true
                 Icon(
-                    imageVector = if (isPlaying) Icons.Filled.Pause else Icons.Filled.PlayArrow,
-                    contentDescription = if (isPlaying) "Pause" else "Play",
+                    imageVector = if (playerIsPlaying) {
+                        Icons.Filled.Pause
+                    } else {
+                        Icons.Filled.PlayArrow
+                    },
+                    contentDescription = if (playerIsPlaying) "Pause" else "Play",
                     tint = androidx.compose.ui.graphics.Color.White,
                     modifier = Modifier.size(40.dp)
                 )
@@ -670,8 +708,15 @@ internal fun FullscreenPlayer(
                         } else {
                             null
                         }
-                    val canProcessMosaic =
-                        mosaicUnavailableReason == null && !isMosaicProcessing
+                    val cleanupToggleUnavailableReason = mosaicUnavailableReason
+                        ?: when {
+                            playerIsPlaying -> "請先暫停影片再啟用 AI 清除"
+                            player?.playbackState != Player.STATE_READY ->
+                                "請先將影片停在可處理的畫面"
+                            else -> null
+                        }
+                    val canEnableMosaicCleanup =
+                        cleanupToggleUnavailableReason == null && !isMosaicProcessing
                     val manualSelectionUnavailableReason = baseMosaicUnavailableReason
                     val canSelectMosaicRegion =
                         manualSelectionUnavailableReason == null && !isMosaicProcessing
@@ -710,56 +755,83 @@ internal fun FullscreenPlayer(
                             }
                         )
                     }
-                    IconButton(
-                        onClick = {
-                            if (mosaicUnavailableReason != null) {
+                    IconToggleButton(
+                        checked = isMosaicCleanupActive,
+                        onCheckedChange = { shouldEnable ->
+                            if (!shouldEnable) {
+                                isMosaicProcessing = false
+                                onMosaicCleanupActiveChange(false)
                                 hudState = GestureHudState(
                                     icon = Icons.Filled.AutoFixHigh,
-                                    label = "DeepMosaics 尚未就緒",
-                                    valueText = mosaicUnavailableReason
+                                    label = "AI 清除已停用",
+                                    valueText = "目前顯示原始畫面"
+                                )
+                            } else if (cleanupToggleUnavailableReason != null) {
+                                hudState = GestureHudState(
+                                    icon = Icons.Filled.AutoFixHigh,
+                                    label = "無法啟用 AI 清除",
+                                    valueText = cleanupToggleUnavailableReason
                                 )
                             } else {
-                                if (mosaicRestorationConfig.processOnlyWhenPaused) {
-                                    player?.pause()
-                                } else {
+                                mosaicProcessingRequestId += 1
+                                onMosaicCleanupActiveChange(true)
+                                if (!mosaicRestorationConfig.processOnlyWhenPaused) {
                                     player?.play()
                                 }
-                                mosaicProcessingRequestId += 1
                                 hudState = GestureHudState(
                                     icon = Icons.Filled.AutoFixHigh,
-                                    label = "DeepMosaics",
-                                    valueText = "已送出，請稍候"
+                                    label = "AI 清除已啟用",
+                                    valueText = if (
+                                        mosaicRestorationConfig.processOnlyWhenPaused
+                                    ) {
+                                        "正在處理目前暫停畫面"
+                                    } else {
+                                        "聲音持續播放，AI 畫面將低 FPS 更新"
+                                    }
                                 )
                             }
                             pingControls()
                         },
-                        enabled = !isMosaicProcessing,
+                        enabled = isMosaicCleanupActive || !isMosaicProcessing,
                         modifier = Modifier
                             .background(
-                                androidx.compose.ui.graphics.Color.Black.copy(
-                                    alpha = ControlOverlayAlpha
-                                ),
+                                if (isMosaicCleanupActive) {
+                                    MaterialTheme.colorScheme.primary.copy(alpha = 0.82f)
+                                } else {
+                                    androidx.compose.ui.graphics.Color.Black.copy(
+                                        alpha = ControlOverlayAlpha
+                                    )
+                                },
                                 shape = MaterialTheme.shapes.small
                             )
                             .size(48.dp)
                     ) {
-                        if (isMosaicProcessing) {
-                            CircularProgressIndicator(
-                                modifier = Modifier.size(24.dp),
-                                color = androidx.compose.ui.graphics.Color.White,
-                                strokeWidth = 2.dp
-                            )
-                        } else {
+                        Box(contentAlignment = Alignment.Center) {
                             Icon(
                                 imageVector = Icons.Filled.AutoFixHigh,
-                                contentDescription = mosaicUnavailableReason
-                                    ?: "用 DeepMosaics 處理目前畫面",
-                                tint = if (canProcessMosaic) {
-                                    androidx.compose.ui.graphics.Color.White
+                                contentDescription = if (isMosaicCleanupActive) {
+                                    "停用 DeepMosaics AI 清除"
                                 } else {
-                                    androidx.compose.ui.graphics.Color.White.copy(alpha = 0.38f)
-                                }
+                                    cleanupToggleUnavailableReason
+                                        ?: "啟用 DeepMosaics AI 清除"
+                                },
+                                tint = when {
+                                    isMosaicCleanupActive ->
+                                        MaterialTheme.colorScheme.onPrimary
+                                    canEnableMosaicCleanup ->
+                                        androidx.compose.ui.graphics.Color.White
+                                    else ->
+                                        androidx.compose.ui.graphics.Color.White.copy(alpha = 0.38f)
+                                },
+                                modifier = Modifier.size(24.dp)
                             )
+                            if (isMosaicCleanupActive && isMosaicProcessing) {
+                                CircularProgressIndicator(
+                                    modifier = Modifier.size(38.dp),
+                                    color = MaterialTheme.colorScheme.onPrimary,
+                                    strokeWidth = 2.dp
+                                )
+                            }
                         }
                     }
                 }
@@ -1282,18 +1354,65 @@ private fun formatDuration(positionMs: Long): String {
 }
 
 private fun PlayerView.applySubtitleStyle() {
-    subtitleView?.apply {
-        setStyle(
-            CaptionStyleCompat(
-                AndroidColor.WHITE,
-                AndroidColor.argb(SubtitleBackgroundAlpha, 0, 0, 0),
-                AndroidColor.TRANSPARENT,
-                CaptionStyleCompat.EDGE_TYPE_NONE,
-                AndroidColor.TRANSPARENT,
-                null
-            )
+    subtitleView?.applySubtitleStyle()
+}
+
+private fun SubtitleView.applySubtitleStyle() {
+    setStyle(
+        CaptionStyleCompat(
+            AndroidColor.WHITE,
+            AndroidColor.argb(SubtitleBackgroundAlpha, 0, 0, 0),
+            AndroidColor.TRANSPARENT,
+            CaptionStyleCompat.EDGE_TYPE_NONE,
+            AndroidColor.TRANSPARENT,
+            null
         )
+    )
+}
+
+@Composable
+private fun FlatSubtitleOverlay(
+    player: ExoPlayer,
+    freezeCues: Boolean,
+    modifier: Modifier = Modifier
+) {
+    val context = LocalContext.current
+    val latestFreezeCues by rememberUpdatedState(freezeCues)
+    val subtitleView = remember(context) {
+        SubtitleView(context).apply {
+            applySubtitleStyle()
+        }
     }
+
+    DisposableEffect(player, subtitleView) {
+        val listener = object : Player.Listener {
+            override fun onCues(cueGroup: CueGroup) {
+                if (!latestFreezeCues) {
+                    subtitleView.setCues(cueGroup.cues)
+                }
+            }
+        }
+        subtitleView.setCues(player.currentCues.cues)
+        player.addListener(listener)
+        onDispose {
+            player.removeListener(listener)
+            subtitleView.setCues(emptyList())
+        }
+    }
+
+    LaunchedEffect(player, freezeCues) {
+        if (!freezeCues) {
+            subtitleView.setCues(player.currentCues.cues)
+        }
+    }
+
+    AndroidView(
+        factory = { subtitleView },
+        modifier = modifier,
+        update = {
+            it.applySubtitleStyle()
+        }
+    )
 }
 
 @Composable

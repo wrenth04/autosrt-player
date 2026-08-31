@@ -44,8 +44,11 @@ class OnnxMosaicRestorer(
         try {
             SessionPermit.acquireUninterruptibly()
             sessionPermitHeld = true
-            options.setIntraOpNumThreads(2)
+            options.setIntraOpNumThreads(
+                Runtime.getRuntime().availableProcessors().coerceIn(1, MaximumCpuThreads)
+            )
             options.setInterOpNumThreads(1)
+            options.setOptimizationLevel(OrtSession.SessionOptions.OptLevel.ALL_OPT)
             session = environment.createSession(modelFile.absolutePath, options)
             validateTensorContract(requireNotNull(session))
         } catch (error: Exception) {
@@ -281,5 +284,6 @@ class OnnxMosaicRestorer(
 
     companion object {
         private val SessionPermit = Semaphore(1, true)
+        private const val MaximumCpuThreads = 4
     }
 }

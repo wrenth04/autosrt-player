@@ -97,6 +97,25 @@ fun PlayerScreen(
         viewModel.getOrCreatePlayer(context)
     }
     val isPlaying = rememberIsPlayingState(player)
+    var isMosaicCleanupActive by remember(player, entry?.mediaUrl) {
+        mutableStateOf(false)
+    }
+    LaunchedEffect(
+        uiState.mosaicRestorationConfig.enabled,
+        uiState.restorationModelFile,
+        uiState.mosaicAutoDetectionConfig.enabled,
+        uiState.mosaicDetectorModelFile,
+        uiState.vrConfig.contentMode
+    ) {
+        if (!uiState.mosaicRestorationConfig.enabled ||
+            uiState.restorationModelFile == null ||
+            (uiState.mosaicAutoDetectionConfig.enabled &&
+                uiState.mosaicDetectorModelFile == null) ||
+            uiState.vrConfig.contentMode != VrContentMode.Flat
+        ) {
+            isMosaicCleanupActive = false
+        }
+    }
     val showingFavorites = uiState.isFavoritesVisible
     val showingTodayHot = uiState.isTodayHotVisible
     val showingSettings = uiState.isSettingsVisible
@@ -283,6 +302,7 @@ fun PlayerScreen(
                 FullscreenPlayer(
                     activity = activity,
                     player = player,
+                    playerIsPlaying = isPlaying,
                     playbackSpeed = uiState.playbackSpeed,
                     screenOrientationMode = uiState.screenOrientationMode,
                     mosaicRestorationConfig = uiState.mosaicRestorationConfig,
@@ -290,6 +310,7 @@ fun PlayerScreen(
                     restorationModel = viewModel.getRestorationModel(),
                     restorationModelFile = uiState.restorationModelFile,
                     mosaicDetectorModelFile = uiState.mosaicDetectorModelFile,
+                    isMosaicCleanupActive = isMosaicCleanupActive,
                     isMosaicRegionEditing = uiState.isMosaicRegionEditing,
                     vrConfig = uiState.vrConfig,
                     vrViewAngles = uiState.vrViewAngles,
@@ -308,6 +329,7 @@ fun PlayerScreen(
                     onToggleScreenOrientationMode = viewModel::toggleScreenOrientationMode,
                     onMosaicRegionChange = viewModel::setMosaicRestorationRegion,
                     onMosaicRegionEditingFinished = viewModel::finishMosaicRegionEditing,
+                    onMosaicCleanupActiveChange = { isMosaicCleanupActive = it },
                     onEditMosaicRegion = viewModel::startMosaicRegionEditing,
                     onMosaicRestorationError = viewModel::onMosaicRestorationError,
                     onVrViewDrag = viewModel::updateVrViewAngles,
@@ -1158,6 +1180,12 @@ private fun MosaicRestorationSettingsCard(
                         style = MaterialTheme.typography.bodySmall,
                         color = MaterialTheme.colorScheme.onSurfaceVariant
                     )
+                    Text(
+                        "開啟此設定後，請暫停影片並點播放器的魔法棒來啟用 AI 清除；" +
+                            "再次點擊可停用並顯示原畫面。",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                    )
                 }
                 Switch(
                     checked = uiState.mosaicRestorationConfig.enabled,
@@ -1201,17 +1229,25 @@ private fun MosaicRestorationSettingsCard(
                 verticalAlignment = Alignment.CenterVertically
             ) {
                 Column(modifier = Modifier.weight(1f)) {
-                    Text("只在影片暫停時處理")
+                    Text("播放時持續 AI 清除（低 FPS）")
                     Text(
-                        "播放時不執行模型；暫停後會短暫讀取目前位置前後各兩張影格，" +
-                            "再回到原位置處理。串流必須支援搜尋。",
+                        if (uiState.mosaicRestorationConfig.processOnlyWhenPaused) {
+                            "目前只在暫停時處理；開啟後，播放時不 seek，" +
+                                "並保留上一張 AI 結果直到下一張完成。"
+                        } else {
+                            "聲音與時間軸正常播放、不 seek；畫面只顯示處理完成的快照，" +
+                                "並依實際 AI 速度每隔數秒更新一張。" +
+                                "影像會比聲音落後約一個處理週期。"
+                        },
                         style = MaterialTheme.typography.bodySmall,
                         color = MaterialTheme.colorScheme.onSurfaceVariant
                     )
                 }
                 Switch(
-                    checked = uiState.mosaicRestorationConfig.processOnlyWhenPaused,
-                    onCheckedChange = onPausedOnlyChange
+                    checked = !uiState.mosaicRestorationConfig.processOnlyWhenPaused,
+                    onCheckedChange = { enabled ->
+                        onPausedOnlyChange(!enabled)
+                    }
                 )
             }
 
@@ -1230,7 +1266,7 @@ private fun MosaicRestorationSettingsCard(
                 )
                 Text(
                     "模型約需 0.8–1 GB 執行記憶體，手機單次處理可能需要數秒；" +
-                        "建議使用 6 GB RAM 以上裝置並開啟「只在影片暫停時處理」。",
+                        "建議使用 6 GB RAM 以上裝置。連續模式會提高耗電與溫度。",
                     style = MaterialTheme.typography.bodySmall,
                     color = MaterialTheme.colorScheme.error
                 )
