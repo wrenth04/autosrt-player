@@ -27,6 +27,7 @@ import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
@@ -51,6 +52,8 @@ import androidx.media3.ui.PlayerView
 import ai.onnxruntime.OrtException
 import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.compose.LocalLifecycleOwner
+import com.example.autosrtplayer.data.restoration.DetectedMosaicRegion
+import com.example.autosrtplayer.data.restoration.OnnxMosaicDetector
 import com.example.autosrtplayer.data.restoration.OnnxMosaicRestorer
 import com.example.autosrtplayer.data.restoration.RestorationModel
 import com.example.autosrtplayer.data.restoration.RestoredImage
@@ -71,8 +74,10 @@ internal fun MosaicRestorationLayer(
     playerView: PlayerView,
     player: ExoPlayer,
     config: MosaicRestorationConfig,
+    autoDetectionConfig: MosaicAutoDetectionConfig,
     model: RestorationModel?,
     modelFile: File?,
+    detectorModelFile: File?,
     isRegionEditing: Boolean,
     onRegionChange: (NormalizedRegion) -> Unit,
     onEditingFinished: () -> Unit,
@@ -83,8 +88,10 @@ internal fun MosaicRestorationLayer(
     val lifecycleOwner = LocalLifecycleOwner.current
     val latestOnError by rememberUpdatedState(onError)
     var surfaceBounds by remember { mutableStateOf<SurfaceBounds?>(null) }
-    var restoredImage by remember { mutableStateOf<RestoredImage?>(null) }
+    var restoredPreview by remember { mutableStateOf<RestorationPreview?>(null) }
+    var autoDetectedRegion by remember { mutableStateOf<NormalizedRegion?>(null) }
     var captureError by remember { mutableStateOf<String?>(null) }
+    var detectorError by remember { mutableStateOf<String?>(null) }
 
     val restorerState by produceState<RestorerState>(
         initialValue = RestorerState.Unavailable,
@@ -130,6 +137,50 @@ internal fun MosaicRestorationLayer(
         }
     }
 
+    val detectorState by produceState<DetectorState>(
+        initialValue = DetectorState.Unavailable,
+        key1 = config.enabled,
+        key2 = autoDetectionConfig.enabled,
+        key3 = detectorModelFile
+    ) {
+        if (!config.enabled || !autoDetectionConfig.enabled || detectorModelFile == null) {
+            value = DetectorState.Unavailable
+            return@produceState
+        }
+
+        val detector = try {
+            withContext(NonCancellable + Dispatchers.IO) {
+                OnnxMosaicDetector(detectorModelFile)
+            }
+        } catch (error: CancellationException) {
+            throw error
+        } catch (error: OrtException) {
+            val message = error.message ?: "ONNX Runtime 無法載入偵測模型"
+            latestOnError(message)
+            value = DetectorState.Error(message)
+            return@produceState
+        } catch (error: IllegalArgumentException) {
+            val message = error.message ?: "馬賽克偵測模型格式無效"
+            latestOnError(message)
+            value = DetectorState.Error(message)
+            return@produceState
+        } catch (error: IllegalStateException) {
+            val message = error.message ?: "馬賽克偵測模型資料不完整"
+            latestOnError(message)
+            value = DetectorState.Error(message)
+            return@produceState
+        }
+
+        if (!isActive) {
+            detector.close()
+            return@produceState
+        }
+        value = DetectorState.Ready(detector)
+        awaitDispose {
+            detector.close()
+        }
+    }
+
     LaunchedEffect(playerView, config.enabled, isRegionEditing) {
         if (!config.enabled && !isRegionEditing) {
             surfaceBounds = null
@@ -145,30 +196,42 @@ internal fun MosaicRestorationLayer(
         playerView,
         player,
         config.enabled,
-        config.region,
-        model,
-        restorerState
+        autoDetectionConfig.enabled,
+        autoDetectionConfig.threshold,
+        detectorState
     ) {
-        restoredImage = null
-        captureError = null
-        val readyState = restorerState as? RestorerState.Ready ?: return@LaunchedEffect
-        if (!config.enabled || model == null) return@LaunchedEffect
+        autoDetectedRegion = null
+        detectorError = null
+        val readyState = detectorState as? DetectorState.Ready ?: return@LaunchedEffect
+        if (!config.enabled || !autoDetectionConfig.enabled) return@LaunchedEffect
 
-        var consecutiveCaptureFailures = 0
+        val regionTracker = MosaicRegionTracker()
         var lastProcessedPositionMs: Long? = null
+        var trackedMediaItem = player.currentMediaItem
         while (isActive) {
+            val currentMediaItem = player.currentMediaItem
+            if (currentMediaItem !== trackedMediaItem) {
+                regionTracker.reset()
+                autoDetectedRegion = null
+                lastProcessedPositionMs = null
+                trackedMediaItem = currentMediaItem
+            }
             if (!lifecycleOwner.lifecycle.currentState.isAtLeast(Lifecycle.State.STARTED)) {
-                restoredImage = null
+                regionTracker.reset()
+                autoDetectedRegion = null
+                lastProcessedPositionMs = null
                 delay(PausedPreviewDelayMs)
                 continue
             }
-            if (player.currentMediaItem == null || player.playbackState == Player.STATE_IDLE) {
-                restoredImage = null
-                delay(PlayerNotReadyDelayMs)
-                continue
-            }
-            if (player.playbackState == Player.STATE_BUFFERING) {
-                restoredImage = null
+            if (currentMediaItem == null ||
+                player.playbackState == Player.STATE_IDLE ||
+                player.playbackState == Player.STATE_BUFFERING
+            ) {
+                if (currentMediaItem == null) {
+                    regionTracker.reset()
+                    autoDetectedRegion = null
+                    lastProcessedPositionMs = null
+                }
                 delay(PlayerNotReadyDelayMs)
                 continue
             }
@@ -179,8 +242,135 @@ internal fun MosaicRestorationLayer(
 
             val videoSurface = playerView.videoSurfaceView
             if (videoSurface == null) {
+                autoDetectedRegion = null
+                detectorError = "播放器沒有可供自動偵測的影像 Surface"
+                latestOnError(requireNotNull(detectorError))
+                return@LaunchedEffect
+            }
+
+            when (
+                val capture = captureVideoFrame(
+                    videoSurface = videoSurface,
+                    destinationWidth = readyState.detector.modelInfo.inputWidth,
+                    destinationHeight = readyState.detector.modelInfo.inputHeight,
+                    handler = mainHandler
+                )
+            ) {
+                CaptureResult.NoFrame -> delay(PlayerNotReadyDelayMs)
+                is CaptureResult.Error -> {
+                    autoDetectedRegion = null
+                    detectorError = capture.message
+                    latestOnError(capture.message)
+                    return@LaunchedEffect
+                }
+                is CaptureResult.Success -> {
+                    val detection = try {
+                        readyState.detector.detect(
+                            bitmap = capture.bitmap,
+                            threshold = autoDetectionConfig.threshold
+                        )
+                    } catch (error: CancellationException) {
+                        capture.bitmap.recycle()
+                        throw error
+                    } catch (error: OrtException) {
+                        capture.bitmap.recycle()
+                        val message = error.message ?: "馬賽克範圍偵測失敗"
+                        autoDetectedRegion = null
+                        detectorError = message
+                        latestOnError(message)
+                        return@LaunchedEffect
+                    } catch (error: IllegalStateException) {
+                        capture.bitmap.recycle()
+                        val message = error.message ?: "馬賽克偵測輸出格式不符"
+                        autoDetectedRegion = null
+                        detectorError = message
+                        latestOnError(message)
+                        return@LaunchedEffect
+                    } catch (error: IllegalArgumentException) {
+                        capture.bitmap.recycle()
+                        val message = error.message ?: "馬賽克偵測輸入格式不符"
+                        autoDetectedRegion = null
+                        detectorError = message
+                        latestOnError(message)
+                        return@LaunchedEffect
+                    }
+                    capture.bitmap.recycle()
+                    val detected = detection.region?.toNormalizedRegion()
+                    autoDetectedRegion = regionTracker.update(detected)
+                    lastProcessedPositionMs = player.currentPosition
+                    detectorError = null
+                    delay(
+                        max(
+                            MinimumDetectionIntervalMs,
+                            (detection.inferenceDurationMs * DetectionCooldownMultiplier).toLong()
+                        )
+                    )
+                }
+            }
+        }
+    }
+
+    val latestAutoDetectedRegion by rememberUpdatedState(autoDetectedRegion)
+
+    LaunchedEffect(
+        playerView,
+        player,
+        config.enabled,
+        config.region,
+        autoDetectionConfig.enabled,
+        model,
+        restorerState
+    ) {
+        restoredPreview = null
+        captureError = null
+        val readyState = restorerState as? RestorerState.Ready ?: return@LaunchedEffect
+        if (!config.enabled || model == null) return@LaunchedEffect
+
+        var consecutiveCaptureFailures = 0
+        var lastProcessedPositionMs: Long? = null
+        var trackedMediaItem = player.currentMediaItem
+        while (isActive) {
+            val currentMediaItem = player.currentMediaItem
+            if (currentMediaItem !== trackedMediaItem) {
+                restoredPreview = null
+                lastProcessedPositionMs = null
+                trackedMediaItem = currentMediaItem
+            }
+            if (!lifecycleOwner.lifecycle.currentState.isAtLeast(Lifecycle.State.STARTED)) {
+                restoredPreview = null
+                delay(PausedPreviewDelayMs)
+                continue
+            }
+            if (currentMediaItem == null || player.playbackState == Player.STATE_IDLE) {
+                restoredPreview = null
+                delay(PlayerNotReadyDelayMs)
+                continue
+            }
+            if (player.playbackState == Player.STATE_BUFFERING) {
+                restoredPreview = null
+                delay(PlayerNotReadyDelayMs)
+                continue
+            }
+            if (!player.isPlaying && lastProcessedPositionMs == player.currentPosition) {
+                delay(PausedPreviewDelayMs)
+                continue
+            }
+
+            val safeRegion = if (autoDetectionConfig.enabled) {
+                latestAutoDetectedRegion
+            } else {
+                config.region.sanitized()
+            }
+            if (safeRegion == null) {
+                restoredPreview = null
+                delay(PlayerNotReadyDelayMs)
+                continue
+            }
+
+            val videoSurface = playerView.videoSurfaceView
+            if (videoSurface == null) {
                 val message = "播放器沒有可擷取的影像 Surface"
-                restoredImage = null
+                restoredPreview = null
                 captureError = message
                 latestOnError(message)
                 return@LaunchedEffect
@@ -200,13 +390,12 @@ internal fun MosaicRestorationLayer(
             }
             if (videoSize.unappliedRotationDegrees % 360 != 0) {
                 val message = "目前不支援尚未套用旋轉資訊的影片"
-                restoredImage = null
+                restoredPreview = null
                 captureError = message
                 latestOnError(message)
                 return@LaunchedEffect
             }
 
-            val safeRegion = config.region.sanitized()
             val sourceRect = calculateRestorationSourceRegion(
                 region = safeRegion,
                 videoWidth = videoSize.width,
@@ -242,7 +431,7 @@ internal fun MosaicRestorationLayer(
                 }
 
                 is CaptureResult.Error -> {
-                    restoredImage = null
+                    restoredPreview = null
                     captureError = capture.message
                     latestOnError(capture.message)
                     return@LaunchedEffect
@@ -258,20 +447,30 @@ internal fun MosaicRestorationLayer(
                     } catch (error: OrtException) {
                         capture.bitmap.recycle()
                         val message = error.message ?: "AI 推論失敗"
-                        restoredImage = null
+                        restoredPreview = null
                         captureError = message
                         latestOnError(message)
                         return@LaunchedEffect
                     } catch (error: IllegalStateException) {
                         capture.bitmap.recycle()
                         val message = error.message ?: "AI 模型輸出格式不符"
-                        restoredImage = null
+                        restoredPreview = null
+                        captureError = message
+                        latestOnError(message)
+                        return@LaunchedEffect
+                    } catch (error: IllegalArgumentException) {
+                        capture.bitmap.recycle()
+                        val message = error.message ?: "AI 模型輸入格式不符"
+                        restoredPreview = null
                         captureError = message
                         latestOnError(message)
                         return@LaunchedEffect
                     }
                     capture.bitmap.recycle()
-                    restoredImage = restored
+                    restoredPreview = RestorationPreview(
+                        image = restored,
+                        region = safeRegion
+                    )
                     captureError = null
                     lastProcessedPositionMs = player.currentPosition
 
@@ -287,12 +486,20 @@ internal fun MosaicRestorationLayer(
 
     Box(modifier = modifier) {
         val bounds = surfaceBounds
-        val image = restoredImage
-        if (config.enabled && bounds != null && image != null) {
+        val preview = restoredPreview
+        DisposableEffect(preview?.image?.bitmap) {
+            val bitmap = preview?.image?.bitmap
+            onDispose {
+                if (bitmap != null && !bitmap.isRecycled) {
+                    bitmap.recycle()
+                }
+            }
+        }
+        if (config.enabled && bounds != null && preview != null) {
             RestoredRegion(
-                image = image,
+                image = preview.image,
                 bounds = bounds,
-                region = config.region.sanitized(),
+                region = preview.region,
                 strength = config.strength.coerceIn(
                     MosaicRestorationConfig.MinStrength,
                     MosaicRestorationConfig.MaxStrength
@@ -308,7 +515,11 @@ internal fun MosaicRestorationLayer(
                 )
             ) {
                 Text(
-                    text = "AI 局部修復預覽（推測畫面）",
+                    text = if (autoDetectionConfig.enabled) {
+                        "AI 自動偵測修復（推測畫面）"
+                    } else {
+                        "AI 局部修復預覽（推測畫面）"
+                    },
                     color = Color.White,
                     style = MaterialTheme.typography.labelSmall,
                     modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp)
@@ -316,7 +527,10 @@ internal fun MosaicRestorationLayer(
             }
         }
 
-        val visibleError = captureError ?: (restorerState as? RestorerState.Error)?.message
+        val visibleError = detectorError
+            ?: captureError
+            ?: (detectorState as? DetectorState.Error)?.message
+            ?: (restorerState as? RestorerState.Error)?.message
         if (config.enabled && visibleError != null) {
             Card(
                 modifier = Modifier
@@ -543,9 +757,50 @@ private suspend fun captureVideoRegion(
     }
 }
 
+private suspend fun captureVideoFrame(
+    videoSurface: View,
+    destinationWidth: Int,
+    destinationHeight: Int,
+    handler: Handler
+): CaptureResult {
+    return when (videoSurface) {
+        is SurfaceView -> {
+            val bitmap = Bitmap.createBitmap(
+                destinationWidth,
+                destinationHeight,
+                Bitmap.Config.ARGB_8888
+            )
+            captureSurfaceView(videoSurface, null, bitmap, handler)
+        }
+        is TextureView -> {
+            if (!videoSurface.isAvailable || videoSurface.width <= 0 || videoSurface.height <= 0) {
+                CaptureResult.NoFrame
+            } else {
+                val frame = try {
+                    videoSurface.getBitmap(destinationWidth, destinationHeight)
+                } catch (error: IllegalStateException) {
+                    Log.d(Tag, "TextureView frame is temporarily unavailable", error)
+                    null
+                } catch (error: IllegalArgumentException) {
+                    Log.e(Tag, "Invalid TextureView capture size", error)
+                    return CaptureResult.Error("自動偵測畫面尺寸無效")
+                }
+                if (frame == null) {
+                    CaptureResult.NoFrame
+                } else {
+                    CaptureResult.Success(frame)
+                }
+            }
+        }
+        else -> {
+            CaptureResult.Error("目前的影片 Surface 不支援畫面擷取")
+        }
+    }
+}
+
 private suspend fun captureSurfaceView(
     surfaceView: SurfaceView,
-    sourceRect: Rect,
+    sourceRect: Rect?,
     bitmap: Bitmap,
     handler: Handler
 ): CaptureResult = suspendCancellableCoroutine { continuation ->
@@ -559,17 +814,11 @@ private suspend fun captureSurfaceView(
         continuation.resume(CaptureResult.NoFrame)
         return@suspendCancellableCoroutine
     }
-
     try {
-        PixelCopy.request(
-            surfaceView,
-            sourceRect,
-            bitmap,
-            { result ->
-                if (!continuation.isActive) {
-                    bitmap.recycle()
-                    return@request
-                }
+        val listener = PixelCopy.OnPixelCopyFinishedListener { result ->
+            if (!continuation.isActive) {
+                bitmap.recycle()
+            } else {
                 val capture = when (result) {
                     PixelCopy.SUCCESS -> CaptureResult.Success(bitmap)
                     PixelCopy.ERROR_SOURCE_NO_DATA,
@@ -584,9 +833,13 @@ private suspend fun captureSurfaceView(
                     }
                 }
                 continuation.resume(capture)
-            },
-            handler
-        )
+            }
+        }
+        if (sourceRect == null) {
+            PixelCopy.request(surfaceView, bitmap, listener, handler)
+        } else {
+            PixelCopy.request(surfaceView, sourceRect, bitmap, listener, handler)
+        }
     } catch (error: IllegalArgumentException) {
         bitmap.recycle()
         Log.e(Tag, "Invalid PixelCopy request", error)
@@ -619,6 +872,20 @@ private fun NormalizedRegion.toPixelRect(width: Int, height: Int): Rect {
 private fun PixelRegion.toRect(): Rect {
     return Rect(left, top, right, bottom)
 }
+
+private fun DetectedMosaicRegion.toNormalizedRegion(): NormalizedRegion {
+    return NormalizedRegion(
+        left = left,
+        top = top,
+        right = right,
+        bottom = bottom
+    ).sanitized()
+}
+
+private data class RestorationPreview(
+    val image: RestoredImage,
+    val region: NormalizedRegion
+)
 
 private data class SurfaceBounds(
     val left: Int,
@@ -656,6 +923,12 @@ private sealed interface RestorerState {
     data class Error(val message: String) : RestorerState
 }
 
+private sealed interface DetectorState {
+    data object Unavailable : DetectorState
+    data class Ready(val detector: OnnxMosaicDetector) : DetectorState
+    data class Error(val message: String) : DetectorState
+}
+
 private const val Tag = "MosaicRestoration"
 private const val GeometryRefreshMs = 100L
 private const val IdleGeometryRefreshMs = 500L
@@ -663,4 +936,6 @@ private const val PlayerNotReadyDelayMs = 250L
 private const val PausedPreviewDelayMs = 500L
 private const val MinimumPreviewIntervalMs = 180L
 private const val InferenceCooldownMultiplier = 1.15f
+private const val MinimumDetectionIntervalMs = 750L
+private const val DetectionCooldownMultiplier = 1.25f
 private const val MaxTransientCaptureFailures = 12

@@ -76,6 +76,49 @@ data class MosaicRestorationConfig(
     }
 }
 
+data class MosaicAutoDetectionConfig(
+    val enabled: Boolean = false,
+    val modelUrl: String = "",
+    val modelSha256: String = "",
+    val threshold: Float = DefaultThreshold
+) {
+    fun sanitized(): MosaicAutoDetectionConfig {
+        return copy(
+            modelUrl = modelUrl.trim(),
+            modelSha256 = modelSha256.trim().lowercase(),
+            threshold = threshold.finiteOr(DefaultThreshold).coerceIn(
+                MinThreshold,
+                MaxThreshold
+            )
+        )
+    }
+
+    companion object {
+        const val MinThreshold = 0.1f
+        const val DefaultThreshold = 0.25f
+        const val MaxThreshold = 0.9f
+    }
+}
+
+internal fun smoothTrackedRegion(
+    previous: NormalizedRegion?,
+    current: NormalizedRegion,
+    smoothing: Float = 0.4f
+): NormalizedRegion {
+    val safeCurrent = current.sanitized()
+    val safePrevious = previous?.sanitized() ?: return safeCurrent
+    val amount = smoothing.coerceIn(0f, 1f)
+
+    fun blend(old: Float, new: Float): Float = old + (new - old) * amount
+
+    return NormalizedRegion(
+        left = blend(safePrevious.left, safeCurrent.left),
+        top = blend(safePrevious.top, safeCurrent.top),
+        right = blend(safePrevious.right, safeCurrent.right),
+        bottom = blend(safePrevious.bottom, safeCurrent.bottom)
+    ).sanitized()
+}
+
 data class InferenceSize(
     val width: Int,
     val height: Int

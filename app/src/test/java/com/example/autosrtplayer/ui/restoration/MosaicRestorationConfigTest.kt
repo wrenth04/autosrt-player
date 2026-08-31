@@ -2,6 +2,7 @@ package com.example.autosrtplayer.ui.restoration
 
 import com.example.autosrtplayer.data.restoration.RestorationModel
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
 import org.junit.Test
 
@@ -120,5 +121,66 @@ class MosaicRestorationConfigTest {
 
         assertTrue(size.width <= 95)
         assertTrue(size.height <= 95)
+    }
+
+    @Test
+    fun `auto detection config normalizes model fields and threshold`() {
+        val config = MosaicAutoDetectionConfig(
+            modelUrl = "  https://example.com/detector.onnx  ",
+            modelSha256 = "  ${"AB".repeat(32)}  ",
+            threshold = Float.NaN
+        ).sanitized()
+
+        assertEquals("https://example.com/detector.onnx", config.modelUrl)
+        assertEquals("ab".repeat(32), config.modelSha256)
+        assertEquals(MosaicAutoDetectionConfig.DefaultThreshold, config.threshold, 0.001f)
+    }
+
+    @Test
+    fun `tracked region movement is smoothed`() {
+        val previous = NormalizedRegion(0.1f, 0.2f, 0.3f, 0.4f)
+        val current = NormalizedRegion(0.3f, 0.4f, 0.5f, 0.6f)
+
+        val tracked = smoothTrackedRegion(previous, current, smoothing = 0.5f)
+
+        assertEquals(0.2f, tracked.left, 0.001f)
+        assertEquals(0.3f, tracked.top, 0.001f)
+        assertEquals(0.4f, tracked.right, 0.001f)
+        assertEquals(0.5f, tracked.bottom, 0.001f)
+    }
+
+    @Test
+    fun `tracker holds short misses then clears region`() {
+        val tracker = MosaicRegionTracker(smoothing = 0.5f, missedDetectionLimit = 3)
+        val detected = NormalizedRegion(0.1f, 0.2f, 0.3f, 0.4f)
+
+        assertRegionEquals(detected, tracker.update(detected))
+        assertRegionEquals(detected, tracker.update(null))
+        assertRegionEquals(detected, tracker.update(null))
+        assertNull(tracker.update(null))
+    }
+
+    @Test
+    fun `tracker resets miss count after a detection`() {
+        val tracker = MosaicRegionTracker(smoothing = 1f, missedDetectionLimit = 2)
+        val first = NormalizedRegion(0.1f, 0.1f, 0.3f, 0.3f)
+        val second = NormalizedRegion(0.4f, 0.4f, 0.6f, 0.6f)
+
+        tracker.update(first)
+        tracker.update(null)
+        assertRegionEquals(second, tracker.update(second))
+        assertRegionEquals(second, tracker.update(null))
+        assertNull(tracker.update(null))
+    }
+
+    private fun assertRegionEquals(
+        expected: NormalizedRegion,
+        actual: NormalizedRegion?
+    ) {
+        requireNotNull(actual)
+        assertEquals(expected.left, actual.left, 0.001f)
+        assertEquals(expected.top, actual.top, 0.001f)
+        assertEquals(expected.right, actual.right, 0.001f)
+        assertEquals(expected.bottom, actual.bottom, 0.001f)
     }
 }

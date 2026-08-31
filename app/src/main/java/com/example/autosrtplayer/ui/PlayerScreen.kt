@@ -56,6 +56,7 @@ import androidx.core.view.WindowInsetsControllerCompat
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.lifecycle.viewmodel.compose.viewModel
 import androidx.media3.common.util.UnstableApi
+import com.example.autosrtplayer.data.restoration.MosaicDetectorModelStatus
 import com.example.autosrtplayer.data.restoration.RestorationModelStatus
 
 @UnstableApi
@@ -245,6 +246,15 @@ fun PlayerScreen(
                     onEditMosaicRegion = viewModel::startMosaicRegionEditing,
                     onDownloadRestorationModel = viewModel::downloadRestorationModel,
                     onDeleteRestorationModel = viewModel::deleteRestorationModel,
+                    onMosaicDetectorUrlChange = viewModel::onMosaicDetectorUrlChange,
+                    onMosaicDetectorSha256Change = viewModel::onMosaicDetectorSha256Change,
+                    onMosaicAutoDetectionEnabledChange = viewModel::setMosaicAutoDetectionEnabled,
+                    onMosaicDetectorThresholdChange =
+                        viewModel::setMosaicDetectorThresholdTransient,
+                    onMosaicDetectorThresholdChangeFinished =
+                        viewModel::persistMosaicDetectorThreshold,
+                    onDownloadMosaicDetectorModel = viewModel::downloadMosaicDetectorModel,
+                    onDeleteMosaicDetectorModel = viewModel::deleteMosaicDetectorModel,
                     onVrContentModeChange = viewModel::setVrContentMode,
                     onVrFieldOfViewChange = viewModel::setVrFieldOfView,
                     onVrSourceLayoutChange = viewModel::setVrSourceLayout,
@@ -273,8 +283,10 @@ fun PlayerScreen(
                     playbackSpeed = uiState.playbackSpeed,
                     screenOrientationMode = uiState.screenOrientationMode,
                     mosaicRestorationConfig = uiState.mosaicRestorationConfig,
+                    mosaicAutoDetectionConfig = uiState.mosaicAutoDetectionConfig,
                     restorationModel = viewModel.getRestorationModel(),
                     restorationModelFile = uiState.restorationModelFile,
+                    mosaicDetectorModelFile = uiState.mosaicDetectorModelFile,
                     isMosaicRegionEditing = uiState.isMosaicRegionEditing,
                     vrConfig = uiState.vrConfig,
                     vrViewAngles = uiState.vrViewAngles,
@@ -352,6 +364,13 @@ private fun PlayerOptionsScreen(
     onEditMosaicRegion: () -> Unit,
     onDownloadRestorationModel: () -> Unit,
     onDeleteRestorationModel: () -> Unit,
+    onMosaicDetectorUrlChange: (String) -> Unit,
+    onMosaicDetectorSha256Change: (String) -> Unit,
+    onMosaicAutoDetectionEnabledChange: (Boolean) -> Unit,
+    onMosaicDetectorThresholdChange: (Float) -> Unit,
+    onMosaicDetectorThresholdChangeFinished: () -> Unit,
+    onDownloadMosaicDetectorModel: () -> Unit,
+    onDeleteMosaicDetectorModel: () -> Unit,
     onVrContentModeChange: (VrContentMode) -> Unit,
     onVrFieldOfViewChange: (VrFieldOfView) -> Unit,
     onVrSourceLayoutChange: (VrSourceLayout) -> Unit,
@@ -475,7 +494,14 @@ private fun PlayerOptionsScreen(
             onStrengthChangeFinished = onMosaicRestorationStrengthChangeFinished,
             onEditRegion = onEditMosaicRegion,
             onDownloadModel = onDownloadRestorationModel,
-            onDeleteModel = onDeleteRestorationModel
+            onDeleteModel = onDeleteRestorationModel,
+            onDetectorUrlChange = onMosaicDetectorUrlChange,
+            onDetectorSha256Change = onMosaicDetectorSha256Change,
+            onAutoDetectionEnabledChange = onMosaicAutoDetectionEnabledChange,
+            onDetectorThresholdChange = onMosaicDetectorThresholdChange,
+            onDetectorThresholdChangeFinished = onMosaicDetectorThresholdChangeFinished,
+            onDownloadDetectorModel = onDownloadMosaicDetectorModel,
+            onDeleteDetectorModel = onDeleteMosaicDetectorModel
         )
 
         Card(modifier = Modifier.fillMaxWidth()) {
@@ -1089,12 +1115,22 @@ private fun MosaicRestorationSettingsCard(
     onStrengthChangeFinished: () -> Unit,
     onEditRegion: () -> Unit,
     onDownloadModel: () -> Unit,
-    onDeleteModel: () -> Unit
+    onDeleteModel: () -> Unit,
+    onDetectorUrlChange: (String) -> Unit,
+    onDetectorSha256Change: (String) -> Unit,
+    onAutoDetectionEnabledChange: (Boolean) -> Unit,
+    onDetectorThresholdChange: (Float) -> Unit,
+    onDetectorThresholdChangeFinished: () -> Unit,
+    onDownloadDetectorModel: () -> Unit,
+    onDeleteDetectorModel: () -> Unit
 ) {
     val model = uiState.availableRestorationModels.firstOrNull()
     val status = model?.let { uiState.restorationModelStatuses[it.id] }
         ?: RestorationModelStatus.NotDownloaded
     val isDownloaded = status is RestorationModelStatus.Downloaded
+    val detectorStatus = uiState.mosaicDetectorModelStatus
+    val isDetectorReady = detectorStatus is MosaicDetectorModelStatus.Ready &&
+        uiState.mosaicDetectorModelFile != null
     val isFlatPlayback = uiState.vrConfig.contentMode == VrContentMode.Flat
     val uriHandler = LocalUriHandler.current
 
@@ -1231,12 +1267,181 @@ private fun MosaicRestorationSettingsCard(
                         com.example.autosrtplayer.ui.restoration.MosaicRestorationConfig.MaxStrength,
                     modifier = Modifier.fillMaxWidth()
                 )
+            }
+
+            Text("馬賽克範圍", style = MaterialTheme.typography.titleSmall)
+            Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.SpaceBetween,
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Column(modifier = Modifier.weight(1f)) {
+                        Text("AI 自動偵測（實驗）")
+                        Text(
+                            "使用另外下載的專用 ONNX 模型，自動尋找並追蹤最大馬賽克區域。",
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant
+                        )
+                    }
+                    Switch(
+                        checked = uiState.mosaicAutoDetectionConfig.enabled,
+                        onCheckedChange = onAutoDetectionEnabledChange,
+                        enabled = isDetectorReady &&
+                            isFlatPlayback &&
+                            uiState.mosaicRestorationConfig.enabled
+                    )
+                }
+
+                OutlinedTextField(
+                    value = uiState.mosaicAutoDetectionConfig.modelUrl,
+                    onValueChange = onDetectorUrlChange,
+                    modifier = Modifier.fillMaxWidth(),
+                    label = { Text("專用偵測 ONNX 的 HTTPS 網址") },
+                    placeholder = { Text("https://example.com/detector.onnx") },
+                    enabled = detectorStatus !is MosaicDetectorModelStatus.Downloading,
+                    singleLine = true
+                )
+                OutlinedTextField(
+                    value = uiState.mosaicAutoDetectionConfig.modelSha256,
+                    onValueChange = onDetectorSha256Change,
+                    modifier = Modifier.fillMaxWidth(),
+                    label = { Text("模型 SHA-256") },
+                    placeholder = { Text("64 個十六進位字元") },
+                    enabled = detectorStatus !is MosaicDetectorModelStatus.Downloading,
+                    singleLine = true
+                )
+                Text(
+                    "模型不會包進 APK。相容介面：BGR 0–1 [1,3,H,W] 輸入，" +
+                        "[1,1,H,W] 的 0–1 機率遮罩輸出；檔案上限 256 MB。",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                )
+
+                when (detectorStatus) {
+                    MosaicDetectorModelStatus.NotConfigured -> {
+                        Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                            Button(
+                                onClick = onDownloadDetectorModel,
+                                modifier = Modifier.weight(1f)
+                            ) {
+                                Text("輸入資料後下載")
+                            }
+                            TextButton(
+                                onClick = onDeleteDetectorModel,
+                                modifier = Modifier.weight(1f)
+                            ) {
+                                Text("清除模型檔")
+                            }
+                        }
+                    }
+
+                    MosaicDetectorModelStatus.NotDownloaded -> {
+                        Button(
+                            onClick = onDownloadDetectorModel,
+                            modifier = Modifier.fillMaxWidth()
+                        ) {
+                            Text("下載並驗證專用偵測模型")
+                        }
+                    }
+
+                    MosaicDetectorModelStatus.Verifying -> {
+                        LinearProgressIndicator(modifier = Modifier.fillMaxWidth())
+                        Text(
+                            "正在驗證偵測模型與 ONNX 介面…",
+                            style = MaterialTheme.typography.bodySmall
+                        )
+                    }
+
+                    is MosaicDetectorModelStatus.Downloading -> {
+                        val progress = detectorStatus.progress
+                        if (progress == null) {
+                            LinearProgressIndicator(modifier = Modifier.fillMaxWidth())
+                            Text("偵測模型下載中", style = MaterialTheme.typography.bodySmall)
+                        } else {
+                            LinearProgressIndicator(
+                                progress = { progress },
+                                modifier = Modifier.fillMaxWidth()
+                            )
+                            Text(
+                                "偵測模型下載中 ${(progress * 100).toInt()}%",
+                                style = MaterialTheme.typography.bodySmall
+                            )
+                        }
+                    }
+
+                    is MosaicDetectorModelStatus.Ready -> {
+                        Text(
+                            "偵測模型已驗證：輸入 " +
+                                "${detectorStatus.info.inputWidth}×" +
+                                "${detectorStatus.info.inputHeight}",
+                            style = MaterialTheme.typography.bodySmall
+                        )
+                        TextButton(onClick = onDeleteDetectorModel) {
+                            Text("刪除專用偵測模型")
+                        }
+                    }
+
+                    is MosaicDetectorModelStatus.Error -> {
+                        Text(
+                            "偵測模型錯誤：${detectorStatus.message}",
+                            color = MaterialTheme.colorScheme.error,
+                            style = MaterialTheme.typography.bodySmall
+                        )
+                        Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                            Button(
+                                onClick = onDownloadDetectorModel,
+                                modifier = Modifier.weight(1f)
+                            ) {
+                                Text("重新下載")
+                            }
+                            TextButton(
+                                onClick = onDeleteDetectorModel,
+                                modifier = Modifier.weight(1f)
+                            ) {
+                                Text("刪除檔案")
+                            }
+                        }
+                    }
+                }
+
+                if (isDetectorReady) {
+                    Text(
+                        "偵測門檻 " +
+                            String.format("%.2f", uiState.mosaicAutoDetectionConfig.threshold)
+                    )
+                    Slider(
+                        value = uiState.mosaicAutoDetectionConfig.threshold,
+                        onValueChange = onDetectorThresholdChange,
+                        onValueChangeFinished = onDetectorThresholdChangeFinished,
+                        valueRange =
+                            com.example.autosrtplayer.ui.restoration.MosaicAutoDetectionConfig
+                                .MinThreshold..
+                                com.example.autosrtplayer.ui.restoration.MosaicAutoDetectionConfig
+                                    .MaxThreshold,
+                        modifier = Modifier.fillMaxWidth()
+                    )
+                    Text(
+                        "門檻較低會抓到更多區域，也較容易誤判；每次處理畫面中最大的候選區域。",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                    )
+                }
+
+            if (isDownloaded) {
                 Button(
                     onClick = onEditRegion,
-                    enabled = isFlatPlayback && uiState.mediaItem != null,
+                    enabled = isFlatPlayback &&
+                        uiState.mediaItem != null &&
+                        !uiState.mosaicAutoDetectionConfig.enabled,
                     modifier = Modifier.fillMaxWidth()
                 ) {
-                    Text("回到影片框選馬賽克區域")
+                    Text(
+                        if (uiState.mosaicAutoDetectionConfig.enabled) {
+                            "自動偵測已開啟"
+                        } else {
+                            "回到影片框選馬賽克區域"
+                        }
+                    )
                 }
             }
 

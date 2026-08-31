@@ -3,9 +3,11 @@ package com.example.autosrtplayer.ui
 import androidx.media3.common.MediaItem
 import com.example.autosrtplayer.data.favorites.FavoriteItem
 import com.example.autosrtplayer.data.playlist.PlaylistEntry
+import com.example.autosrtplayer.data.restoration.MosaicDetectorModelStatus
 import com.example.autosrtplayer.data.restoration.RestorationModel
 import com.example.autosrtplayer.data.restoration.RestorationModelStatus
 import com.example.autosrtplayer.data.todayhot.TodayHotItem
+import com.example.autosrtplayer.ui.restoration.MosaicAutoDetectionConfig
 import com.example.autosrtplayer.ui.restoration.MosaicRestorationConfig
 import com.example.autosrtplayer.ui.vr.depth.DepthModel
 import com.example.autosrtplayer.ui.vr.depth.ModelStatus
@@ -78,6 +80,10 @@ data class PlayerUiState(
     val availableRestorationModels: List<RestorationModel> = emptyList(),
     val restorationModelStatuses: Map<String, RestorationModelStatus> = emptyMap(),
     val restorationModelFile: java.io.File? = null,
+    val mosaicAutoDetectionConfig: MosaicAutoDetectionConfig = MosaicAutoDetectionConfig(),
+    val mosaicDetectorModelStatus: MosaicDetectorModelStatus =
+        MosaicDetectorModelStatus.NotConfigured,
+    val mosaicDetectorModelFile: java.io.File? = null,
     val mosaicRestorationErrorMessage: String? = null,
     val vrConfig: VrPlaybackConfig = VrPlaybackConfig(),
     val vrViewAngles: VrViewAngles = VrViewAngles(),

@@ -17,10 +17,14 @@ import com.example.autosrtplayer.data.playlist.MissavPlaylistBuilder
 import com.example.autosrtplayer.data.playlist.PlaylistParser
 import com.example.autosrtplayer.data.playlist.PlaylistRepository
 import com.example.autosrtplayer.data.playlist.SubtitleRepository
+import com.example.autosrtplayer.data.restoration.MosaicDetectorModelRepository
+import com.example.autosrtplayer.data.restoration.MosaicDetectorModelSpec
+import com.example.autosrtplayer.data.restoration.MosaicDetectorModelStatus
 import com.example.autosrtplayer.data.restoration.RestorationModel
 import com.example.autosrtplayer.data.restoration.RestorationModelRepository
 import com.example.autosrtplayer.data.restoration.RestorationModelStatus
 import com.example.autosrtplayer.data.todayhot.TodayHotRepository
+import com.example.autosrtplayer.ui.restoration.MosaicAutoDetectionConfig
 import com.example.autosrtplayer.ui.restoration.MosaicRestorationConfig
 import com.example.autosrtplayer.ui.restoration.NormalizedRegion
 import com.example.autosrtplayer.ui.vr.depth.DepthModel
@@ -29,6 +33,8 @@ import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.update
+import kotlinx.coroutines.Job
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 import okhttp3.OkHttpClient
 import java.util.Locale
@@ -84,6 +90,11 @@ class PlayerViewModel(
         private const val KeyMosaicRegionTop = "mosaic_region_top"
         private const val KeyMosaicRegionRight = "mosaic_region_right"
         private const val KeyMosaicRegionBottom = "mosaic_region_bottom"
+        private const val KeyMosaicAutoDetectionEnabled = "mosaic_auto_detection_enabled"
+        private const val KeyMosaicDetectorModelUrl = "mosaic_detector_model_url"
+        private const val KeyMosaicDetectorModelSha256 = "mosaic_detector_model_sha256"
+        private const val KeyMosaicDetectorThreshold = "mosaic_detector_threshold"
+        private const val MosaicDetectorConfigurationDebounceMs = 350L
         private const val KeyPatToken = "pat_token"
         private const val KeyPatTokenEnabled = "pat_token_enabled"
     }
@@ -100,6 +111,8 @@ class PlayerViewModel(
     private var sourceResolveRequestCounter: Long = 0
     private var depthModelRepository: DepthModelRepository? = null
     private var restorationModelRepository: RestorationModelRepository? = null
+    private var mosaicDetectorModelRepository: MosaicDetectorModelRepository? = null
+    private var mosaicDetectorRefreshJob: Job? = null
 
     fun initialize(context: Context) {
         appContext = context.applicationContext
@@ -124,6 +137,14 @@ class PlayerViewModel(
             )
             restorationModelRepository = restorationRepository
             val mosaicRestorationConfig = loadMosaicRestorationConfig(settingsPrefs)
+            val mosaicAutoDetectionConfig = loadMosaicAutoDetectionConfig(settingsPrefs)
+            val detectorRepository = MosaicDetectorModelRepository(
+                context = requireNotNull(appContext),
+                httpClient = sharedHttpClient
+            )
+            mosaicDetectorModelRepository = detectorRepository
+            val detectorSpec = mosaicAutoDetectionConfig.toModelSpec()
+            detectorRepository.updateConfiguration(detectorSpec)
             val patToken = settingsPrefs?.getString(KeyPatToken, "").orEmpty()
             val isPatTokenEnabled = settingsPrefs?.getBoolean(KeyPatTokenEnabled, false) ?: false
 
@@ -141,6 +162,8 @@ class PlayerViewModel(
                     mosaicRestorationConfig = mosaicRestorationConfig,
                     availableRestorationModels = RestorationModel.availableModels(),
                     restorationModelStatuses = restorationRepository.modelStatuses.value,
+                    mosaicAutoDetectionConfig = mosaicAutoDetectionConfig,
+                    mosaicDetectorModelStatus = detectorRepository.status.value,
                     vrConfig = vrConfig,
                     isVrHeadTrackingEnabled = isVrHeadTrackingEnabled,
                     selectedDepthModelId = selectedDepthModelId,
@@ -190,6 +213,49 @@ class PlayerViewModel(
             }
             viewModelScope.launch {
                 restorationRepository.refreshModelStatuses()
+            }
+            viewModelScope.launch {
+                detectorRepository.status.collect { status ->
+                    val currentSpec = _uiState.value.mosaicAutoDetectionConfig.toModelSpec()
+                    val configurationError = currentSpec.validationError()
+                    val modelFile = if (
+                        configurationError == null &&
+                        status is MosaicDetectorModelStatus.Ready
+                    ) {
+                        detectorRepository.getModelFile(currentSpec)
+                    } else {
+                        null
+                    }
+                    val effectiveStatus = when {
+                        configurationError != null -> MosaicDetectorModelStatus.NotConfigured
+                        status is MosaicDetectorModelStatus.Ready && modelFile == null ->
+                            MosaicDetectorModelStatus.NotDownloaded
+                        else -> status
+                    }
+                    var configToPersist: MosaicAutoDetectionConfig? = null
+                    _uiState.update {
+                        val shouldDisable = it.mosaicAutoDetectionConfig.enabled &&
+                            (effectiveStatus is MosaicDetectorModelStatus.NotConfigured ||
+                                effectiveStatus is MosaicDetectorModelStatus.NotDownloaded ||
+                                effectiveStatus is MosaicDetectorModelStatus.Error)
+                        val updatedConfig = if (shouldDisable) {
+                            it.mosaicAutoDetectionConfig.copy(enabled = false).also { config ->
+                                configToPersist = config
+                            }
+                        } else {
+                            it.mosaicAutoDetectionConfig
+                        }
+                        it.copy(
+                            mosaicAutoDetectionConfig = updatedConfig,
+                            mosaicDetectorModelStatus = effectiveStatus,
+                            mosaicDetectorModelFile = modelFile
+                        )
+                    }
+                    configToPersist?.let(::persistMosaicAutoDetectionConfig)
+                }
+            }
+            viewModelScope.launch {
+                detectorRepository.refresh(detectorSpec)
             }
 
             when (startupDestination) {
@@ -577,6 +643,124 @@ class PlayerViewModel(
         persistMosaicRestorationConfig(_uiState.value.mosaicRestorationConfig)
     }
 
+    fun onMosaicDetectorUrlChange(value: String) {
+        updateMosaicDetectorConfiguration(
+            _uiState.value.mosaicAutoDetectionConfig.copy(
+                enabled = false,
+                modelUrl = value
+            )
+        )
+    }
+
+    fun onMosaicDetectorSha256Change(value: String) {
+        updateMosaicDetectorConfiguration(
+            _uiState.value.mosaicAutoDetectionConfig.copy(
+                enabled = false,
+                modelSha256 = value
+            )
+        )
+    }
+
+    fun setMosaicAutoDetectionEnabled(enabled: Boolean) {
+        if (enabled &&
+            (_uiState.value.mosaicDetectorModelStatus !is MosaicDetectorModelStatus.Ready ||
+                _uiState.value.mosaicDetectorModelFile == null)
+        ) {
+            _uiState.update {
+                it.copy(mosaicRestorationErrorMessage = "請先下載並驗證專用馬賽克偵測模型")
+            }
+            return
+        }
+        val config = _uiState.value.mosaicAutoDetectionConfig
+            .copy(enabled = enabled)
+            .sanitized()
+        persistMosaicAutoDetectionConfig(config)
+        _uiState.update {
+            it.copy(
+                mosaicAutoDetectionConfig = config,
+                isMosaicRegionEditing = if (enabled) false else it.isMosaicRegionEditing,
+                mosaicRestorationErrorMessage = null
+            )
+        }
+    }
+
+    fun setMosaicDetectorThresholdTransient(threshold: Float) {
+        val config = _uiState.value.mosaicAutoDetectionConfig
+            .copy(threshold = threshold)
+            .sanitized()
+        _uiState.update { it.copy(mosaicAutoDetectionConfig = config) }
+    }
+
+    fun persistMosaicDetectorThreshold() {
+        persistMosaicAutoDetectionConfig(_uiState.value.mosaicAutoDetectionConfig)
+    }
+
+    fun downloadMosaicDetectorModel() {
+        val repository = mosaicDetectorModelRepository
+        val spec = _uiState.value.mosaicAutoDetectionConfig.toModelSpec()
+        if (repository == null) {
+            _uiState.update {
+                it.copy(mosaicRestorationErrorMessage = "馬賽克偵測模型目錄尚未初始化")
+            }
+            return
+        }
+        spec.validationError()?.let { message ->
+            _uiState.update { it.copy(mosaicRestorationErrorMessage = message) }
+            return
+        }
+
+        mosaicDetectorRefreshJob?.cancel()
+        _uiState.update { it.copy(mosaicRestorationErrorMessage = null) }
+        viewModelScope.launch {
+            repository.download(spec)
+                .onSuccess {
+                    _uiState.update { state ->
+                        state.copy(mosaicRestorationErrorMessage = null)
+                    }
+                }
+                .onFailure { error ->
+                    _uiState.update { state ->
+                        state.copy(
+                            mosaicRestorationErrorMessage =
+                                error.message ?: "馬賽克偵測模型下載失敗"
+                        )
+                    }
+                }
+        }
+    }
+
+    fun deleteMosaicDetectorModel() {
+        val repository = mosaicDetectorModelRepository
+        if (repository == null) {
+            _uiState.update {
+                it.copy(mosaicRestorationErrorMessage = "馬賽克偵測模型目錄尚未初始化")
+            }
+            return
+        }
+
+        mosaicDetectorRefreshJob?.cancel()
+        val disabledConfig = _uiState.value.mosaicAutoDetectionConfig.copy(enabled = false)
+        persistMosaicAutoDetectionConfig(disabledConfig)
+        _uiState.update {
+            it.copy(
+                mosaicAutoDetectionConfig = disabledConfig,
+                mosaicDetectorModelFile = null,
+                mosaicRestorationErrorMessage = null
+            )
+        }
+        viewModelScope.launch {
+            repository.delete()
+                .onFailure { error ->
+                    _uiState.update { state ->
+                        state.copy(
+                            mosaicRestorationErrorMessage =
+                                error.message ?: "馬賽克偵測模型刪除失敗"
+                        )
+                    }
+                }
+        }
+    }
+
     fun startMosaicRegionEditing() {
         val model = getRestorationModel()
         val modelFile = _uiState.value.restorationModelFile
@@ -732,6 +916,70 @@ class PlayerViewModel(
             putFloat(KeyMosaicRegionRight, safeConfig.region.right)
             putFloat(KeyMosaicRegionBottom, safeConfig.region.bottom)
         }?.apply()
+    }
+
+    private fun loadMosaicAutoDetectionConfig(
+        prefs: SharedPreferences?
+    ): MosaicAutoDetectionConfig {
+        val threshold = runCatching {
+            prefs?.getFloat(
+                KeyMosaicDetectorThreshold,
+                MosaicAutoDetectionConfig.DefaultThreshold
+            ) ?: MosaicAutoDetectionConfig.DefaultThreshold
+        }.getOrDefault(MosaicAutoDetectionConfig.DefaultThreshold)
+
+        return MosaicAutoDetectionConfig(
+            enabled = prefs?.getBoolean(KeyMosaicAutoDetectionEnabled, false) ?: false,
+            modelUrl = prefs?.getString(KeyMosaicDetectorModelUrl, "").orEmpty(),
+            modelSha256 = prefs?.getString(KeyMosaicDetectorModelSha256, "").orEmpty(),
+            threshold = threshold
+        ).sanitized()
+    }
+
+    private fun persistMosaicAutoDetectionConfig(config: MosaicAutoDetectionConfig) {
+        val safeConfig = config.sanitized()
+        settingsPrefs?.edit()?.apply {
+            putBoolean(KeyMosaicAutoDetectionEnabled, safeConfig.enabled)
+            putString(KeyMosaicDetectorModelUrl, safeConfig.modelUrl)
+            putString(KeyMosaicDetectorModelSha256, safeConfig.modelSha256)
+            putFloat(KeyMosaicDetectorThreshold, safeConfig.threshold)
+        }?.apply()
+    }
+
+    private fun updateMosaicDetectorConfiguration(config: MosaicAutoDetectionConfig) {
+        mosaicDetectorRefreshJob?.cancel()
+        val safeConfig = config.sanitized()
+        persistMosaicAutoDetectionConfig(safeConfig)
+        val spec = safeConfig.toModelSpec()
+        val detectorRepository = mosaicDetectorModelRepository
+        detectorRepository?.updateConfiguration(spec)
+        val repositoryStatus = detectorRepository?.status?.value
+            ?: MosaicDetectorModelStatus.NotConfigured
+        val validatedModelFile = if (
+            detectorRepository != null &&
+            spec.validationError() == null &&
+            repositoryStatus is MosaicDetectorModelStatus.Ready
+        ) {
+            detectorRepository.getModelFile(spec)
+        } else {
+            null
+        }
+        _uiState.update {
+            it.copy(
+                mosaicAutoDetectionConfig = safeConfig,
+                mosaicDetectorModelStatus = repositoryStatus,
+                mosaicDetectorModelFile = validatedModelFile,
+                mosaicRestorationErrorMessage = null
+            )
+        }
+        if (spec.validationError() == null &&
+            detectorRepository?.status?.value is MosaicDetectorModelStatus.Verifying
+        ) {
+            mosaicDetectorRefreshJob = viewModelScope.launch {
+                delay(MosaicDetectorConfigurationDebounceMs)
+                detectorRepository.refresh(spec)
+            }
+        }
     }
 
     private fun loadVrConfig(prefs: SharedPreferences?): VrPlaybackConfig {
@@ -1410,6 +1658,13 @@ private fun String?.toStartupDestination(): StartupDestination {
     return runCatching {
         StartupDestination.valueOf(this.orEmpty())
     }.getOrDefault(StartupDestination.Player)
+}
+
+private fun MosaicAutoDetectionConfig.toModelSpec(): MosaicDetectorModelSpec {
+    return MosaicDetectorModelSpec(
+        downloadUrl = modelUrl,
+        sha256 = modelSha256
+    ).normalized()
 }
 
 private fun String?.toScreenOrientationMode(): ScreenOrientationMode {

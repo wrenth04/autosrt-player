@@ -85,6 +85,7 @@ import androidx.media3.ui.AspectRatioFrameLayout
 import androidx.media3.ui.CaptionStyleCompat
 import androidx.media3.ui.PlayerView
 import com.example.autosrtplayer.data.restoration.RestorationModel
+import com.example.autosrtplayer.ui.restoration.MosaicAutoDetectionConfig
 import com.example.autosrtplayer.ui.restoration.MosaicRestorationConfig
 import com.example.autosrtplayer.ui.restoration.MosaicRestorationLayer
 import com.example.autosrtplayer.ui.restoration.NormalizedRegion
@@ -203,8 +204,10 @@ internal fun FullscreenPlayer(
     playbackSpeed: Float,
     screenOrientationMode: ScreenOrientationMode,
     mosaicRestorationConfig: MosaicRestorationConfig,
+    mosaicAutoDetectionConfig: MosaicAutoDetectionConfig,
     restorationModel: RestorationModel?,
     restorationModelFile: File?,
+    mosaicDetectorModelFile: File?,
     isMosaicRegionEditing: Boolean,
     vrConfig: VrPlaybackConfig,
     vrViewAngles: VrViewAngles,
@@ -402,8 +405,10 @@ internal fun FullscreenPlayer(
                             playerView = flatPlayerView,
                             player = player,
                             config = mosaicRestorationConfig,
+                            autoDetectionConfig = mosaicAutoDetectionConfig,
                             model = restorationModel,
                             modelFile = restorationModelFile,
+                            detectorModelFile = mosaicDetectorModelFile,
                             isRegionEditing = isMosaicRegionEditing,
                             onRegionChange = onMosaicRegionChange,
                             onEditingFinished = onMosaicRegionEditingFinished,
