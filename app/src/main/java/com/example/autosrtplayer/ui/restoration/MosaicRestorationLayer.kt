@@ -36,6 +36,7 @@ import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableIntStateOf
+import androidx.compose.runtime.mutableLongStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.produceState
 import androidx.compose.runtime.remember
@@ -109,6 +110,7 @@ internal fun MosaicRestorationLayer(
     var restoredPreview by remember { mutableStateOf<RestorationPreview?>(null) }
     var continuousPassthrough by remember { mutableStateOf(true) }
     var lastChangeFraction by remember { mutableStateOf<Float?>(null) }
+    var nextSnapshotEtaMs by remember { mutableLongStateOf(0L) }
     var autoDetectionTarget by remember { mutableStateOf<AutoDetectionTarget?>(null) }
     var captureError by remember { mutableStateOf<String?>(null) }
     var detectorError by remember { mutableStateOf<String?>(null) }
@@ -119,6 +121,16 @@ internal fun MosaicRestorationLayer(
     var restorationProcessing by remember { mutableStateOf(false) }
     var pendingFeedback by remember {
         mutableStateOf<MosaicRestorationFeedback?>(null)
+    }
+
+    // In continuous playback the last restored snapshot must stay on screen until the
+    // next one finishes, so only the paused-first frame paths may clear it.
+    fun clearContinuousSnapshots() {
+        if (!config.processOnlyWhenPaused) {
+            continuousPassthrough = true
+            lastChangeFraction = null
+            nextSnapshotEtaMs = 0L
+        }
     }
 
     LaunchedEffect(processingRequestId) {
@@ -159,21 +171,26 @@ internal fun MosaicRestorationLayer(
             restoredPreview = null
             autoDetectionTarget = null
             pendingFeedback = null
+            continuousPassthrough = true
+            lastChangeFraction = null
+            nextSnapshotEtaMs = 0L
         }
     }
 
+    // Only the paused-only mode tears the ONNX sessions down while playing; continuous
+    // playback must keep them alive across play/pause so snapshots keep updating.
+    val holdSessionsWhilePlaying = config.processOnlyWhenPaused && playerIsPlaying
     val restorerState by produceState<RestorerState>(
         RestorerState.Unavailable,
         config.enabled,
         model,
         modelFile,
-        config.processOnlyWhenPaused,
-        playerIsPlaying
+        holdSessionsWhilePlaying
     ) {
         if (!config.enabled ||
             model == null ||
             modelFile == null ||
-            (config.processOnlyWhenPaused && playerIsPlaying)
+            holdSessionsWhilePlaying
         ) {
             value = RestorerState.Unavailable
             return@produceState
@@ -218,13 +235,12 @@ internal fun MosaicRestorationLayer(
         config.enabled,
         autoDetectionConfig.enabled,
         detectorModelFile,
-        config.processOnlyWhenPaused,
-        playerIsPlaying
+        holdSessionsWhilePlaying
     ) {
         if (!config.enabled ||
             !autoDetectionConfig.enabled ||
             detectorModelFile == null ||
-            (config.processOnlyWhenPaused && playerIsPlaying)
+            holdSessionsWhilePlaying
         ) {
             value = DetectorState.Unavailable
             return@produceState
@@ -360,11 +376,9 @@ internal fun MosaicRestorationLayer(
         fun useContinuousPassthrough() {
             if (!config.processOnlyWhenPaused) {
                 autoDetectionTarget = null
-                displayedSourceFrame = null
-                restoredPreview = null
                 pendingFeedback = null
                 detectorError = null
-                continuousPassthrough = true
+                clearContinuousSnapshots()
             }
         }
 
@@ -489,7 +503,8 @@ internal fun MosaicRestorationLayer(
                         if (!config.processOnlyWhenPaused) {
                             Log.e(Tag, "$message；連續播放改用原始畫面", error)
                             useContinuousPassthrough()
-                            return@LaunchedEffect
+                            delay(ContinuousFailureRetryMs)
+                            continue
                         }
                         autoDetectionTarget = null
                         detectorError = message
@@ -502,7 +517,8 @@ internal fun MosaicRestorationLayer(
                         if (!config.processOnlyWhenPaused) {
                             Log.e(Tag, "$message；連續播放改用原始畫面", error)
                             useContinuousPassthrough()
-                            return@LaunchedEffect
+                            delay(ContinuousFailureRetryMs)
+                            continue
                         }
                         autoDetectionTarget = null
                         detectorError = message
@@ -515,7 +531,8 @@ internal fun MosaicRestorationLayer(
                         if (!config.processOnlyWhenPaused) {
                             Log.e(Tag, "$message；連續播放改用原始畫面", error)
                             useContinuousPassthrough()
-                            return@LaunchedEffect
+                            delay(ContinuousFailureRetryMs)
+                            continue
                         }
                         autoDetectionTarget = null
                         detectorError = message
@@ -555,7 +572,9 @@ internal fun MosaicRestorationLayer(
                     ) {
                         pendingFeedback = null
                     }
-                    if (target != null && !config.processOnlyWhenPaused) {
+                    if (target != null && restoredPreview != null &&
+                        !config.processOnlyWhenPaused
+                    ) {
                         continuousPassthrough = false
                     }
                     lastProcessedPositionMs = detectionPositionMs
@@ -592,7 +611,9 @@ internal fun MosaicRestorationLayer(
         restorationProcessing = false
         displayedSourceFrame = null
         restoredPreview = null
-        continuousPassthrough = !config.processOnlyWhenPaused
+        // Start from the live video; the frozen-snapshot layer only takes over once the
+        // first restored result exists (see the per-loop flip below).
+        continuousPassthrough = true
         captureError = null
         val readyState = restorerState as? RestorerState.Ready ?: return@LaunchedEffect
         if (!config.enabled || model == null) return@LaunchedEffect
@@ -618,8 +639,7 @@ internal fun MosaicRestorationLayer(
             if (currentMediaItem !== trackedMediaItem) {
                 displayedSourceFrame = null
                 restoredPreview = null
-                continuousPassthrough = !config.processOnlyWhenPaused
-                lastChangeFraction = null
+                clearContinuousSnapshots()
                 pendingFeedback = null
                 clearTemporalState()
                 trackedMediaItem = currentMediaItem
@@ -649,7 +669,7 @@ internal fun MosaicRestorationLayer(
             if (currentMediaItem == null || player.playbackState == Player.STATE_IDLE) {
                 displayedSourceFrame = null
                 restoredPreview = null
-                continuousPassthrough = !config.processOnlyWhenPaused
+                clearContinuousSnapshots()
                 clearTemporalState()
                 delay(PlayerNotReadyDelayMs)
                 continue
@@ -702,9 +722,7 @@ internal fun MosaicRestorationLayer(
                 val message = "播放器沒有可擷取的影像 Surface"
                 if (!config.processOnlyWhenPaused) {
                     Log.w(Tag, "$message；連續播放改用原始畫面")
-                    displayedSourceFrame = null
-                    restoredPreview = null
-                    continuousPassthrough = true
+                    clearContinuousSnapshots()
                     delay(ContinuousFailureRetryMs)
                     continue
                 }
@@ -730,9 +748,7 @@ internal fun MosaicRestorationLayer(
                 val message = "目前不支援尚未套用旋轉資訊的影片"
                 if (!config.processOnlyWhenPaused) {
                     Log.w(Tag, "$message；連續播放改用原始畫面")
-                    displayedSourceFrame = null
-                    restoredPreview = null
-                    continuousPassthrough = true
+                    clearContinuousSnapshots()
                     return@LaunchedEffect
                 }
                 restoredPreview = null
@@ -767,7 +783,9 @@ internal fun MosaicRestorationLayer(
                 )
             }
 
-            if (!config.processOnlyWhenPaused) {
+            // Only hide the live video once a restored snapshot actually exists to
+            // replace it; otherwise the first capture round would flash black.
+            if (!config.processOnlyWhenPaused && restoredPreview != null) {
                 continuousPassthrough = false
             }
             frameCaptureProcessing = true
@@ -807,9 +825,7 @@ internal fun MosaicRestorationLayer(
                         if (!config.processOnlyWhenPaused) {
                             Log.w(Tag, "$message；連續播放改用原始畫面")
                             consecutiveCaptureFailures = 0
-                            displayedSourceFrame = null
-                            restoredPreview = null
-                            continuousPassthrough = true
+                            clearContinuousSnapshots()
                             clearTemporalState()
                             delay(ContinuousFailureRetryMs)
                             continue
@@ -826,9 +842,7 @@ internal fun MosaicRestorationLayer(
                 is FrameSequenceCaptureResult.Error -> {
                     if (!config.processOnlyWhenPaused) {
                         Log.w(Tag, "${capture.message}；連續播放改用原始畫面")
-                        displayedSourceFrame = null
-                        restoredPreview = null
-                        continuousPassthrough = true
+                        clearContinuousSnapshots()
                         clearTemporalState()
                         delay(ContinuousFailureRetryMs)
                         continue
@@ -845,9 +859,7 @@ internal fun MosaicRestorationLayer(
                         capture.frames.recycleAll()
                         val message = "連續 AI 播放缺少完整來源影格"
                         Log.w(Tag, "$message；改用原始畫面")
-                        displayedSourceFrame = null
-                        restoredPreview = null
-                        continuousPassthrough = true
+                        clearContinuousSnapshots()
                         clearTemporalState()
                         delay(ContinuousFailureRetryMs)
                         continue
@@ -924,6 +936,7 @@ internal fun MosaicRestorationLayer(
                     )
                     continuousPassthrough = false
                     lastChangeFraction = restored.changeFraction
+                    nextSnapshotEtaMs = restored.inferenceDurationMs
                     pendingFeedback = MosaicRestorationFeedback.Completed(
                         inferenceDurationMs = restored.inferenceDurationMs,
                         modelChangeFraction = restored.changeFraction,
@@ -1002,6 +1015,9 @@ internal fun MosaicRestorationLayer(
         if (config.enabled && bounds != null && lastChangeFraction != null) {
             LastDifferenceLabel(
                 changeFraction = requireNotNull(lastChangeFraction),
+                nextSnapshotEtaMs = nextSnapshotEtaMs.takeIf {
+                    !config.processOnlyWhenPaused
+                },
                 bounds = bounds
             )
         }
@@ -1105,6 +1121,7 @@ private fun FrozenVideoFrame(
 @Composable
 private fun LastDifferenceLabel(
     changeFraction: Float,
+    nextSnapshotEtaMs: Long?,
     bounds: SurfaceBounds
 ) {
     val density = LocalDensity.current
@@ -1115,6 +1132,10 @@ private fun LastDifferenceLabel(
             .coerceAtMost(bounds.containerHeight - labelHeight - spacing)
             .coerceAtLeast(spacing)
     }
+    val etaText = nextSnapshotEtaMs
+        ?.takeIf { it > 0L }
+        ?.let { eta -> " · 下一張約 ${formatMosaicInferenceDuration(eta)}" }
+        .orEmpty()
     Box(
         modifier = Modifier
             .fillMaxWidth()
@@ -1127,7 +1148,7 @@ private fun LastDifferenceLabel(
             )
         ) {
             Text(
-                text = "AI 差異 ${formatMosaicChangeFraction(changeFraction)}",
+                text = "AI 差異 ${formatMosaicChangeFraction(changeFraction)}$etaText",
                 color = Color.White,
                 style = MaterialTheme.typography.labelSmall,
                 modifier = Modifier.padding(horizontal = 10.dp, vertical = 5.dp)

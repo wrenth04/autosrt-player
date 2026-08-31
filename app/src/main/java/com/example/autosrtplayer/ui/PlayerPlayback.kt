@@ -710,7 +710,10 @@ internal fun FullscreenPlayer(
                         }
                     val cleanupToggleUnavailableReason = mosaicUnavailableReason
                         ?: when {
-                            playerIsPlaying -> "請先暫停影片再啟用 AI 清除"
+                            // Paused-only processing needs a settled frame; continuous
+                            // mode captures the live surface so playback may continue.
+                            playerIsPlaying && mosaicRestorationConfig.processOnlyWhenPaused ->
+                                "請先暫停影片再啟用 AI 清除"
                             player?.playbackState != Player.STATE_READY ->
                                 "請先將影片停在可處理的畫面"
                             else -> null
