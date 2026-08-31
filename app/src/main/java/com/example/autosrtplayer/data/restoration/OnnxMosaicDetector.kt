@@ -17,7 +17,14 @@ import kotlinx.coroutines.withContext
 
 data class MosaicDetectionResult(
     val region: DetectedMosaicRegion?,
+    val mask: MosaicProbabilityMask?,
     val inferenceDurationMs: Long
+)
+
+data class MosaicProbabilityMask(
+    val probabilities: FloatArray,
+    val width: Int,
+    val height: Int
 )
 
 class OnnxMosaicDetector(
@@ -73,7 +80,7 @@ class OnnxMosaicDetector(
             modelInfo.inputWidth.toLong()
         )
 
-        val region = OnnxTensor.createTensor(
+        val detectedOutput = OnnxTensor.createTensor(
             environment,
             FloatBuffer.wrap(inputData),
             shape
@@ -86,7 +93,8 @@ class OnnxMosaicDetector(
         }
 
         MosaicDetectionResult(
-            region = region,
+            region = detectedOutput.region,
+            mask = detectedOutput.mask,
             inferenceDurationMs = (System.nanoTime() - startedAt) / 1_000_000L
         )
     }
@@ -94,7 +102,7 @@ class OnnxMosaicDetector(
     private fun regionFromOutput(
         outputTensor: OnnxTensor,
         threshold: Float
-    ): DetectedMosaicRegion? {
+    ): DetectorOutput {
         val shape = outputTensor.info.shape
         if (shape.size != 4 || shape[0] != 1L || shape[1] != 1L) {
             throw IllegalStateException(
@@ -127,11 +135,21 @@ class OnnxMosaicDetector(
             probabilities[index] = probabilities[index].coerceIn(0f, 1f)
         }
 
-        return findLargestMosaicRegion(
+        val region = findLargestMosaicRegion(
             probabilities = probabilities,
             width = outputWidth,
             height = outputHeight,
             threshold = threshold
+        )
+        return DetectorOutput(
+            region = region,
+            mask = region?.let {
+                MosaicProbabilityMask(
+                    probabilities = probabilities,
+                    width = outputWidth,
+                    height = outputHeight
+                )
+            }
         )
     }
 
@@ -163,6 +181,11 @@ class OnnxMosaicDetector(
             }
         }
     }
+
+    private data class DetectorOutput(
+        val region: DetectedMosaicRegion?,
+        val mask: MosaicProbabilityMask?
+    )
 
     companion object {
         private const val DefaultDynamicInputSize = 360

@@ -129,6 +129,23 @@ class MosaicDetectionTest {
         )
     }
 
+    @Test
+    fun `DeepMosaics detector preset is pinned`() {
+        val spec = MosaicDetectorModelSpec.deepMosaics()
+
+        assertNull(spec.validationError())
+        assertTrue(
+            spec.downloadUrl.contains(
+                "/resolve/cead5e065f22d817078a451350975f80e9a93f7d/"
+            )
+        )
+        assertEquals(
+            "fa16f91573aa09973cf3dc91e2fc1113f55fde1adb46d65548946cf5c88b4cbe",
+            spec.sha256
+        )
+        assertEquals(47_540_486L, MosaicDetectorModelSpec.DeepMosaicsFileSizeBytes)
+    }
+
     private fun FloatArray.fillRect(
         width: Int,
         xRange: IntRange,

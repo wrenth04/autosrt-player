@@ -27,6 +27,7 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.VolumeOff
 import androidx.compose.material.icons.automirrored.filled.VolumeUp
 import androidx.compose.material.icons.filled.Bookmarks
+import androidx.compose.material.icons.filled.AutoFixHigh
 import androidx.compose.material.icons.filled.Brightness6
 import androidx.compose.material.icons.filled.Edit
 import androidx.compose.material.icons.filled.FastForward
@@ -250,6 +251,8 @@ internal fun FullscreenPlayer(
     var scrubPositionMs by remember(player) { mutableLongStateOf(0L) }
     var showSourceDialog by rememberSaveable { mutableStateOf(false) }
     var sourceDraft by rememberSaveable { mutableStateOf("") }
+    var mosaicProcessingRequestId by remember(player) { mutableLongStateOf(0L) }
+    var isMosaicProcessing by remember(player) { mutableStateOf(false) }
     val displayedPositionMs = if (isScrubbing) scrubPositionMs else progressState.currentPositionMs
     val latestPlayer by rememberUpdatedState(player)
     val density = LocalDensity.current
@@ -409,6 +412,8 @@ internal fun FullscreenPlayer(
                             model = restorationModel,
                             modelFile = restorationModelFile,
                             detectorModelFile = mosaicDetectorModelFile,
+                            processingRequestId = mosaicProcessingRequestId,
+                            onProcessingChange = { isMosaicProcessing = it },
                             isRegionEditing = isMosaicRegionEditing,
                             onRegionChange = onMosaicRegionChange,
                             onEditingFinished = onMosaicRegionEditingFinished,
@@ -645,6 +650,51 @@ internal fun FullscreenPlayer(
                 horizontalArrangement = Arrangement.spacedBy(8.dp),
                 verticalAlignment = Alignment.CenterVertically
             ) {
+                if (!isVrMode) {
+                    val canProcessMosaic = mosaicRestorationConfig.enabled &&
+                        restorationModelFile != null &&
+                        player?.currentMediaItem != null &&
+                        !isMosaicProcessing
+                    IconButton(
+                        onClick = {
+                            player?.pause()
+                            mosaicProcessingRequestId += 1
+                            hudState = GestureHudState(
+                                icon = Icons.Filled.AutoFixHigh,
+                                label = "DeepMosaics",
+                                valueText = "處理目前畫面"
+                            )
+                            pingControls()
+                        },
+                        enabled = canProcessMosaic,
+                        modifier = Modifier
+                            .background(
+                                androidx.compose.ui.graphics.Color.Black.copy(
+                                    alpha = ControlOverlayAlpha
+                                ),
+                                shape = MaterialTheme.shapes.small
+                            )
+                            .size(48.dp)
+                    ) {
+                        if (isMosaicProcessing) {
+                            CircularProgressIndicator(
+                                modifier = Modifier.size(24.dp),
+                                color = androidx.compose.ui.graphics.Color.White,
+                                strokeWidth = 2.dp
+                            )
+                        } else {
+                            Icon(
+                                imageVector = Icons.Filled.AutoFixHigh,
+                                contentDescription = "用 DeepMosaics 處理目前畫面",
+                                tint = if (canProcessMosaic) {
+                                    androidx.compose.ui.graphics.Color.White
+                                } else {
+                                    androidx.compose.ui.graphics.Color.White.copy(alpha = 0.38f)
+                                }
+                            )
+                        }
+                    }
+                }
                 IconButton(
                     onClick = {
                         pingControls()

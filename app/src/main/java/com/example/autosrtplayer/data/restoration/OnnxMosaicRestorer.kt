@@ -1,16 +1,17 @@
 package com.example.autosrtplayer.data.restoration
 
-import android.graphics.Bitmap
 import ai.onnxruntime.NodeInfo
 import ai.onnxruntime.OnnxJavaType
 import ai.onnxruntime.OnnxTensor
 import ai.onnxruntime.OrtEnvironment
 import ai.onnxruntime.OrtSession
 import ai.onnxruntime.TensorInfo
+import android.graphics.Bitmap
 import java.io.Closeable
 import java.io.File
 import java.nio.FloatBuffer
 import java.util.concurrent.Executors
+import java.util.concurrent.Semaphore
 import java.util.concurrent.atomic.AtomicBoolean
 import kotlinx.coroutines.asCoroutineDispatcher
 import kotlinx.coroutines.withContext
@@ -29,15 +30,19 @@ class OnnxMosaicRestorer(
     private val dispatcher = executor.asCoroutineDispatcher()
     private val isClosed = AtomicBoolean(false)
     private var session: OrtSession? = null
+    private var previousOutput: FloatArray? = null
+    private var sessionPermitHeld = false
 
     init {
         RestorationModel.validateModel(model)?.let { error ->
             throw IllegalArgumentException("Invalid restoration model: $error")
         }
-        check(modelFile.isFile) { "Restoration model file is unavailable" }
+        check(modelFile.isFile) { "DeepMosaics 模型不存在" }
 
         val options = OrtSession.SessionOptions()
         try {
+            SessionPermit.acquireUninterruptibly()
+            sessionPermitHeld = true
             options.setIntraOpNumThreads(2)
             options.setInterOpNumThreads(1)
             session = environment.createSession(modelFile.absolutePath, options)
@@ -49,6 +54,7 @@ class OnnxMosaicRestorer(
                 error.addSuppressed(closeError)
             } finally {
                 session = null
+                releaseSessionPermit()
             }
             throw error
         } finally {
@@ -56,131 +62,216 @@ class OnnxMosaicRestorer(
         }
     }
 
-    suspend fun restore(input: Bitmap): RestoredImage = withContext(dispatcher) {
-        check(!isClosed.get()) { "Restoration model has been released" }
-        require(input.width > 0 && input.height > 0) { "Input bitmap is empty" }
-
-        val currentSession = requireNotNull(session) { "Restoration session is unavailable" }
-        val startedAt = System.nanoTime()
-        val inputData = bitmapToNchw(input)
-        val inputShape = longArrayOf(1, 3, input.height.toLong(), input.width.toLong())
-
-        val outputBitmap = OnnxTensor.createTensor(
-            environment,
-            FloatBuffer.wrap(inputData),
-            inputShape
-        ).use { inputTensor ->
-            currentSession.run(mapOf(model.inputTensorName to inputTensor)).use { output ->
-                val outputTensor = output[model.outputTensorName].orElse(null) as? OnnxTensor
-                    ?: throw IllegalStateException(
-                        "Model output '${model.outputTensorName}' is missing or is not a tensor"
-                    )
-                tensorToBitmap(
-                    tensor = outputTensor,
-                    expectedWidth = input.width * model.outputScale,
-                    expectedHeight = input.height * model.outputScale
-                )
+    suspend fun restore(
+        frames: List<Bitmap>,
+        alphaMask: FloatArray?
+    ): RestoredImage {
+        val inference = withContext(dispatcher) {
+            check(!isClosed.get()) { "DeepMosaics 模型已釋放" }
+            require(frames.size == model.temporalFrameCount) {
+                "DeepMosaics 需要 ${model.temporalFrameCount} 張時序影格"
             }
-        }
-
-        RestoredImage(
-            bitmap = outputBitmap,
-            inferenceDurationMs = (System.nanoTime() - startedAt) / 1_000_000L
-        )
-    }
-
-    private fun validateTensorContract(session: OrtSession) {
-        validateTensor(
-            nodeInfo = session.inputInfo[model.inputTensorName],
-            tensorName = model.inputTensorName,
-            isInput = true
-        )
-        validateTensor(
-            nodeInfo = session.outputInfo[model.outputTensorName],
-            tensorName = model.outputTensorName,
-            isInput = false
-        )
-    }
-
-    private fun validateTensor(nodeInfo: NodeInfo?, tensorName: String, isInput: Boolean) {
-        val tensorInfo = nodeInfo?.info as? TensorInfo
-            ?: throw IllegalStateException("Model tensor '$tensorName' is missing")
-        if (tensorInfo.type != OnnxJavaType.FLOAT) {
-            throw IllegalStateException("Model tensor '$tensorName' must use float32")
-        }
-        val shape = tensorInfo.shape
-        if (shape.size != 4 || (shape[1] > 0L && shape[1] != 3L)) {
-            val direction = if (isInput) "input" else "output"
-            throw IllegalStateException("Model $direction '$tensorName' must be NCHW RGB")
-        }
-    }
-
-    private fun bitmapToNchw(bitmap: Bitmap): FloatArray {
-        val width = bitmap.width
-        val height = bitmap.height
-        val pixelCount = width * height
-        val pixels = IntArray(pixelCount)
-        bitmap.getPixels(pixels, 0, width, 0, 0, width, height)
-
-        return FloatArray(pixelCount * 3).also { output ->
-            for (index in pixels.indices) {
-                val pixel = pixels[index]
-                output[index] = ((pixel ushr 16) and 0xff) / 255f
-                output[pixelCount + index] = ((pixel ushr 8) and 0xff) / 255f
-                output[pixelCount * 2 + index] = (pixel and 0xff) / 255f
+            frames.forEach { frame ->
+                require(frame.width == model.inputSize && frame.height == model.inputSize) {
+                    "DeepMosaics 影格必須是 ${model.inputSize}x${model.inputSize}"
+                }
             }
-        }
-    }
 
-    private fun tensorToBitmap(
-        tensor: OnnxTensor,
-        expectedWidth: Int,
-        expectedHeight: Int
-    ): Bitmap {
-        val shape = tensor.info.shape
-        if (shape.size != 4 ||
-            shape[0] != 1L ||
-            shape[1] != 3L ||
-            shape[2] != expectedHeight.toLong() ||
-            shape[3] != expectedWidth.toLong()
-        ) {
-            throw IllegalStateException(
-                "Unexpected model output shape: ${shape.joinToString(prefix = "[", postfix = "]")}"
+            val currentSession = requireNotNull(session) { "DeepMosaics 工作階段不存在" }
+            val startedAt = System.nanoTime()
+            val normalizedFrames = frames.map(::bitmapToNormalizedRgb)
+            val pixelCount = model.inputSize * model.inputSize
+            val stream = buildDeepMosaicsTemporalStream(normalizedFrames, pixelCount)
+            val previous = previousOutput ?: normalizedFrames[model.temporalFrameCount / 2]
+            val streamShape = longArrayOf(
+                1,
+                3,
+                model.temporalFrameCount.toLong(),
+                model.inputSize.toLong(),
+                model.inputSize.toLong()
+            )
+            val previousShape = longArrayOf(
+                1,
+                3,
+                model.inputSize.toLong(),
+                model.inputSize.toLong()
+            )
+
+            val outputValues = OnnxTensor.createTensor(
+                environment,
+                FloatBuffer.wrap(stream),
+                streamShape
+            ).use { streamTensor ->
+                OnnxTensor.createTensor(
+                    environment,
+                    FloatBuffer.wrap(previous),
+                    previousShape
+                ).use { previousTensor ->
+                    currentSession.run(
+                        mapOf(
+                            model.inputTensorName to streamTensor,
+                            model.previousInputTensorName to previousTensor
+                        )
+                    ).use { output ->
+                        val outputTensor =
+                            output[model.outputTensorName].orElse(null) as? OnnxTensor
+                                ?: throw IllegalStateException(
+                                    "DeepMosaics 輸出 '${model.outputTensorName}' 不存在"
+                                )
+                        readOutput(outputTensor)
+                    }
+                }
+            }
+
+            previousOutput = outputValues.copyOf()
+            DeepMosaicsInference(
+                pixels = normalizedRgbToFeatheredArgb(
+                    values = outputValues,
+                    width = model.inputSize,
+                    height = model.inputSize,
+                    alphaMask = alphaMask
+                ),
+                durationMs = (System.nanoTime() - startedAt) / 1_000_000L
             )
         }
 
-        val pixelCount = expectedWidth * expectedHeight
-        val values = tensor.floatBuffer
-        if (values.remaining() != pixelCount * 3) {
-            throw IllegalStateException("Unexpected model output length: ${values.remaining()}")
-        }
-
-        val pixels = IntArray(pixelCount)
-        for (index in 0 until pixelCount) {
-            val red = (values.get(index).coerceIn(0f, 1f) * 255f).toInt()
-            val green = (values.get(pixelCount + index).coerceIn(0f, 1f) * 255f).toInt()
-            val blue = (values.get(pixelCount * 2 + index).coerceIn(0f, 1f) * 255f).toInt()
-            pixels[index] = (0xff shl 24) or (red shl 16) or (green shl 8) or blue
-        }
-
-        return Bitmap.createBitmap(
-            pixels,
-            expectedWidth,
-            expectedHeight,
-            Bitmap.Config.ARGB_8888
+        return RestoredImage(
+            bitmap = Bitmap.createBitmap(
+                inference.pixels,
+                model.inputSize,
+                model.inputSize,
+                Bitmap.Config.ARGB_8888
+            ),
+            inferenceDurationMs = inference.durationMs
         )
+    }
+
+    suspend fun reset() = withContext(dispatcher) {
+        previousOutput = null
+    }
+
+    private fun bitmapToNormalizedRgb(bitmap: Bitmap): FloatArray {
+        val pixels = IntArray(bitmap.width * bitmap.height)
+        bitmap.getPixels(pixels, 0, bitmap.width, 0, 0, bitmap.width, bitmap.height)
+        return argbToNormalizedRgbNchw(pixels)
+    }
+
+    private fun readOutput(outputTensor: OnnxTensor): FloatArray {
+        val shape = outputTensor.info.shape
+        val expectedSize = model.inputSize.toLong()
+        if (shape.size != 4 ||
+            shape[0] != 1L ||
+            shape[1] != 3L ||
+            shape[2] != expectedSize ||
+            shape[3] != expectedSize
+        ) {
+            throw IllegalStateException(
+                "DeepMosaics 輸出必須是 [1, 3, ${model.inputSize}, ${model.inputSize}]，" +
+                    "目前為 ${shape.contentToString()}"
+            )
+        }
+
+        val expectedValues = model.inputSize * model.inputSize * 3
+        val buffer = outputTensor.floatBuffer
+        if (buffer.remaining() != expectedValues) {
+            throw IllegalStateException("DeepMosaics 輸出長度不符")
+        }
+        return FloatArray(expectedValues).also { values ->
+            buffer.get(values)
+            if (values.any { !it.isFinite() }) {
+                throw IllegalStateException("DeepMosaics 輸出包含無效數值")
+            }
+            for (index in values.indices) {
+                values[index] = values[index].coerceIn(-1f, 1f)
+            }
+        }
+    }
+
+    private fun validateTensorContract(currentSession: OrtSession) {
+        if (currentSession.inputInfo.size != 2 || currentSession.outputInfo.size != 1) {
+            throw IllegalStateException("DeepMosaics 必須有兩個輸入與一個輸出")
+        }
+        currentSession.inputInfo[model.inputTensorName].requireFloatTensor(
+            name = model.inputTensorName,
+            expectedShape = longArrayOf(
+                1,
+                3,
+                model.temporalFrameCount.toLong(),
+                model.inputSize.toLong(),
+                model.inputSize.toLong()
+            )
+        )
+        currentSession.inputInfo[model.previousInputTensorName].requireFloatTensor(
+            name = model.previousInputTensorName,
+            expectedShape = longArrayOf(
+                1,
+                3,
+                model.inputSize.toLong(),
+                model.inputSize.toLong()
+            )
+        )
+        val outputInfo = currentSession.outputInfo[model.outputTensorName]
+            ?.info as? TensorInfo
+            ?: throw IllegalStateException("DeepMosaics 輸出 '${model.outputTensorName}' 不存在")
+        if (outputInfo.type != OnnxJavaType.FLOAT) {
+            throw IllegalStateException("DeepMosaics 輸出必須使用 float32")
+        }
+        val outputShape = outputInfo.shape
+        if (outputShape.size != 4 ||
+            (outputShape[0] > 0L && outputShape[0] != 1L) ||
+            outputShape[1] != 3L ||
+            (outputShape[2] > 0L && outputShape[2] != model.inputSize.toLong()) ||
+            (outputShape[3] > 0L && outputShape[3] != model.inputSize.toLong())
+        ) {
+            throw IllegalStateException(
+                "DeepMosaics 輸出必須是 [1, 3, ${model.inputSize}, ${model.inputSize}]"
+            )
+        }
+    }
+
+    private fun NodeInfo?.requireFloatTensor(
+        name: String,
+        expectedShape: LongArray
+    ) {
+        val tensorInfo = this?.info as? TensorInfo
+            ?: throw IllegalStateException("DeepMosaics 輸入 '$name' 不存在")
+        if (tensorInfo.type != OnnxJavaType.FLOAT) {
+            throw IllegalStateException("DeepMosaics 輸入 '$name' 必須使用 float32")
+        }
+        if (!tensorInfo.shape.contentEquals(expectedShape)) {
+            throw IllegalStateException(
+                "DeepMosaics 輸入 '$name' 必須是 ${expectedShape.contentToString()}"
+            )
+        }
     }
 
     override fun close() {
         if (!isClosed.compareAndSet(false, true)) return
-
         executor.execute {
             try {
+                previousOutput = null
                 session?.close()
             } finally {
                 session = null
+                releaseSessionPermit()
                 dispatcher.close()
             }
         }
+    }
+
+    private fun releaseSessionPermit() {
+        if (sessionPermitHeld) {
+            sessionPermitHeld = false
+            SessionPermit.release()
+        }
+    }
+
+    private data class DeepMosaicsInference(
+        val pixels: IntArray,
+        val durationMs: Long
+    )
+
+    companion object {
+        private val SessionPermit = Semaphore(1, true)
     }
 }

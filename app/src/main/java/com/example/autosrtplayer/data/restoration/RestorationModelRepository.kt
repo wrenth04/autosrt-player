@@ -41,6 +41,7 @@ class RestorationModelRepository(
         if (!modelDirectory.exists() && !modelDirectory.mkdirs()) {
             Log.e(Tag, "Could not create model directory: ${modelDirectory.absolutePath}")
         }
+        File(modelDirectory, LegacyRealEsrganFileName).delete()
     }
 
     fun getModel(modelId: String): RestorationModel? {
@@ -116,6 +117,9 @@ class RestorationModelRepository(
                     call.execute().use { response ->
                         if (!response.isSuccessful) {
                             throw IOException("HTTP ${response.code}")
+                        }
+                        if (!response.request.url.isHttps) {
+                            throw IOException("Model download redirected to a non-HTTPS URL")
                         }
                         val body = response.body ?: throw IOException("Empty model response")
                         val contentLength = body.contentLength()
@@ -271,5 +275,7 @@ class RestorationModelRepository(
     companion object {
         private const val Tag = "RestorationModelRepo"
         private const val DefaultBufferSize = 64 * 1024
+        private const val LegacyRealEsrganFileName =
+            "realesr-general-x4v3-onnx_x4v3-opset17.onnx"
     }
 }

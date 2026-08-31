@@ -56,6 +56,7 @@ import androidx.core.view.WindowInsetsControllerCompat
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.lifecycle.viewmodel.compose.viewModel
 import androidx.media3.common.util.UnstableApi
+import com.example.autosrtplayer.data.restoration.MosaicDetectorModelSpec
 import com.example.autosrtplayer.data.restoration.MosaicDetectorModelStatus
 import com.example.autosrtplayer.data.restoration.RestorationModelStatus
 
@@ -240,14 +241,14 @@ fun PlayerScreen(
                     onBack = viewModel::closeSettings,
                     onStartupDestinationChange = viewModel::setStartupDestination,
                     onMosaicRestorationEnabledChange = viewModel::setMosaicRestorationEnabled,
+                    onMosaicRestorationPausedOnlyChange =
+                        viewModel::setMosaicRestorationPausedOnly,
                     onMosaicRestorationStrengthChange = viewModel::setMosaicRestorationStrengthTransient,
                     onMosaicRestorationStrengthChangeFinished =
                         viewModel::persistMosaicRestorationStrength,
                     onEditMosaicRegion = viewModel::startMosaicRegionEditing,
                     onDownloadRestorationModel = viewModel::downloadRestorationModel,
                     onDeleteRestorationModel = viewModel::deleteRestorationModel,
-                    onMosaicDetectorUrlChange = viewModel::onMosaicDetectorUrlChange,
-                    onMosaicDetectorSha256Change = viewModel::onMosaicDetectorSha256Change,
                     onMosaicAutoDetectionEnabledChange = viewModel::setMosaicAutoDetectionEnabled,
                     onMosaicDetectorThresholdChange =
                         viewModel::setMosaicDetectorThresholdTransient,
@@ -359,13 +360,12 @@ private fun PlayerOptionsScreen(
     onBack: () -> Unit,
     onStartupDestinationChange: (StartupDestination) -> Unit,
     onMosaicRestorationEnabledChange: (Boolean) -> Unit,
+    onMosaicRestorationPausedOnlyChange: (Boolean) -> Unit,
     onMosaicRestorationStrengthChange: (Float) -> Unit,
     onMosaicRestorationStrengthChangeFinished: () -> Unit,
     onEditMosaicRegion: () -> Unit,
     onDownloadRestorationModel: () -> Unit,
     onDeleteRestorationModel: () -> Unit,
-    onMosaicDetectorUrlChange: (String) -> Unit,
-    onMosaicDetectorSha256Change: (String) -> Unit,
     onMosaicAutoDetectionEnabledChange: (Boolean) -> Unit,
     onMosaicDetectorThresholdChange: (Float) -> Unit,
     onMosaicDetectorThresholdChangeFinished: () -> Unit,
@@ -490,13 +490,12 @@ private fun PlayerOptionsScreen(
         MosaicRestorationSettingsCard(
             uiState = uiState,
             onEnabledChange = onMosaicRestorationEnabledChange,
+            onPausedOnlyChange = onMosaicRestorationPausedOnlyChange,
             onStrengthChange = onMosaicRestorationStrengthChange,
             onStrengthChangeFinished = onMosaicRestorationStrengthChangeFinished,
             onEditRegion = onEditMosaicRegion,
             onDownloadModel = onDownloadRestorationModel,
             onDeleteModel = onDeleteRestorationModel,
-            onDetectorUrlChange = onMosaicDetectorUrlChange,
-            onDetectorSha256Change = onMosaicDetectorSha256Change,
             onAutoDetectionEnabledChange = onMosaicAutoDetectionEnabledChange,
             onDetectorThresholdChange = onMosaicDetectorThresholdChange,
             onDetectorThresholdChangeFinished = onMosaicDetectorThresholdChangeFinished,
@@ -1111,13 +1110,12 @@ private fun PlayerOptionsScreen(
 private fun MosaicRestorationSettingsCard(
     uiState: PlayerUiState,
     onEnabledChange: (Boolean) -> Unit,
+    onPausedOnlyChange: (Boolean) -> Unit,
     onStrengthChange: (Float) -> Unit,
     onStrengthChangeFinished: () -> Unit,
     onEditRegion: () -> Unit,
     onDownloadModel: () -> Unit,
     onDeleteModel: () -> Unit,
-    onDetectorUrlChange: (String) -> Unit,
-    onDetectorSha256Change: (String) -> Unit,
     onAutoDetectionEnabledChange: (Boolean) -> Unit,
     onDetectorThresholdChange: (Float) -> Unit,
     onDetectorThresholdChangeFinished: () -> Unit,
@@ -1145,9 +1143,12 @@ private fun MosaicRestorationSettingsCard(
                 verticalAlignment = Alignment.CenterVertically
             ) {
                 Column(modifier = Modifier.weight(1f)) {
-                    Text("AI 局部修復預覽", style = MaterialTheme.typography.titleMedium)
                     Text(
-                        "弱化框內的方塊感；AI 只會推測細節，無法找回原始像素。",
+                        "DeepMosaics 專用去馬賽克",
+                        style = MaterialTheme.typography.titleMedium
+                    )
+                    Text(
+                        "使用 5 張時序影格推測框內內容；無法找回被刪除的真實像素。",
                         style = MaterialTheme.typography.bodySmall,
                         color = MaterialTheme.colorScheme.onSurfaceVariant
                     )
@@ -1168,6 +1169,25 @@ private fun MosaicRestorationSettingsCard(
                 )
             }
 
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.SpaceBetween,
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                Column(modifier = Modifier.weight(1f)) {
+                    Text("只在影片暫停時處理")
+                    Text(
+                        "建議開啟；播放時不消耗模型運算，暫停後處理目前畫面一次。",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                    )
+                }
+                Switch(
+                    checked = uiState.mosaicRestorationConfig.processOnlyWhenPaused,
+                    onCheckedChange = onPausedOnlyChange
+                )
+            }
+
             if (model == null) {
                 Text(
                     "找不到相容的 AI 修復模型設定。",
@@ -1180,6 +1200,12 @@ private fun MosaicRestorationSettingsCard(
                         " 授權：${model.license}",
                     style = MaterialTheme.typography.bodySmall,
                     color = MaterialTheme.colorScheme.onSurfaceVariant
+                )
+                Text(
+                    "模型約需 0.8–1 GB 執行記憶體，手機單次處理可能需要數秒；" +
+                        "建議使用 6 GB RAM 以上裝置並開啟「只在影片暫停時處理」。",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.error
                 )
 
                 when (status) {
@@ -1196,7 +1222,7 @@ private fun MosaicRestorationSettingsCard(
                             onClick = onDownloadModel,
                             modifier = Modifier.fillMaxWidth()
                         ) {
-                            Text("下載並驗證模型")
+                            Text("下載 DeepMosaics 去馬賽克模型")
                         }
                     }
 
@@ -1218,7 +1244,7 @@ private fun MosaicRestorationSettingsCard(
                             verticalAlignment = Alignment.CenterVertically
                         ) {
                             Text(
-                                "模型已下載並通過 SHA-256 驗證",
+                                "DeepMosaics 模型已下載並通過 SHA-256 驗證",
                                 style = MaterialTheme.typography.bodySmall
                             )
                             TextButton(onClick = onDeleteModel) {
@@ -1258,7 +1284,7 @@ private fun MosaicRestorationSettingsCard(
             }
 
             if (isDownloaded) {
-                Text("預覽混合強度 ${(uiState.mosaicRestorationConfig.strength * 100).toInt()}%")
+                Text("修復混合強度 ${(uiState.mosaicRestorationConfig.strength * 100).toInt()}%")
                 Slider(
                     value = uiState.mosaicRestorationConfig.strength,
                     onValueChange = onStrengthChange,
@@ -1276,7 +1302,7 @@ private fun MosaicRestorationSettingsCard(
                     verticalAlignment = Alignment.CenterVertically
                 ) {
                     Column(modifier = Modifier.weight(1f)) {
-                        Text("AI 自動偵測（實驗）")
+                        Text("DeepMosaics 自動定位（實驗）")
                         Text(
                             "使用另外下載的專用 ONNX 模型，自動尋找並追蹤最大馬賽克區域。",
                             style = MaterialTheme.typography.bodySmall,
@@ -1292,30 +1318,23 @@ private fun MosaicRestorationSettingsCard(
                     )
                 }
 
-                OutlinedTextField(
-                    value = uiState.mosaicAutoDetectionConfig.modelUrl,
-                    onValueChange = onDetectorUrlChange,
-                    modifier = Modifier.fillMaxWidth(),
-                    label = { Text("專用偵測 ONNX 的 HTTPS 網址") },
-                    placeholder = { Text("https://example.com/detector.onnx") },
-                    enabled = detectorStatus !is MosaicDetectorModelStatus.Downloading,
-                    singleLine = true
-                )
-                OutlinedTextField(
-                    value = uiState.mosaicAutoDetectionConfig.modelSha256,
-                    onValueChange = onDetectorSha256Change,
-                    modifier = Modifier.fillMaxWidth(),
-                    label = { Text("模型 SHA-256") },
-                    placeholder = { Text("64 個十六進位字元") },
-                    enabled = detectorStatus !is MosaicDetectorModelStatus.Downloading,
-                    singleLine = true
-                )
                 Text(
-                    "模型不會包進 APK。相容介面：BGR 0–1 [1,3,H,W] 輸入，" +
-                        "[1,1,H,W] 的 0–1 機率遮罩輸出；檔案上限 256 MB。",
+                    "DeepMosaics MosaicPosition，約 " +
+                        String.format(
+                            "%.1f",
+                            MosaicDetectorModelSpec.DeepMosaicsFileSizeBytes / 1024f / 1024f
+                        ) +
+                        " MiB；模型不會包進 APK，由 App 下載固定版本並驗證 SHA-256。",
                     style = MaterialTheme.typography.bodySmall,
                     color = MaterialTheme.colorScheme.onSurfaceVariant
                 )
+                TextButton(
+                    onClick = {
+                        uriHandler.openUri(MosaicDetectorModelSpec.DeepMosaicsModelCardUrl)
+                    }
+                ) {
+                    Text("查看 DeepMosaics 模型來源")
+                }
 
                 when (detectorStatus) {
                     MosaicDetectorModelStatus.NotConfigured -> {
@@ -1324,7 +1343,7 @@ private fun MosaicRestorationSettingsCard(
                                 onClick = onDownloadDetectorModel,
                                 modifier = Modifier.weight(1f)
                             ) {
-                                Text("輸入資料後下載")
+                                Text("重新載入內建設定")
                             }
                             TextButton(
                                 onClick = onDeleteDetectorModel,

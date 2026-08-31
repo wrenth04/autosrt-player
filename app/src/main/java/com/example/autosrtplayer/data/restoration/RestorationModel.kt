@@ -9,9 +9,10 @@ data class RestorationModel(
     val sha256: String,
     val version: String,
     val inputTensorName: String,
+    val previousInputTensorName: String,
     val outputTensorName: String,
-    val outputScale: Int,
-    val maxInputEdge: Int,
+    val inputSize: Int,
+    val temporalFrameCount: Int,
     val license: String,
     val modelCardUrl: String,
     val sourceUrl: String
@@ -20,24 +21,25 @@ data class RestorationModel(
         get() = fileSizeBytes / (1024f * 1024f)
 
     companion object {
-        const val DefaultModelId = "realesr-general-x4v3-onnx"
+        const val DefaultModelId = "deepmosaics-bvdnet-video-onnx"
 
         fun availableModels(): List<RestorationModel> = listOf(
             RestorationModel(
                 id = DefaultModelId,
-                name = "Real-ESRGAN General x4v3",
-                description = "局部超解析與去方塊預覽，適合一般實拍影片。",
-                downloadUrl = "https://huggingface.co/CoderViking/realesr-general-x4v3-onnx/resolve/c6a971706797c7502945a2b4c4274fce4900d4ab/realesr-general-x4v3.onnx",
-                fileSizeBytes = 4_866_417L,
-                sha256 = "1940a93ee08283a0a7286183186357b1688fe9fa8ede74604b424586aaddf112",
-                version = "x4v3-opset17",
+                name = "DeepMosaics BVDNet Video",
+                description = "使用 5 影格時序資訊與上一張輸出，專門推測馬賽克區域。",
+                downloadUrl = "https://huggingface.co/LIGA1998/DeepMosaics-ONNX/resolve/cead5e065f22d817078a451350975f80e9a93f7d/DeepMosaics.onnx",
+                fileSizeBytes = 213_449_721L,
+                sha256 = "a30cd9bd518afc7169edf09aa64824ea61d9a24aa641433c7db5cc298585d45b",
+                version = "opset18-cead5e0",
                 inputTensorName = "input",
+                previousInputTensorName = "input.17",
                 outputTensorName = "output",
-                outputScale = 4,
-                maxInputEdge = 96,
-                license = "BSD-3-Clause",
-                modelCardUrl = "https://huggingface.co/CoderViking/realesr-general-x4v3-onnx",
-                sourceUrl = "https://github.com/xinntao/Real-ESRGAN"
+                inputSize = 256,
+                temporalFrameCount = 5,
+                license = "GPL-3.0；含 pix2pixHD 研究／非商用元件",
+                modelCardUrl = "https://huggingface.co/LIGA1998/DeepMosaics-ONNX",
+                sourceUrl = "https://github.com/HypoX64/DeepMosaics"
             )
         )
 
@@ -52,10 +54,13 @@ data class RestorationModel(
             if (model.sha256.length != 64 || model.sha256.any { it !in "0123456789abcdef" }) {
                 return "Model SHA-256 must be lowercase hexadecimal"
             }
-            if (model.inputTensorName.isBlank() || model.outputTensorName.isBlank()) {
+            if (model.inputTensorName.isBlank() ||
+                model.previousInputTensorName.isBlank() ||
+                model.outputTensorName.isBlank()
+            ) {
                 return "Tensor names cannot be blank"
             }
-            if (model.outputScale <= 0 || model.maxInputEdge <= 0) {
+            if (model.inputSize <= 0 || model.temporalFrameCount <= 0) {
                 return "Model dimensions must be positive"
             }
             return null

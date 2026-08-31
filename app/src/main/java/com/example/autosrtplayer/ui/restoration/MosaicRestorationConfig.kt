@@ -1,5 +1,6 @@
 package com.example.autosrtplayer.ui.restoration
 
+import kotlin.math.ceil
 import kotlin.math.max
 import kotlin.math.min
 import kotlin.math.roundToInt
@@ -59,6 +60,7 @@ data class NormalizedRegion(
 
 data class MosaicRestorationConfig(
     val enabled: Boolean = false,
+    val processOnlyWhenPaused: Boolean = true,
     val strength: Float = DefaultStrength,
     val region: NormalizedRegion = NormalizedRegion()
 ) {
@@ -78,14 +80,10 @@ data class MosaicRestorationConfig(
 
 data class MosaicAutoDetectionConfig(
     val enabled: Boolean = false,
-    val modelUrl: String = "",
-    val modelSha256: String = "",
     val threshold: Float = DefaultThreshold
 ) {
     fun sanitized(): MosaicAutoDetectionConfig {
         return copy(
-            modelUrl = modelUrl.trim(),
-            modelSha256 = modelSha256.trim().lowercase(),
             threshold = threshold.finiteOr(DefaultThreshold).coerceIn(
                 MinThreshold,
                 MaxThreshold
@@ -149,6 +147,48 @@ fun calculateRestorationSourceRegion(
     val right = (safe.right * videoWidth).roundToInt().coerceIn(left + 1, videoWidth)
     val bottom = (safe.bottom * videoHeight).roundToInt().coerceIn(top + 1, videoHeight)
     return PixelRegion(left, top, right, bottom)
+}
+
+fun calculateSquareRestorationRegion(
+    region: NormalizedRegion,
+    videoWidth: Int,
+    videoHeight: Int
+): NormalizedRegion {
+    require(videoWidth > 0 && videoHeight > 0) { "Video dimensions must be positive" }
+    val source = calculateRestorationSourceRegion(region, videoWidth, videoHeight)
+    val minimumSide = ceil(
+        max(videoWidth, videoHeight) * NormalizedRegion.MinimumRegionSize
+    ).toInt()
+    val side = max(max(source.width, source.height), minimumSide)
+        .coerceAtMost(min(videoWidth, videoHeight))
+    val centerX = (source.left + source.right) / 2f
+    val centerY = (source.top + source.bottom) / 2f
+    val left = (centerX - side / 2f)
+        .roundToInt()
+        .coerceIn(0, videoWidth - side)
+    val top = (centerY - side / 2f)
+        .roundToInt()
+        .coerceIn(0, videoHeight - side)
+
+    return NormalizedRegion(
+        left = left.toFloat() / videoWidth,
+        top = top.toFloat() / videoHeight,
+        right = (left + side).toFloat() / videoWidth,
+        bottom = (top + side).toFloat() / videoHeight
+    )
+}
+
+internal fun regionIntersectionOverUnion(
+    first: NormalizedRegion,
+    second: NormalizedRegion
+): Float {
+    val a = first.sanitized()
+    val b = second.sanitized()
+    val intersectionWidth = (min(a.right, b.right) - max(a.left, b.left)).coerceAtLeast(0f)
+    val intersectionHeight = (min(a.bottom, b.bottom) - max(a.top, b.top)).coerceAtLeast(0f)
+    val intersection = intersectionWidth * intersectionHeight
+    val union = a.width * a.height + b.width * b.height - intersection
+    return if (union > 0f) intersection / union else 0f
 }
 
 fun calculateRestorationInferenceSize(

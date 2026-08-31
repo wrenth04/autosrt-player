@@ -33,8 +33,6 @@ import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.update
-import kotlinx.coroutines.Job
-import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 import okhttp3.OkHttpClient
 import java.util.Locale
@@ -85,16 +83,14 @@ class PlayerViewModel(
         private const val KeyVrSubtitleStereoDepthPercent = "vr_subtitle_stereo_depth_percent"
         private const val KeySelectedDepthModel = "selected_depth_model"
         private const val KeyMosaicRestorationEnabled = "mosaic_restoration_enabled"
+        private const val KeyMosaicRestorationPausedOnly = "mosaic_restoration_paused_only"
         private const val KeyMosaicRestorationStrength = "mosaic_restoration_strength"
         private const val KeyMosaicRegionLeft = "mosaic_region_left"
         private const val KeyMosaicRegionTop = "mosaic_region_top"
         private const val KeyMosaicRegionRight = "mosaic_region_right"
         private const val KeyMosaicRegionBottom = "mosaic_region_bottom"
         private const val KeyMosaicAutoDetectionEnabled = "mosaic_auto_detection_enabled"
-        private const val KeyMosaicDetectorModelUrl = "mosaic_detector_model_url"
-        private const val KeyMosaicDetectorModelSha256 = "mosaic_detector_model_sha256"
         private const val KeyMosaicDetectorThreshold = "mosaic_detector_threshold"
-        private const val MosaicDetectorConfigurationDebounceMs = 350L
         private const val KeyPatToken = "pat_token"
         private const val KeyPatTokenEnabled = "pat_token_enabled"
     }
@@ -112,7 +108,6 @@ class PlayerViewModel(
     private var depthModelRepository: DepthModelRepository? = null
     private var restorationModelRepository: RestorationModelRepository? = null
     private var mosaicDetectorModelRepository: MosaicDetectorModelRepository? = null
-    private var mosaicDetectorRefreshJob: Job? = null
 
     fun initialize(context: Context) {
         appContext = context.applicationContext
@@ -143,7 +138,7 @@ class PlayerViewModel(
                 httpClient = sharedHttpClient
             )
             mosaicDetectorModelRepository = detectorRepository
-            val detectorSpec = mosaicAutoDetectionConfig.toModelSpec()
+            val detectorSpec = MosaicDetectorModelSpec.deepMosaics()
             detectorRepository.updateConfiguration(detectorSpec)
             val patToken = settingsPrefs?.getString(KeyPatToken, "").orEmpty()
             val isPatTokenEnabled = settingsPrefs?.getBoolean(KeyPatTokenEnabled, false) ?: false
@@ -216,7 +211,7 @@ class PlayerViewModel(
             }
             viewModelScope.launch {
                 detectorRepository.status.collect { status ->
-                    val currentSpec = _uiState.value.mosaicAutoDetectionConfig.toModelSpec()
+                    val currentSpec = MosaicDetectorModelSpec.deepMosaics()
                     val configurationError = currentSpec.validationError()
                     val modelFile = if (
                         configurationError == null &&
@@ -643,22 +638,17 @@ class PlayerViewModel(
         persistMosaicRestorationConfig(_uiState.value.mosaicRestorationConfig)
     }
 
-    fun onMosaicDetectorUrlChange(value: String) {
-        updateMosaicDetectorConfiguration(
-            _uiState.value.mosaicAutoDetectionConfig.copy(
-                enabled = false,
-                modelUrl = value
+    fun setMosaicRestorationPausedOnly(enabled: Boolean) {
+        val config = _uiState.value.mosaicRestorationConfig
+            .copy(processOnlyWhenPaused = enabled)
+            .sanitized()
+        persistMosaicRestorationConfig(config)
+        _uiState.update {
+            it.copy(
+                mosaicRestorationConfig = config,
+                mosaicRestorationErrorMessage = null
             )
-        )
-    }
-
-    fun onMosaicDetectorSha256Change(value: String) {
-        updateMosaicDetectorConfiguration(
-            _uiState.value.mosaicAutoDetectionConfig.copy(
-                enabled = false,
-                modelSha256 = value
-            )
-        )
+        }
     }
 
     fun setMosaicAutoDetectionEnabled(enabled: Boolean) {
@@ -697,7 +687,7 @@ class PlayerViewModel(
 
     fun downloadMosaicDetectorModel() {
         val repository = mosaicDetectorModelRepository
-        val spec = _uiState.value.mosaicAutoDetectionConfig.toModelSpec()
+        val spec = MosaicDetectorModelSpec.deepMosaics()
         if (repository == null) {
             _uiState.update {
                 it.copy(mosaicRestorationErrorMessage = "馬賽克偵測模型目錄尚未初始化")
@@ -709,7 +699,6 @@ class PlayerViewModel(
             return
         }
 
-        mosaicDetectorRefreshJob?.cancel()
         _uiState.update { it.copy(mosaicRestorationErrorMessage = null) }
         viewModelScope.launch {
             repository.download(spec)
@@ -738,7 +727,6 @@ class PlayerViewModel(
             return
         }
 
-        mosaicDetectorRefreshJob?.cancel()
         val disabledConfig = _uiState.value.mosaicAutoDetectionConfig.copy(enabled = false)
         persistMosaicAutoDetectionConfig(disabledConfig)
         _uiState.update {
@@ -893,6 +881,8 @@ class PlayerViewModel(
 
         return MosaicRestorationConfig(
             enabled = prefs?.getBoolean(KeyMosaicRestorationEnabled, false) ?: false,
+            processOnlyWhenPaused =
+                prefs?.getBoolean(KeyMosaicRestorationPausedOnly, true) ?: true,
             strength = floatPreference(
                 KeyMosaicRestorationStrength,
                 MosaicRestorationConfig.DefaultStrength
@@ -910,6 +900,7 @@ class PlayerViewModel(
         val safeConfig = config.sanitized()
         settingsPrefs?.edit()?.apply {
             putBoolean(KeyMosaicRestorationEnabled, safeConfig.enabled)
+            putBoolean(KeyMosaicRestorationPausedOnly, safeConfig.processOnlyWhenPaused)
             putFloat(KeyMosaicRestorationStrength, safeConfig.strength)
             putFloat(KeyMosaicRegionLeft, safeConfig.region.left)
             putFloat(KeyMosaicRegionTop, safeConfig.region.top)
@@ -930,8 +921,6 @@ class PlayerViewModel(
 
         return MosaicAutoDetectionConfig(
             enabled = prefs?.getBoolean(KeyMosaicAutoDetectionEnabled, false) ?: false,
-            modelUrl = prefs?.getString(KeyMosaicDetectorModelUrl, "").orEmpty(),
-            modelSha256 = prefs?.getString(KeyMosaicDetectorModelSha256, "").orEmpty(),
             threshold = threshold
         ).sanitized()
     }
@@ -940,46 +929,8 @@ class PlayerViewModel(
         val safeConfig = config.sanitized()
         settingsPrefs?.edit()?.apply {
             putBoolean(KeyMosaicAutoDetectionEnabled, safeConfig.enabled)
-            putString(KeyMosaicDetectorModelUrl, safeConfig.modelUrl)
-            putString(KeyMosaicDetectorModelSha256, safeConfig.modelSha256)
             putFloat(KeyMosaicDetectorThreshold, safeConfig.threshold)
         }?.apply()
-    }
-
-    private fun updateMosaicDetectorConfiguration(config: MosaicAutoDetectionConfig) {
-        mosaicDetectorRefreshJob?.cancel()
-        val safeConfig = config.sanitized()
-        persistMosaicAutoDetectionConfig(safeConfig)
-        val spec = safeConfig.toModelSpec()
-        val detectorRepository = mosaicDetectorModelRepository
-        detectorRepository?.updateConfiguration(spec)
-        val repositoryStatus = detectorRepository?.status?.value
-            ?: MosaicDetectorModelStatus.NotConfigured
-        val validatedModelFile = if (
-            detectorRepository != null &&
-            spec.validationError() == null &&
-            repositoryStatus is MosaicDetectorModelStatus.Ready
-        ) {
-            detectorRepository.getModelFile(spec)
-        } else {
-            null
-        }
-        _uiState.update {
-            it.copy(
-                mosaicAutoDetectionConfig = safeConfig,
-                mosaicDetectorModelStatus = repositoryStatus,
-                mosaicDetectorModelFile = validatedModelFile,
-                mosaicRestorationErrorMessage = null
-            )
-        }
-        if (spec.validationError() == null &&
-            detectorRepository?.status?.value is MosaicDetectorModelStatus.Verifying
-        ) {
-            mosaicDetectorRefreshJob = viewModelScope.launch {
-                delay(MosaicDetectorConfigurationDebounceMs)
-                detectorRepository.refresh(spec)
-            }
-        }
     }
 
     private fun loadVrConfig(prefs: SharedPreferences?): VrPlaybackConfig {
@@ -1658,13 +1609,6 @@ private fun String?.toStartupDestination(): StartupDestination {
     return runCatching {
         StartupDestination.valueOf(this.orEmpty())
     }.getOrDefault(StartupDestination.Player)
-}
-
-private fun MosaicAutoDetectionConfig.toModelSpec(): MosaicDetectorModelSpec {
-    return MosaicDetectorModelSpec(
-        downloadUrl = modelUrl,
-        sha256 = modelSha256
-    ).normalized()
 }
 
 private fun String?.toScreenOrientationMode(): ScreenOrientationMode {

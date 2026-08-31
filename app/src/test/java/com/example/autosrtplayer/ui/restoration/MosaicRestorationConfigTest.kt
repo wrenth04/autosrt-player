@@ -17,9 +17,18 @@ class MosaicRestorationConfigTest {
         val model = RestorationModel.availableModels().single()
 
         assertEquals(RestorationModel.DefaultModelId, model.id)
-        assertTrue(model.downloadUrl.contains("/resolve/c6a971706797c7502945a2b4c4274fce4900d4ab/"))
+        assertTrue(model.downloadUrl.contains("/resolve/cead5e065f22d817078a451350975f80e9a93f7d/"))
         assertEquals(64, model.sha256.length)
-        assertEquals(4_866_417L, model.fileSizeBytes)
+        assertEquals(
+            "a30cd9bd518afc7169edf09aa64824ea61d9a24aa641433c7db5cc298585d45b",
+            model.sha256
+        )
+        assertEquals(213_449_721L, model.fileSizeBytes)
+        assertEquals("input", model.inputTensorName)
+        assertEquals("input.17", model.previousInputTensorName)
+        assertEquals("output", model.outputTensorName)
+        assertEquals(256, model.inputSize)
+        assertEquals(5, model.temporalFrameCount)
     }
 
     @Test
@@ -126,14 +135,61 @@ class MosaicRestorationConfigTest {
     @Test
     fun `auto detection config normalizes model fields and threshold`() {
         val config = MosaicAutoDetectionConfig(
-            modelUrl = "  https://example.com/detector.onnx  ",
-            modelSha256 = "  ${"AB".repeat(32)}  ",
             threshold = Float.NaN
         ).sanitized()
 
-        assertEquals("https://example.com/detector.onnx", config.modelUrl)
-        assertEquals("ab".repeat(32), config.modelSha256)
         assertEquals(MosaicAutoDetectionConfig.DefaultThreshold, config.threshold, 0.001f)
+    }
+
+    @Test
+    fun `restoration defaults to paused processing`() {
+        assertTrue(MosaicRestorationConfig().processOnlyWhenPaused)
+    }
+
+    @Test
+    fun `square restoration region remains square in video pixels`() {
+        val region = calculateSquareRestorationRegion(
+            region = NormalizedRegion(0.4f, 0.4f, 0.6f, 0.6f),
+            videoWidth = 1920,
+            videoHeight = 1080
+        )
+        val pixels = calculateRestorationSourceRegion(region, 1920, 1080)
+
+        assertEquals(pixels.width, pixels.height)
+        assertTrue(pixels.left >= 0 && pixels.right <= 1920)
+        assertTrue(pixels.top >= 0 && pixels.bottom <= 1080)
+    }
+
+    @Test
+    fun `square restoration region clamps at video edge`() {
+        val region = calculateSquareRestorationRegion(
+            region = NormalizedRegion(0.92f, 0.86f, 1f, 1f),
+            videoWidth = 1920,
+            videoHeight = 1080
+        )
+        val pixels = calculateRestorationSourceRegion(region, 1920, 1080)
+
+        assertEquals(pixels.width, pixels.height)
+        assertEquals(1920, pixels.right)
+        assertEquals(1080, pixels.bottom)
+    }
+
+    @Test
+    fun `region overlap reports intersection over union`() {
+        val overlap = regionIntersectionOverUnion(
+            first = NormalizedRegion(0.1f, 0.1f, 0.5f, 0.5f),
+            second = NormalizedRegion(0.3f, 0.3f, 0.7f, 0.7f)
+        )
+
+        assertEquals(0.04f / 0.28f, overlap, 0.001f)
+        assertEquals(
+            0f,
+            regionIntersectionOverUnion(
+                NormalizedRegion(0f, 0f, 0.2f, 0.2f),
+                NormalizedRegion(0.8f, 0.8f, 1f, 1f)
+            ),
+            0.001f
+        )
     }
 
     @Test

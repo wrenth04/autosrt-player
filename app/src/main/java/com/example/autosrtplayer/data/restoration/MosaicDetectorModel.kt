@@ -26,6 +26,24 @@ data class MosaicDetectorModelSpec(
         }
         return null
     }
+
+    companion object {
+        const val DeepMosaicsFileSizeBytes = 47_540_486L
+        const val DeepMosaicsModelCardUrl =
+            "https://huggingface.co/LIGA1998/DeepMosaics-ONNX"
+        private const val DeepMosaicsDownloadUrl =
+            "https://huggingface.co/LIGA1998/DeepMosaics-ONNX/resolve/" +
+                "cead5e065f22d817078a451350975f80e9a93f7d/MosaicPosition.onnx"
+        private const val DeepMosaicsSha256 =
+            "fa16f91573aa09973cf3dc91e2fc1113f55fde1adb46d65548946cf5c88b4cbe"
+
+        fun deepMosaics(): MosaicDetectorModelSpec {
+            return MosaicDetectorModelSpec(
+                downloadUrl = DeepMosaicsDownloadUrl,
+                sha256 = DeepMosaicsSha256
+            )
+        }
+    }
 }
 
 data class MosaicDetectorModelInfo(
