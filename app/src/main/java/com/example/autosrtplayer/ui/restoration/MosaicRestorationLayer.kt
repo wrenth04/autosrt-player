@@ -123,10 +123,13 @@ internal fun MosaicRestorationLayer(
         mutableStateOf<MosaicRestorationFeedback?>(null)
     }
 
-    // In continuous playback the last restored snapshot must stay on screen until the
-    // next one finishes, so only the paused-first frame paths may clear it.
-    fun clearContinuousSnapshots() {
+    // Continuous playback keeps the last restored snapshot on screen while the next
+    // one is processed; only a "nothing to restore" state returns to the live video.
+    fun resetContinuousToLive() {
         if (!config.processOnlyWhenPaused) {
+            autoDetectionTarget = null
+            displayedSourceFrame = null
+            restoredPreview = null
             continuousPassthrough = true
             lastChangeFraction = null
             nextSnapshotEtaMs = 0L
@@ -375,10 +378,9 @@ internal fun MosaicRestorationLayer(
 
         fun useContinuousPassthrough() {
             if (!config.processOnlyWhenPaused) {
-                autoDetectionTarget = null
                 pendingFeedback = null
                 detectorError = null
-                clearContinuousSnapshots()
+                resetContinuousToLive()
             }
         }
 
@@ -637,9 +639,7 @@ internal fun MosaicRestorationLayer(
         while (isActive) {
             val currentMediaItem = player.currentMediaItem
             if (currentMediaItem !== trackedMediaItem) {
-                displayedSourceFrame = null
-                restoredPreview = null
-                clearContinuousSnapshots()
+                resetContinuousToLive()
                 pendingFeedback = null
                 clearTemporalState()
                 trackedMediaItem = currentMediaItem
@@ -669,7 +669,7 @@ internal fun MosaicRestorationLayer(
             if (currentMediaItem == null || player.playbackState == Player.STATE_IDLE) {
                 displayedSourceFrame = null
                 restoredPreview = null
-                clearContinuousSnapshots()
+                resetContinuousToLive()
                 clearTemporalState()
                 delay(PlayerNotReadyDelayMs)
                 continue
@@ -721,8 +721,7 @@ internal fun MosaicRestorationLayer(
             if (videoSurface == null) {
                 val message = "播放器沒有可擷取的影像 Surface"
                 if (!config.processOnlyWhenPaused) {
-                    Log.w(Tag, "$message；連續播放改用原始畫面")
-                    clearContinuousSnapshots()
+                    Log.w(Tag, "$message；連續播放暫停更新，保留上一張結果")
                     delay(ContinuousFailureRetryMs)
                     continue
                 }
@@ -748,7 +747,7 @@ internal fun MosaicRestorationLayer(
                 val message = "目前不支援尚未套用旋轉資訊的影片"
                 if (!config.processOnlyWhenPaused) {
                     Log.w(Tag, "$message；連續播放改用原始畫面")
-                    clearContinuousSnapshots()
+                    resetContinuousToLive()
                     return@LaunchedEffect
                 }
                 restoredPreview = null
@@ -823,9 +822,8 @@ internal fun MosaicRestorationLayer(
                     if (consecutiveCaptureFailures >= MaxTransientCaptureFailures) {
                         val message = "無法擷取 DeepMosaics 所需的時序影格"
                         if (!config.processOnlyWhenPaused) {
-                            Log.w(Tag, "$message；連續播放改用原始畫面")
+                            Log.w(Tag, "$message；連續播放暫停更新，保留上一張結果")
                             consecutiveCaptureFailures = 0
-                            clearContinuousSnapshots()
                             clearTemporalState()
                             delay(ContinuousFailureRetryMs)
                             continue
@@ -841,8 +839,7 @@ internal fun MosaicRestorationLayer(
 
                 is FrameSequenceCaptureResult.Error -> {
                     if (!config.processOnlyWhenPaused) {
-                        Log.w(Tag, "${capture.message}；連續播放改用原始畫面")
-                        clearContinuousSnapshots()
+                        Log.w(Tag, "${capture.message}；連續播放暫停更新，保留上一張結果")
                         clearTemporalState()
                         delay(ContinuousFailureRetryMs)
                         continue
@@ -858,8 +855,7 @@ internal fun MosaicRestorationLayer(
                     if (!config.processOnlyWhenPaused && nextSourceFrame == null) {
                         capture.frames.recycleAll()
                         val message = "連續 AI 播放缺少完整來源影格"
-                        Log.w(Tag, "$message；改用原始畫面")
-                        clearContinuousSnapshots()
+                        Log.w(Tag, "$message；保留上一張結果並重試")
                         clearTemporalState()
                         delay(ContinuousFailureRetryMs)
                         continue
